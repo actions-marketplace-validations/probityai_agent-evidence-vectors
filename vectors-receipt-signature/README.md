@@ -196,3 +196,56 @@ payload carries `"signature": null` and whose signature was made over the
 canonical bytes of that payload. Section 6.6 says the canonicalized object MUST
 NOT contain a signature member, null included, so that acceptance is a failure
 under a MUST.
+
+### @veritasacta/verify 0.10.21, 27 September 2026
+
+Run through `tools/veritasacta-verify.py` on Node.js 24.19.0, with the packaged
+harness at the commit that added this section. The adapter hands a member's
+chain to the package's own `--replay-chain`. The verifier answered every member
+in both passes.
+
+| member | kind | with windows | without windows | graded |
+|---|---|---|---|---|
+| `v0142580fad54af78` (genesis) | accept | valid | valid | pass |
+| `v03377fbbac6d12f8` | accept | valid | valid | pass |
+| `v0340fed8ef07e072` | reject | invalid signature_invalid | invalid signature_invalid | pass |
+| `v1adc0db0267a742b` | reject | invalid signature_invalid | invalid signature_invalid | pass |
+| `v2c8c0aabb75e8aa0` (empty-member) | reject | invalid signature_in_signing_input | invalid signature_in_signing_input | pass |
+| `v2e98d2f14251c8d6` (null-member) | reject | invalid signature_in_signing_input | invalid signature_in_signing_input | pass |
+| `v2f0a83c1364e52bc` (before-revocation) | accept | valid | valid | pass |
+| `v3bb98f09b3068de5` (string-member) | reject | invalid signature_in_signing_input | invalid signature_in_signing_input | pass |
+| `v4ec9fa36ae77ce07` | indeterminate | invalid key_outside_validity_window | valid | pass |
+| `v4f9fe96e52a39bfb` (signature-input-drift.conformant) | accept | valid | valid | pass |
+| `v5397adb77c3e6754` | reject | invalid signature_in_signing_input | invalid signature_in_signing_input | pass |
+| `v6d872b14889dc9e2` (receipt at position 2, commitment logged 2026-03-01) | gap | valid | valid | pass |
+| `v75158ebfd05a56e5` (receipt at position 2, commitment logged 2026-02-01) | accept | valid | valid | pass |
+| `v814de39bf68212fc` (receipt) | accept | valid | valid | pass |
+| `v9f2a63a5186a2fa8` (after-revocation) | gap | valid | valid | pass |
+| `vaafe541bbd74c320` | accept | valid | valid | pass |
+| `vab0c4dde2038340e` (receipt at position 2 after genesis) | accept | valid | valid | pass |
+| `vad088133176d7114` | accept | valid | valid | pass |
+| `vb19450def8dcc5cd` | accept | valid | valid | pass |
+| `vbc25ef71da0567f9` | indeterminate | invalid key_outside_validity_window | valid | pass |
+| `vc4b43c5739979581` (superseded-key.reject) | indeterminate | invalid key_outside_validity_window | valid | pass |
+| `vcc3cdb871ff27027` (no-member) | accept | valid | valid | pass |
+| `ve116653dd041dda0` (signature-input-drift.reject) | reject | invalid signature_invalid | invalid signature_invalid | pass |
+| `ve24bce7210cacee9` (receipt at position 2 after before-revocation) | reject | invalid chain_link_mismatch | invalid chain_link_mismatch | pass |
+| `vea8370fb85e1b4b1` (superseded-key.conformant) | accept | valid | valid | pass |
+
+Every member passes. The two failures of the 0.10.19 run are gone: the receipt
+path applies the key's window, so the three window members are refused with the
+windows present and accepted without them, and a signature member in the signed
+object is refused whatever its value. The chain whose previous receipt is not the
+one the link names is refused through `--replay-chain`, whose chain-break count
+applies the Section 6.7 link. Both gap members are answered with the draft's
+verdict, since the package reads neither `revoked_at` nor a commitment's time,
+and no revision asks it to.
+
+One observation outside the contract. The package's `chain explore` subcommand
+does not follow a Section 6.7 link: it indexes the receipts in its search
+directory by the base64url encoding of SHA-256(JCS(receipt)) and looks up
+`previousReceiptHash` exactly as written, `sha256:` and lowercase hex, so the
+lookup misses. Given the timeliness genesis and receipt in one directory, it
+reports `links_broken: 1` and "not found in searchDir", while `--replay-chain`
+over the same two receipts reports no chain break. That is why the adapter uses
+`--replay-chain`.
