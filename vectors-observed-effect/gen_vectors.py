@@ -1655,6 +1655,188 @@ add(
     reading=("voluntary", True, False),
 )
 
+# --- one operation across two attempts ---------------------------------------
+#
+# The case: a tool completes a write, its response is lost, and the agent
+# retries. The observed party's own trace sees two attempts and one timeout. The
+# question these members make testable is the one a trace alone cannot answer:
+# how many writes landed, and whether the timeout was a failure. Every member
+# spans both attempts in one interval, and the observer reports only what it saw
+# below the observed party. The attempt count is the observed party's report
+# alone, so its observed side is empty and the row is one-sided by construction.
+
+_RETRY_TARGET = "/srv/app/orders/ord-0017.json"
+_RETRY_GAP = "/srv/app/orders/"
+R_RETRY_ONE = root("retry-one-write")
+R_RETRY_DUP_1 = root("retry-duplicate-write-1")
+R_RETRY_DUP_2 = root("retry-duplicate-write-2")
+
+_RETRY_ATTEMPTS = dual("tool.attempts", "", "2", "one-sided")
+
+_RETRY_DOES_NOT_ASSERT = [
+    "that the observed party performed no action outside pathScope",
+    "that the authority document permits what the writes did",
+    "which of the two attempts produced a write",
+]
+
+
+def _retry_interval(after_root: str) -> dict[str, Any]:
+    return {
+        "beforeRoot": R0,
+        "afterRoot": after_root,
+        "baseResolution": "supplied",
+        "openedAt": T_OPEN,
+        "sealedAt": T_SEAL,
+    }
+
+
+def _retry_blind_observation(interval_id: str) -> dict[str, Any]:
+    """Observed from below and committed before the interval, and blind exactly
+    where the retried write would land: the witness has not arrived."""
+    return {
+        "vantage": "below-observed",
+        "origin": "first-hand",
+        "coverage": {"scopeComplete": False, "gaps": [_RETRY_GAP]},
+        "observedSigners": [OBSERVED_KEYID],
+        "priorCommitment": commitment(before_root=R0, interval_id=interval_id),
+    }
+
+
+add(
+    "retry-one-write-across-two-attempts",
+    "accept",
+    statement(
+        predicate(
+            intervalId="iv-0401",
+            interval=_retry_interval(R_RETRY_ONE),
+            writes=[write_row(_RETRY_TARGET, R0, R_RETRY_ONE)],
+            dualValues=[dual("writes.count", "1", "1", "agree"), _RETRY_ATTEMPTS],
+            doesNotAssert=_RETRY_DOES_NOT_ASSERT,
+        )
+    ),
+    ["oe-agreement", "oe-chain"],
+    "valid",
+    [],
+    "Two attempts, one timeout, one write. The observed party reports two attempts "
+    "and one completed write; the observer, below it for the whole span of both "
+    "attempts, saw exactly one write land and nothing else in scope. The record "
+    "therefore establishes the operation completed once, and a consumer that reads "
+    "the timed-out attempt as a failed operation contradicts it.",
+    reading=("authoritative", True, True),
+)
+
+add(
+    "retry-duplicated-the-write",
+    "accept",
+    statement(
+        predicate(
+            intervalId="iv-0402",
+            interval=_retry_interval(R_RETRY_DUP_2),
+            writes=[
+                write_row(_RETRY_TARGET, R0, R_RETRY_DUP_1),
+                write_row(_RETRY_TARGET, R_RETRY_DUP_1, R_RETRY_DUP_2),
+            ],
+            dualValues=[dual("writes.count", "2", "1", "disagree"), _RETRY_ATTEMPTS],
+            doesNotAssert=_RETRY_DOES_NOT_ASSERT,
+        )
+    ),
+    ["oe-agreement", "oe-chain"],
+    "valid",
+    [],
+    "The retry was not idempotent. The first attempt's write landed before its "
+    "response was lost and the second attempt wrote again, so the observer saw two "
+    "writes to the same path while the observed party, counting the timed-out "
+    "attempt as failed, reports one. The disagreement is the finding: a duplicate "
+    "effect that no trace from the observed party's side can show.",
+    reading=("authoritative", True, True),
+)
+
+add(
+    "retry-duplicate-reported-as-one",
+    "reject",
+    statement(
+        predicate(
+            intervalId="iv-0403",
+            interval=_retry_interval(R_RETRY_DUP_2),
+            writes=[
+                write_row(_RETRY_TARGET, R0, R_RETRY_DUP_1),
+                write_row(_RETRY_TARGET, R_RETRY_DUP_1, R_RETRY_DUP_2),
+            ],
+            dualValues=[dual("writes.count", "1", "1", "agree"), _RETRY_ATTEMPTS],
+            doesNotAssert=_RETRY_DOES_NOT_ASSERT,
+        )
+    ),
+    ["oe-dual-recompute"],
+    "malformed",
+    ["dual-value-not-recomputable"],
+    "The duplicate folded back into one. The record carries both writes and declares "
+    "that it observed one, so the cross-check agrees with the observed party's "
+    "count and the second effect disappears from every consumer that reads the "
+    "comparison instead of the rows. The same signed bytes refute the declared "
+    "count.",
+    parent="retry-duplicated-the-write",
+)
+
+add(
+    "retry-effect-not-yet-witnessed",
+    "accept",
+    statement(
+        predicate(
+            intervalId="iv-0404",
+            tier="voluntary",
+            mutation="none",
+            interval=_unchanged_interval(),
+            writes=[],
+            dualValues=[dual("writes.count", "0", "", "one-sided"), _RETRY_ATTEMPTS],
+            observation=_retry_blind_observation("iv-0404"),
+            doesNotAssert=_RETRY_DOES_NOT_ASSERT
+            + [
+                f"that no write occurred under {_RETRY_GAP}",
+                "that the timed-out attempt failed",
+            ],
+        )
+    ),
+    ["oe-tier-coverage"],
+    "valid",
+    [],
+    "The same two attempts before the witness arrives. The observer was blind where "
+    "the write would land and names that place, so the record grades voluntary and "
+    "establishes no absence there: whether the operation completed is unknown, and "
+    "the record says in doesNotAssert that it cannot call the timed-out attempt a "
+    "failure. The observed party has not reported a write count, which is the "
+    "honest report after a lost response.",
+    reading=("voluntary", True, False),
+)
+
+add(
+    "retry-timeout-read-as-no-write",
+    "reject",
+    statement(
+        predicate(
+            intervalId="iv-0405",
+            mutation="none",
+            interval=_unchanged_interval(),
+            writes=[],
+            dualValues=[dual("writes.count", "0", "", "one-sided"), _RETRY_ATTEMPTS],
+            observation=_retry_blind_observation("iv-0405"),
+            doesNotAssert=_RETRY_DOES_NOT_ASSERT
+            + [
+                f"that no write occurred under {_RETRY_GAP}",
+                "that the timed-out attempt failed",
+            ],
+        )
+    ),
+    ["oe-tier-coverage"],
+    "invalid",
+    ["authoritative-coverage-incomplete"],
+    "The unknown outcome promoted to a failed operation. The record claims the "
+    "independent tier over a scope whose one blind spot is where the retried write "
+    "would land, which is the claim that the timeout wrote nothing. Clause 3 of the "
+    "tier recompute refuses it, and an authoritative claim that fails a clause is "
+    "invalid rather than downgraded.",
+    parent="retry-effect-not-yet-witnessed",
+)
+
 add(
     "observed-signer-in-another-case",
     "reject",

@@ -45,11 +45,11 @@
     "oe-write-scope": "writes: a write outside pathScope invalidates the authoritative tier",
     "oe-write-scope-label": "writes: inScope is derived from path and pathScope, never a producer opinion"
   },
-  "corpusDigest": "cd5e6db629277ad64c902913c610b7b23964d42fe1c5231fa5210e17717fc624",
+  "corpusDigest": "d708b2d69d7051adbc2f5c849a43f03e4330b0e36a05ac099948b5af33dbd042",
   "counts": {
-    "accept": 9,
+    "accept": 12,
     "indeterminate": 1,
-    "reject": 42
+    "reject": 44
   },
   "emptyTree": {
     "sha1": "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
@@ -813,6 +813,93 @@
       "id": "vd5e05b0f5d3cde4e",
       "kind": "accept",
       "slug": "write-observed-despite-a-named-gap"
+    },
+    {
+      "cites": "Two attempts, one timeout, one write. The observed party reports two attempts and one completed write; the observer, below it for the whole span of both attempts, saw exactly one write land and nothing else in scope. The record therefore establishes the operation completed once, and a consumer that reads the timed-out attempt as a failed operation contradicts it.",
+      "conditions": [
+        "oe-agreement",
+        "oe-chain"
+      ],
+      "expected": {
+        "absenceEstablished": true,
+        "codes": [],
+        "derivedTier": "authoritative",
+        "effectsIndependentlyObserved": true,
+        "verdict": "valid"
+      },
+      "file": "statements/vd51ac871a00e7e92.json",
+      "id": "vd51ac871a00e7e92",
+      "kind": "accept",
+      "slug": "retry-one-write-across-two-attempts"
+    },
+    {
+      "cites": "The retry was not idempotent. The first attempt's write landed before its response was lost and the second attempt wrote again, so the observer saw two writes to the same path while the observed party, counting the timed-out attempt as failed, reports one. The disagreement is the finding: a duplicate effect that no trace from the observed party's side can show.",
+      "conditions": [
+        "oe-agreement",
+        "oe-chain"
+      ],
+      "expected": {
+        "absenceEstablished": true,
+        "codes": [],
+        "derivedTier": "authoritative",
+        "effectsIndependentlyObserved": true,
+        "verdict": "valid"
+      },
+      "file": "statements/v43b41ecd91b7d34f.json",
+      "id": "v43b41ecd91b7d34f",
+      "kind": "accept",
+      "slug": "retry-duplicated-the-write"
+    },
+    {
+      "cites": "The duplicate folded back into one. The record carries both writes and declares that it observed one, so the cross-check agrees with the observed party's count and the second effect disappears from every consumer that reads the comparison instead of the rows. The same signed bytes refute the declared count.",
+      "conditions": [
+        "oe-dual-recompute"
+      ],
+      "expected": {
+        "codes": [
+          "dual-value-not-recomputable"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v46fecb94beb7228f.json",
+      "id": "v46fecb94beb7228f",
+      "kind": "reject",
+      "parent": "v43b41ecd91b7d34f",
+      "slug": "retry-duplicate-reported-as-one"
+    },
+    {
+      "cites": "The same two attempts before the witness arrives. The observer was blind where the write would land and names that place, so the record grades voluntary and establishes no absence there: whether the operation completed is unknown, and the record says in doesNotAssert that it cannot call the timed-out attempt a failure. The observed party has not reported a write count, which is the honest report after a lost response.",
+      "conditions": [
+        "oe-tier-coverage"
+      ],
+      "expected": {
+        "absenceEstablished": false,
+        "codes": [],
+        "derivedTier": "voluntary",
+        "effectsIndependentlyObserved": true,
+        "verdict": "valid"
+      },
+      "file": "statements/va5fc6e9ad1cdfe9e.json",
+      "id": "va5fc6e9ad1cdfe9e",
+      "kind": "accept",
+      "slug": "retry-effect-not-yet-witnessed"
+    },
+    {
+      "cites": "The unknown outcome promoted to a failed operation. The record claims the independent tier over a scope whose one blind spot is where the retried write would land, which is the claim that the timeout wrote nothing. Clause 3 of the tier recompute refuses it, and an authoritative claim that fails a clause is invalid rather than downgraded.",
+      "conditions": [
+        "oe-tier-coverage"
+      ],
+      "expected": {
+        "codes": [
+          "authoritative-coverage-incomplete"
+        ],
+        "verdict": "invalid"
+      },
+      "file": "statements/v3513d5ff4fe13690.json",
+      "id": "v3513d5ff4fe13690",
+      "kind": "reject",
+      "parent": "va5fc6e9ad1cdfe9e",
+      "slug": "retry-timeout-read-as-no-write"
     },
     {
       "cites": "observedSigners names the committing key itself, uppercased, and the commitment carries it lowercased. The record therefore SAYS the key that made the prior commitment is a key the observed party signs with, and the disjointness check -- the predicate's offline discriminator -- passed, because it is a string comparison and two spellings of one key are two strings. No second key was needed.",
