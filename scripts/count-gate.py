@@ -1539,6 +1539,40 @@ FROZEN: tuple[Frozen, ...] = (
         "the second figure, the collision the entry above describes, arriving "
         "through a corpus total instead of the revision counter.",
     ),
+    # ---- 38, the AI generation corpus total after revision 0.1.4 added the
+    # four upstream-signed members. Each integer below is a complexity reading or
+    # a leaf count that happens to equal it, the same collision the 34 entries
+    # above record, arriving through a corpus total a second time.
+    Frozen(
+        ".golangci.yml",
+        "the gocyclo ceiling the linter's own message is phrased against",
+        "means the build fails at 38",
+        "A linter threshold: gocyclo reports strictly above 37, so 38 is the first "
+        "failing complexity. It counts branches in one function and was written "
+        "before the AI generation corpus reached the same total.",
+    ),
+    Frozen(
+        "scripts/complexity-table-gate.py",
+        "the drift incident's reading for verify",
+        "``verify`` grew from 38 to 45",
+        "The same gocyclo drift incident as the entries above, for verify. It "
+        "surfaced when the AI generation corpus total reached 38.",
+    ),
+    Frozen(
+        "scripts/complexity-table-gate.py",
+        "the example table row the complexity parser reads",
+        "its `complexity = 38`",
+        "An example of the complexity table's TOML shape in a parser comment. The "
+        "number is a recorded complexity, not a corpus size.",
+    ),
+    Frozen(
+        "vectors/reject/gen_invalid_vectors.py",
+        "the leaf count of one reject member's control pair",
+        "38 leaves compared",
+        "How many leaves one shipped pair of reject vectors has, which the "
+        "comment uses to show the pair differs in exactly one. It is a property "
+        "of that member, not of the AI generation corpus.",
+    ),
     Frozen(
         "README.md",
         "the external-rail contract, the shipped CLI's score",
