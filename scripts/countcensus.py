@@ -189,19 +189,199 @@ class Census:
 # --------------------------------------------------------------------------
 
 
-def tracked_files(repo_root: Path) -> list[str]:
+class TrackedUnreadable(RuntimeError):
+    """A tracked path whose content could be read from neither place it lives.
+
+    Raised rather than skipped. A census that dropped the file would report the
+    figures in it as examined when nothing examined them, and would pass.
+    """
+
+
+#: Git modes whose blob is a file's bytes. A gitlink (160000) is a commit in
+#: another repository and a symlink (120000) is the text of its target, so
+#: neither can stand in for a file that is absent from disk.
+_FILE_MODES = frozenset({"100644", "100755"})
+
+
+def _git(repo_root: Path, *args: str, stdin: bytes | None = None) -> bytes:
+    return subprocess.run(
+        ["git", "-C", str(repo_root), *args],
+        input=stdin,
+        capture_output=True,
+        check=True,
+    ).stdout
+
+
+def tracked_modes(repo_root: Path, ref: str | None = None) -> dict[str, tuple[str, str]]:
+    """Every tracked path mapped to (mode, blob id).
+
+    With no ``ref`` this is the index, which is what ``git ls-files`` lists;
+    with one it is the tree at that ref. NUL-separated, so a path holding a
+    space or a non-ASCII byte is one path and not several.
+    """
+    out: dict[str, tuple[str, str]] = {}
+    if ref is None:
+        # `<mode> <object> <stage>\t<path>`. An unmerged path carries stages
+        # 1-3 and no stage 0; the lowest stage present stands for it, so the
+        # path is still listed exactly once, as `ls-files` lists it.
+        for entry in _git(repo_root, "ls-files", "-s", "-z").split(b"\0"):
+            if not entry:
+                continue
+            meta, _, name = entry.partition(b"\t")
+            mode, blob, stage = meta.decode("ascii").split()
+            rel = name.decode("utf-8", "surrogateescape")
+            if rel not in out or stage == "0":
+                out[rel] = (mode, blob)
+        return out
+    # `<mode> <type> <object>\t<path>`
+    for entry in _git(repo_root, "ls-tree", "-r", "-z", ref).split(b"\0"):
+        if not entry:
+            continue
+        meta, _, name = entry.partition(b"\t")
+        mode, _kind, blob = meta.decode("ascii").split()
+        out[name.decode("utf-8", "surrogateescape")] = (mode, blob)
+    return out
+
+
+def tracked_files(repo_root: Path, ref: str | None = None) -> list[str]:
     """Everything git tracks, which is deliberately not everything on disk.
 
     A census that walked the filesystem would scan build output and a stale
     working copy and report a coverage it never had.
     """
-    listed = subprocess.run(
-        ["git", "-C", str(repo_root), "ls-files"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return listed.stdout.split()
+    return sorted(tracked_modes(repo_root, ref))
+
+
+def read_blobs(repo_root: Path, blobs: Mapping[str, str]) -> dict[str, bytes]:
+    """The bytes of each blob, keyed as given, from ONE `git cat-file --batch`.
+
+    A blob the object store does not hold is a refusal naming the path, never
+    an empty file: that is what a promisor-less partial clone or a pruned
+    object looks like, and an empty string would count as a file read.
+    """
+    wanted = sorted(set(blobs.values()))
+    if not wanted:
+        return {}
+    raw = _git(repo_root, "cat-file", "--batch", stdin="".join(f"{b}\n" for b in wanted).encode())
+    found: dict[str, bytes] = {}
+    at = 0
+    for blob in wanted:
+        end = raw.index(b"\n", at)
+        header = raw[at:end].decode("ascii").split()
+        at = end + 1
+        if len(header) != 3 or header[1] != "blob" or header[0] != blob:
+            names = sorted(rel for rel, b in blobs.items() if b == blob)
+            raise TrackedUnreadable(
+                f"{', '.join(names)} is tracked as {blob}, and the object store "
+                f"answered {' '.join(header)!r}. It is absent from disk too, so its "
+                "text was read from nowhere and the census refuses rather than "
+                "count it as read."
+            )
+        size = int(header[2])
+        found[blob] = raw[at : at + size]
+        at += size + 1
+    return {rel: found[blob] for rel, blob in blobs.items()}
+
+
+class TrackedTree:
+    """The tracked files of one checkout, readable whether or not they are on disk.
+
+    WHY THIS EXISTS (2026-09-27). Every read here used to be `open()` on the
+    working tree, and a lane worktree is now a SPARSE checkout: full checkouts
+    are refused once a disk is under its floor, so a lane materialises only the
+    paths it edits. A tracked file outside the cone is in the index and in HEAD
+    and absent from disk, and the census died on it with FileNotFoundError --
+    which blocked every send from every sparse lane, since the consumer gate
+    reads the whole outbound set, not only the lane's own files. Skipping the
+    absent file is not a repair: the census would then under-count and pass.
+
+    THE RULE FOR WHICH BYTES A PATH READS AS:
+
+      * present on disk as a regular file -> the DISK bytes. An unmodified file
+        is byte-identical to its blob, so this changes nothing for it; a file
+        with an uncommitted edit -- the body a send is about to post -- is read
+        as edited, which is what every consumer read before this class existed.
+      * tracked and absent from disk -> the BLOB recorded for it: in the index
+        when ``ref`` is None, which is what ``git ls-files`` lists, or in the
+        tree at ``ref`` when the consumer's subject set is a commit. Absent
+        covers a sparse-checkout exclusion, a skip-worktree bit, and a file
+        deleted and not yet committed alike, and in each the recorded blob is
+        the file's tracked content.
+      * neither -> not a file. ``is_file`` says False and ``read_bytes`` raises.
+
+    So a sparse checkout reads exactly what a full checkout of the same commit
+    reads, and the census counts the same integers in both.
+    """
+
+    def __init__(self, repo_root: Path, ref: str | None = None) -> None:
+        self.root = repo_root
+        self.ref = ref
+        self.modes = tracked_modes(repo_root, ref)
+        self._blobs: dict[str, bytes] = {}
+        # directory -> the names directly inside it, built once: a consumer asks
+        # this for every directory holding a subject file, thousands per run.
+        self.children: dict[str, set[str]] = {}
+        for rel in self.modes:
+            child = rel
+            parent = rel.rpartition("/")[0]
+            while True:
+                seen = parent in self.children
+                self.children.setdefault(parent, set()).add(child.rpartition("/")[2])
+                if seen or not parent:
+                    break
+                child, parent = parent, parent.rpartition("/")[0]
+
+    def on_disk(self, rel: str) -> bool:
+        return (self.root / rel).is_file()
+
+    def is_file(self, rel: str) -> bool:
+        if self.on_disk(rel):
+            return True
+        entry = self.modes.get(rel)
+        return entry is not None and entry[0] in _FILE_MODES
+
+    def is_dir(self, rel: str) -> bool:
+        return rel in self.children or (self.root / rel).is_dir()
+
+    def names(self, rel: str) -> list[str]:
+        """The entries directly inside directory ``rel``: on disk, tracked, or both."""
+        found = set(self.children.get(rel, ()))
+        directory = self.root / rel
+        if directory.is_dir():
+            found |= {child.name for child in directory.iterdir()}
+        return sorted(found)
+
+    def prefetch(self, rels: Iterable[str]) -> None:
+        """Read every absent tracked path in ``rels`` with one batch call."""
+        pending = {
+            rel: self.modes[rel][1]
+            for rel in rels
+            if rel not in self._blobs
+            and rel in self.modes
+            and self.modes[rel][0] in _FILE_MODES
+            and not self.on_disk(rel)
+        }
+        self._blobs.update(read_blobs(self.root, pending))
+
+    def read_bytes(self, rel: str) -> bytes:
+        if self.on_disk(rel):
+            return (self.root / rel).read_bytes()
+        entry = self.modes.get(rel)
+        if entry is None:
+            raise FileNotFoundError(
+                f"{rel} is neither on disk nor tracked at {self.ref or 'the index'} in {self.root}"
+            )
+        if entry[0] not in _FILE_MODES:
+            raise TrackedUnreadable(
+                f"{rel} is absent from disk and tracked with mode {entry[0]}, "
+                "which is not a file's bytes, so it has no text to read."
+            )
+        if rel not in self._blobs:
+            self.prefetch([rel])
+        return self._blobs[rel]
+
+    def read_text(self, rel: str) -> str:
+        return self.read_bytes(rel).decode("utf-8")
 
 
 def read_tracked(
@@ -210,24 +390,36 @@ def read_tracked(
     exempt: Mapping[str, str] | None = None,
     exempt_prefixes: Mapping[str, str] | None = None,
     paths: Sequence[str] | None = None,
+    ref: str | None = None,
 ) -> dict[str, str]:
     """The tracked text this census reads, keyed by path relative to the root.
 
     ``paths`` narrows the set to an explicit list, for a consumer whose subject
     is a named surface rather than a whole repository; without it every tracked
-    file of a listed suffix is read.
+    file of a listed suffix is read. Content follows :class:`TrackedTree`'s
+    rule, so a sparse checkout reads what a full one reads.
+
+    A named path that is neither on disk nor tracked is ABSENT from the result
+    rather than an error, and every named-path consumer compares the keys it
+    got against the paths it asked for and reports the difference by name. A
+    tracked path whose content cannot be read raises :class:`TrackedUnreadable`.
     """
     wanted = frozenset(suffixes)
     exempt = exempt or {}
     exempt_prefixes = exempt_prefixes or {}
-    texts: dict[str, str] = {}
-    for rel in tracked_files(repo_root) if paths is None else paths:
-        if rel in exempt or any(rel.startswith(p) for p in exempt_prefixes):
-            continue
-        if Path(rel).suffix not in wanted:
-            continue
-        texts[rel] = (repo_root / rel).read_text(encoding="utf-8")
-    return texts
+    tree = TrackedTree(repo_root, ref)
+    chosen = [
+        rel
+        for rel in (sorted(tree.modes) if paths is None else paths)
+        if rel not in exempt
+        and not any(rel.startswith(p) for p in exempt_prefixes)
+        and Path(rel).suffix in wanted
+        # Tracked, or on disk: a tracked path that is not a file's bytes stays
+        # in and raises when read, rather than dropping out of the count here.
+        and (rel in tree.modes or tree.on_disk(rel))
+    ]
+    tree.prefetch(chosen)
+    return {rel: tree.read_text(rel) for rel in chosen}
 
 
 def prose_regions(rel: str, text: str) -> list[tuple[int, int]]:
@@ -452,16 +644,12 @@ def dedupe(tokens: list[Token]) -> list[Token]:
         token
         for token in tokens
         if token in ratios
-        or not any(
-            ratio.start <= token.start and token.end <= ratio.end for ratio in ratios
-        )
+        or not any(ratio.start <= token.start and token.end <= ratio.end for ratio in ratios)
     ]
 
 
 def near_noun(census: Census, window: str, start: int, end: int) -> bool:
-    around = window[
-        max(0, start - census.small_value_window) : end + census.small_value_window
-    ]
+    around = window[max(0, start - census.small_value_window) : end + census.small_value_window]
     return census.small_value_nouns.search(around) is not None
 
 
@@ -484,9 +672,7 @@ def sentence_at(text: str, start: int, end: int) -> str:
     right = min(
         (
             position
-            for position in (
-                text.find(bound, end) for bound in (". ", ".\n", "\n\n", "|", "**")
-            )
+            for position in (text.find(bound, end) for bound in (". ", ".\n", "\n\n", "|", "**"))
             if position != -1
         ),
         default=len(text),
