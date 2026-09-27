@@ -6,7 +6,7 @@
 
 The subject under test is a verifier of the generation predicate
 ``https://open-fab.ai/attestation/generation/v0.1`` at specification revision
-0.1.3, in its default attest-only mode: recompute the artifact digests, verify
+0.1.4, in its default attest-only mode: recompute the artifact digests, verify
 the ed25519 signatures over the canonical statement, and read attribution from
 the predicate without executing anything.
 
@@ -14,14 +14,18 @@ Every member is an attestation envelope, except one: the golden
 canonicalization vector the upstream repository pins, transcribed here from the
 test that pins it and checked against the upstream hash before anything is
 written. The base attestation is that golden statement with real artifact
-digests, signed with a fixed test key; every other member is one change to it.
+digests, signed with a fixed test key; every member this generator builds is one
+change to it. Four further members were built by someone else: the signed
+attestations the upstream repository publishes from its two implementations,
+copied byte for byte and checked against their upstream digests.
 
 Members are graded three ways. ``accept`` and ``reject`` are required by the
 revision as written, and a reject cites the clause it breaks. ``proposed``
 members depend on text the revision does not yet carry; each declares what the
 revision as written says about it and what the proposal in
 ``docs/proposals/ai-generation-v01-findings.md`` says, and a verifier is never
-failed on one.
+failed on one. Revision 0.1.4 adopted the six findings that document opened
+with, so what remains proposed is the two rules it has not taken.
 """
 
 from __future__ import annotations
@@ -56,13 +60,46 @@ STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 PAYLOAD_TYPE = "application/vnd.in-toto+json"
 TRACKS_UPSTREAM = "ossf/tac#628"
 SPEC_UPSTREAM_REPO = "Open-fab-ai/openfab"
-SPEC_UPSTREAM_COMMIT = "f558da05aae82a7d98f18287f2bcc17e2f1d8aee"
-SPEC_REVISION = "0.1.3"
-SPEC_VENDORED = "spec-vendored/generation-predicate-v0.1-f558da05.md"
-SCHEMA_VENDORED = "spec-vendored/generation-predicate-schema-f558da05.json"
-LICENSE_VENDORED = "spec-vendored/LICENSE-f558da05"
+SPEC_UPSTREAM_COMMIT = "17b964ee24b2cb7b751aebf9ed51524a5a9e1bd8"
+SPEC_REVISION = "0.1.4"
+SPEC_VENDORED = "spec-vendored/generation-predicate-v0.1-17b964ee.md"
+SCHEMA_VENDORED = "spec-vendored/generation-predicate-schema-17b964ee.json"
+LICENSE_VENDORED = "spec-vendored/LICENSE-17b964ee"
 PROPOSED_TEXT = "docs/proposals/ai-generation-v01-findings.md"
 ID_HEX = 16
+
+# The signed attestations the upstream repository publishes from its two
+# implementations, copied byte for byte into UPSTREAM_DIR from SPEC_UPSTREAM_REPO
+# at SPEC_UPSTREAM_COMMIT. Each digest is the upstream file's, so a copy that
+# moved is refused before anything is written. The subject of every one is the
+# upstream generator's "source bundle", whose digest is that of the four bytes
+# "test", and its one generated range is the line "hello" with its LF.
+UPSTREAM_DIR = "upstream-vectors/17b964ee"
+UPSTREAM_PATH = "docs/vectors"
+UPSTREAM_SUBJECT = b"test"
+UPSTREAM_RANGE_FILE = b"hello\n"
+UPSTREAM_VECTORS = (
+    (
+        "rust-signed.json",
+        "8ba9dcb28847aac2e87240d9dcba63cf8b12d79223142f64b97bd191f82cbaea",
+        "Rust",
+    ),
+    (
+        "rust-signed-with-signoffs.json",
+        "85612623f15946486b4b8c021014ecebaf1c1a11b1565a94dca6441a8a9d9a8f",
+        "Rust",
+    ),
+    (
+        "browser-signed.json",
+        "e86dfb45f930fa4413f0e6a65c67e829cc866ed0de6d53a31c9f691e13b9d759",
+        "browser",
+    ),
+    (
+        "browser-signed-with-signoffs.json",
+        "041297f0f0ed52ca0f52ff6015f969f57ad244548b25e414214ae79045107e30",
+        "browser",
+    ),
+)
 
 # The golden vector as the upstream repository pins it. The statement below is
 # transcribed from the Rust test named here; the length and the hash are the
@@ -118,7 +155,7 @@ def golden_statement() -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Conditions. `clause` quotes revision 0.1.3; a proposed condition names the gap
+# Conditions. `clause` quotes revision 0.1.4; a proposed condition names the gap
 # instead, because the revision has no clause to quote.
 
 CONDITIONS: dict[str, dict[str, str]] = {
@@ -147,12 +184,16 @@ CONDITIONS: dict[str, dict[str, str]] = {
     },
     "ofg-c-6": {
         "requires": "No floating-point number appears in the statement.",
-        "clause": "Envelope encoding: the value domain contains no floating-point "
-        "numbers. Producers MUST NOT introduce them.",
+        "clause": "Envelope encoding, numbers: the value domain contains integers only, no "
+        "floating-point numbers. Producers MUST NOT emit floats; canonicalizers and "
+        "verifiers MUST refuse them.",
     },
     "ofg-c-7": {
-        "requires": "No number of any kind appears in the statement.",
-        "clause": "Envelope encoding: the value domain is strings, booleans, objects, arrays only.",
+        "requires": "An integer is inside the value domain within the I-JSON safe range and "
+        "refused outside it.",
+        "clause": "Envelope encoding, numbers: every integer MUST lie within the I-JSON "
+        "(RFC 7493) safe range, |n| <= 2^53 - 1; canonicalizers and verifiers MUST refuse "
+        "out-of-range integers.",
     },
     "ofg-c-8": {
         "requires": "An empty acceptance or signoffs array is omitted.",
@@ -167,11 +208,14 @@ CONDITIONS: dict[str, dict[str, str]] = {
     "ofg-c-10": {
         "requires": "The statement is canonicalized as received, so a member added after "
         "signing is covered and breaks the digest.",
-        "clause": "Envelope encoding: verifiers canonicalize the statement as parsed.",
+        "clause": "Verifier input handling: the received statement bytes are authoritative; "
+        "preimages are built from the statement as parsed from the received document, not "
+        "from a typed round-trip.",
     },
     "ofg-c-11": {
-        "requires": "Every ed25519 signature verifies over the canonical bytes.",
-        "clause": "Verification step 2: verify the ed25519 signatures against their keyid.",
+        "requires": "Every ed25519 signature verifies over the bytes it covers.",
+        "clause": "Verification step 2: verify the ed25519 signatures against their keyid "
+        "over the preimages defined in Signature coverage.",
     },
     "ofg-c-12": {
         "requires": "A keyid is an ed25519 did:key.",
@@ -188,53 +232,59 @@ CONDITIONS: dict[str, dict[str, str]] = {
         "clause": "Verification: in this mode acceptance_passed MUST be treated as the "
         "producer's self-report; a verifier MUST record which mode produced its verdict.",
     },
-    "ofg-p-1": {
-        "requires": "Each signature covers a stated part of the statement once sign-offs "
-        "exist: the fab signature and payload_sha256 the statement without signoffs, the "
-        "n-th sign-off signature the statement with the first n records.",
-        "gap": "Revision 0.1.3 says every signature covers the canonical statement, so a "
-        "verifier built from the text rejects every attestation that carries a sign-off.",
+    "ofg-c-15": {
+        "requires": "The fab signature and payload_sha256 cover the statement without "
+        "signoffs; the n-th sign-off signature covers the statement with the first n "
+        "records, its own included.",
+        "clause": "Signature coverage: role fab and payload_sha256 cover the canonical form "
+        "with predicate.signoffs removed entirely; the n-th human-signoff signature covers "
+        "it with predicate.signoffs truncated to its first n records, its own record "
+        "included. Pre-0.1.4 sign-off signatures do not verify under this rule.",
     },
-    "ofg-p-2": {
-        "requires": "Every sign-off record is covered by the signature of the key it names.",
-        "gap": "Under the coverage both implementations use, the last record is covered "
-        "by no signature and can be rewritten after signing.",
+    "ofg-c-16": {
+        "requires": "Every sign-off record is inside a signed preimage, so a record changed "
+        "after signing breaks a signature.",
+        "clause": "Signature coverage: every record is thus inside at least one signed "
+        "preimage; no record exists that no signature covers.",
     },
-    "ofg-p-3": {
+    "ofg-c-17": {
         "requires": "There is exactly one sign-off signature per sign-off record.",
-        "gap": "Nothing binds the number of records to the number of signatures.",
+        "clause": "Signature coverage: the number of sign-off records equals the number of "
+        "valid sign-off signatures; an appended record with no signature MUST fail.",
     },
-    "ofg-p-4": {
+    "ofg-c-18": {
         "requires": "signoffs[n].did is the keyid of the n-th sign-off signature.",
-        "gap": "Nothing binds a record to the key that signed it.",
+        "clause": "Signature coverage: verifiers MUST check that signoffs[n].did equals the "
+        "n-th sign-off signature's keyid; a record naming a DID that did not sign MUST fail.",
     },
-    "ofg-p-5": {
+    "ofg-c-19": {
         "requires": "N-of-M counts distinct signing keys, not records or names.",
-        "gap": "The revision calls signoffs an N-of-M gate and never says what is counted.",
+        "clause": "Signature coverage: any sign-off threshold MUST count distinct verified "
+        "signing keys, never records or signature array entries.",
     },
-    "ofg-p-6": {
+    "ofg-c-20": {
+        "requires": "Member names are ordered by UTF-16 code units, as RFC 8785 orders them.",
+        "clause": "Envelope encoding, objects: keys sorted ascending by UTF-16 code units, "
+        "the RFC 8785 section 3.2.3 order.",
+    },
+    "ofg-c-21": {
+        "requires": "A statement with a duplicate member name is refused.",
+        "clause": "Verifier input handling: verifiers MUST refuse documents containing "
+        "duplicate object member names (I-JSON).",
+    },
+    "ofg-c-22": {
+        "requires": "An attestation signed by either reference implementation verifies.",
+        "clause": "Signed conformance vectors: the reference repository's docs/vectors/ holds "
+        "four complete signed attestations, one from each reference implementation, with and "
+        "without sign-offs, cross-verified in its own CI.",
+    },
+    "ofg-p-1": {
         "requires": "Attribution ranges for one path do not overlap.",
         "gap": "The revision permits two ranges to claim different origins for one line.",
     },
-    "ofg-p-7": {
+    "ofg-p-2": {
         "requires": "A supplied Assisted-by trailer matches agent.id and agent.tools.",
         "gap": "The revision makes the cross-check a MAY, so a disagreeing trailer passes.",
-    },
-    "ofg-p-8": {
-        "requires": "Member names are ordered by UTF-16 code units, as RFC 8785 orders them.",
-        "gap": "The revision orders keys by code point and also says its form coincides "
-        "with RFC 8785; for a member name outside the Basic Multilingual Plane the two "
-        "orders differ.",
-    },
-    "ofg-p-9": {
-        "requires": "An integer is permitted inside the I-JSON safe range and refused outside it.",
-        "gap": "The revision's value domain has no numbers, while the reference tests sign "
-        "an integer parameter.",
-    },
-    "ofg-p-10": {
-        "requires": "A statement with a duplicate member name is refused.",
-        "gap": "The revision does not say how a duplicate name is parsed, so two verifiers "
-        "keeping different copies both conform.",
     },
 }
 
@@ -279,9 +329,10 @@ def sha(data: bytes) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Canonical form. `order` is "utf16" for RFC 8785 and "codepoint" for the order
-# revision 0.1.3's bullet states; they differ only for member names outside the
-# Basic Multilingual Plane.
+# Canonical form. `order` is "utf16" for RFC 8785, which revision 0.1.4 names, and
+# "codepoint" for the order revision 0.1.3 stated and 0.1.4 withdrew; they differ
+# only for member names outside the Basic Multilingual Plane. The code-point order
+# survives here to build the one member signed that way.
 
 
 def sort_key(order: str) -> Any:
@@ -430,8 +481,8 @@ def invalid(code: str) -> dict[str, str]:
     return {"verdict": "invalid", "code": code}
 
 
-def proposed(rev013: dict[str, str], proposal: dict[str, str], **extra: Any) -> dict[str, Any]:
-    out: dict[str, Any] = {"rev013": rev013, "proposal": proposal}
+def proposed(as_written: dict[str, str], proposal: dict[str, str], **extra: Any) -> dict[str, Any]:
+    out: dict[str, Any] = {"asWritten": as_written, "proposal": proposal}
     out.update(extra)
     return out
 
@@ -485,7 +536,7 @@ def base_members() -> list[dict[str, Any]]:
             "base",
             "accept",
             ["ofg-c-2", "ofg-c-3", "ofg-c-4", "ofg-c-5", "ofg-c-10", "ofg-c-11"]
-            + ["ofg-c-12", "ofg-c-13", "ofg-p-10"],
+            + ["ofg-c-12", "ofg-c-13", "ofg-c-21"],
             base,
             expected=valid(),
             cites="the golden statement with real artifact digests, signed by the fab test "
@@ -680,20 +731,19 @@ def statement_rejects() -> list[dict[str, Any]]:
         ),
         attestation(
             "integer-param",
-            "reject",
+            "accept",
             ["ofg-c-7"],
             signed(integer),
-            parent="integer-param-string",
-            expected=invalid("number-outside-value-domain"),
-            cites="params.temperature as the integer 0, signed consistently. The revision's "
-            "value domain lists strings, booleans, objects and arrays only; the upstream "
-            "implementation's own tests sign such an integer.",
+            expected=valid(),
+            cites="params.temperature as the integer 0, signed consistently. Revision 0.1.4 "
+            "admits integers inside the I-JSON safe range; the upstream implementation's own "
+            "tests sign this one.",
         ),
         param_twin(
             "integer-param-string",
             "ofg-c-7",
             {"temperature": "0"},
-            'params.temperature carried as the string "0", inside the value domain.',
+            'params.temperature carried as the string "0", the same value spelled as a string.',
         ),
         attestation(
             "empty-acceptance",
@@ -751,53 +801,59 @@ def signoff_members() -> list[dict[str, Any]]:
     swapped = copy.deepcopy(good)
     swapped["statement"]["predicate"]["signoffs"][1]["did"] = did_key(KEYS["reviewer-c"])
     one_key = signed_off([("reviewer-a", "reviewer-a"), ("reviewer-a", "reviewer-b")], True)
-    stale = invalid("payload-digest-mismatch")
     rows = [
         (
             "signoffs",
+            "accept",
             good,
-            ["ofg-p-1", "ofg-p-2", "ofg-p-3", "ofg-p-4", "ofg-p-5"],
+            ["ofg-c-15", "ofg-c-16", "ofg-c-17", "ofg-c-18", "ofg-c-19"],
             None,
             valid(),
             "two sign-offs by two keys, each covering the records up to its own.",
         ),
         (
             "signoffs-upstream",
+            "reject",
             upstream,
-            ["ofg-p-1"],
+            ["ofg-c-15"],
             "signoffs",
             invalid("signoff-signature-invalid"),
-            "two sign-offs built the way both upstream implementations build them: the n-th "
-            "covers only the records before it, so the last record is signed by nobody.",
+            "two sign-offs built the way both upstream implementations built them before "
+            "revision 0.1.4: the n-th covers only the records before it, so the last record "
+            "is signed by nobody.",
         ),
         (
             "signoff-renamed",
+            "reject",
             renamed,
-            ["ofg-p-2"],
+            ["ofg-c-16"],
             "signoffs",
             invalid("signoff-signature-invalid"),
             "the last sign-off record's name changed after signing.",
         ),
         (
             "signoff-appended",
+            "reject",
             appended,
-            ["ofg-p-3"],
+            ["ofg-c-17"],
             "signoffs",
             invalid("signoff-records-and-signatures-disagree"),
             "a third sign-off record appended with no signature behind it.",
         ),
         (
             "signoff-swapped",
+            "reject",
             swapped,
-            ["ofg-p-4"],
+            ["ofg-c-18"],
             "signoffs",
             invalid("signoff-signer-mismatch"),
             "the second record's did replaced by a key that did not sign it.",
         ),
         (
             "signoff-one-key",
+            "accept",
             one_key,
-            ["ofg-p-5"],
+            ["ofg-c-19"],
             "signoffs",
             valid(),
             "two sign-off records under two names, both signed by one key: one identity.",
@@ -806,15 +862,14 @@ def signoff_members() -> list[dict[str, Any]]:
     return [
         attestation(
             key,
-            "proposed",
+            kind,
             conditions,
             env,
             **({"parent": parent} if parent else {}),
-            expected=proposed(stale, outcome, distinctSignoffKeys=distinct(env)),
-            cites=what + " Revision 0.1.3 says every signature covers the whole canonical "
-            "statement, so a verifier built from its text refuses every signed-off member.",
+            expected={**outcome, "distinctSignoffKeys": distinct(env)},
+            cites=what,
         )
-        for key, env, conditions, parent, outcome, what in rows
+        for key, kind, env, conditions, parent, outcome, what in rows
     ]
 
 
@@ -852,7 +907,7 @@ def attribution_members() -> list[dict[str, Any]]:
         attestation(
             "ranges-disjoint",
             "accept",
-            ["ofg-p-6"],
+            ["ofg-p-1"],
             signed(overlap_statement([("1-9", "human"), ("10-30", "ai")])),
             artifacts=overlap_artifacts(),
             expected=valid(),
@@ -861,18 +916,18 @@ def attribution_members() -> list[dict[str, Any]]:
         attestation(
             "ranges-overlap",
             "proposed",
-            ["ofg-p-6"],
+            ["ofg-p-1"],
             signed(overlap_statement([("1-20", "ai"), ("10-30", "human")])),
             artifacts=overlap_artifacts(),
             parent="ranges-disjoint",
             expected=proposed(valid(), invalid("attribution-ranges-overlap")),
             cites="lines 10 to 20 of one file claimed as both AI-generated and human-written. "
-            "Revision 0.1.3 has no rule against it.",
+            "Revision 0.1.4 has no rule against it.",
         ),
         attestation(
             "trailer-agrees",
             "accept",
-            ["ofg-p-7"],
+            ["ofg-p-2"],
             base,
             trailer=TRAILER_AGREES,
             expected=valid(),
@@ -881,7 +936,7 @@ def attribution_members() -> list[dict[str, Any]]:
         attestation(
             "trailer-disagrees",
             "proposed",
-            ["ofg-p-7"],
+            ["ofg-p-2"],
             base,
             trailer=TRAILER_DISAGREES,
             parent="trailer-agrees",
@@ -905,58 +960,101 @@ def encoding_members() -> list[dict[str, Any]]:
     if body.count(once) != 1:
         raise SystemExit("FAIL: the base envelope no longer carries exactly one author member")
     duplicated = body.replace(once, b'"author": "human",\n          "author": "ai"')
-    outside = invalid("number-outside-value-domain")
     return [
         attestation(
             "key-order-code-point",
-            "proposed",
-            ["ofg-p-8"],
+            "reject",
+            ["ofg-c-20"],
             signed(astral, "codepoint"),
             parent="key-order-utf16",
-            expected=proposed(valid(), invalid("payload-digest-mismatch")),
-            cites="params names U+FF61 and U+1F600, signed in code-point order as the "
-            "revision's bullet says. RFC 8785 puts U+1F600 first.",
+            expected=invalid("payload-digest-mismatch"),
+            cites="params names U+FF61 and U+1F600, signed in code-point order as revision "
+            "0.1.3 stated. RFC 8785, and so revision 0.1.4, puts U+1F600 first.",
         ),
         attestation(
             "key-order-utf16",
-            "proposed",
-            ["ofg-p-8"],
+            "accept",
+            ["ofg-c-20"],
             signed(astral, "utf16"),
-            parent="key-order-code-point",
-            expected=proposed(invalid("payload-digest-mismatch"), valid()),
-            cites="the same statement signed in RFC 8785 order, which the revision says its "
-            "form coincides with.",
+            expected=valid(),
+            cites="the same statement signed in RFC 8785 order, by UTF-16 code units.",
         ),
         attestation(
             "integer-unsafe",
-            "proposed",
-            ["ofg-p-9"],
+            "reject",
+            ["ofg-c-7"],
             signed(unsafe),
             parent="integer-safe",
-            expected=proposed(outside, invalid("unsafe-integer")),
+            expected=invalid("unsafe-integer"),
             cites="params.seed as 2^53 + 1. JavaScript reads it as 2^53; a 64-bit integer "
             "reader keeps it, so two verifiers hash different bytes.",
         ),
         attestation(
             "integer-safe",
-            "proposed",
-            ["ofg-p-9"],
+            "accept",
+            ["ofg-c-7"],
             signed(safe),
-            expected=proposed(outside, valid()),
+            expected=valid(),
             cites="params.seed as 2^53 - 1, the largest I-JSON safe integer.",
         ),
         attestation(
             "duplicate-author",
-            "proposed",
-            ["ofg-p-10"],
+            "reject",
+            ["ofg-c-21"],
             base,
             body=duplicated,
             parent="base",
-            expected=proposed({"verdict": "indeterminate"}, invalid("duplicate-member")),
+            expected=invalid("duplicate-member"),
             cites="generated[0] carries author twice, human and then ai; the signature covers "
             "the ai reading. A parser keeping the first copy reads a human-written range.",
         ),
     ]
+
+
+def upstream_members() -> list[dict[str, Any]]:
+    """The four attestations someone other than this generator produced."""
+    subject_rel = artifact_rel(UPSTREAM_SUBJECT)
+    range_rel = artifact_rel(UPSTREAM_RANGE_FILE)
+    out = []
+    for name, digest, producer in UPSTREAM_VECTORS:
+        with open(os.path.join(HERE, UPSTREAM_DIR, name), "rb") as handle:
+            body = handle.read()
+        if sha(body) != digest:
+            raise SystemExit(f"FAIL: {UPSTREAM_DIR}/{name} is not the upstream file it pins")
+        env = json.loads(body)
+        predicate = env["statement"]["predicate"]
+        signoffs = len(predicate.get("signoffs", []))
+        conditions = ["ofg-c-2", "ofg-c-11", "ofg-c-12", "ofg-c-22"]
+        expected: dict[str, Any] = valid()
+        if signoffs:
+            conditions += ["ofg-c-15", "ofg-c-16", "ofg-c-17", "ofg-c-18", "ofg-c-19"]
+            expected = {**expected, "distinctSignoffKeys": distinct(env)}
+        statement = env["statement"]
+        artifacts = [{"name": entry["name"], "file": subject_rel} for entry in statement["subject"]]
+        artifacts += [
+            {"name": entry["path"], "file": range_rel} for entry in predicate["generated"]
+        ]
+        out.append(
+            member(
+                f"upstream-{name}",
+                "accept",
+                conditions,
+                body,
+                form="attestation",
+                artifacts=artifacts,
+                source={
+                    "repo": SPEC_UPSTREAM_REPO,
+                    "commit": SPEC_UPSTREAM_COMMIT,
+                    "path": f"{UPSTREAM_PATH}/{name}",
+                    "sha256": digest,
+                },
+                expected=expected,
+                cites=f"signed by the upstream {producer} implementation with its published "
+                f"test keys, {signoffs} sign-off{'s' if signoffs != 1 else ''}; copied byte for "
+                "byte from the upstream repository, which cross-verifies it in its own CI.",
+            )
+        )
+    return out
 
 
 def build() -> list[dict[str, Any]]:
@@ -969,6 +1067,7 @@ def build() -> list[dict[str, Any]]:
         + signoff_members()
         + attribution_members()
         + encoding_members()
+        + upstream_members()
     )
 
 
@@ -982,7 +1081,10 @@ def identify(m: dict[str, Any]) -> str:
 
 
 def sidecars(members: list[dict[str, Any]]) -> dict[str, bytes]:
-    files = {artifact_rel(GOLDEN_FILE): GOLDEN_FILE, artifact_rel(OVERLAP_FILE): OVERLAP_FILE}
+    files = {
+        artifact_rel(content): content
+        for content in (GOLDEN_FILE, OVERLAP_FILE, UPSTREAM_SUBJECT, UPSTREAM_RANGE_FILE)
+    }
     for m in members:
         if "trailer" in m:
             files[trailer_rel(m["trailer"])] = m["trailer"]
@@ -1003,6 +1105,8 @@ def row_for(m: dict[str, Any], vid: str, ids: dict[str, str]) -> dict[str, Any]:
         row["artifacts"] = m["artifacts"]
     if "trailer" in m:
         row["trailer"] = trailer_rel(m["trailer"])
+    if "source" in m:
+        row["source"] = m["source"]
     row["expected"] = m["expected"]
     row["cites"] = m["cites"]
     return row
@@ -1065,9 +1169,11 @@ def build_manifest() -> tuple[dict[str, Any], dict[str, bytes]]:
     manifest["vectors"] = entries
     manifest["corpusDigest"] = digest_of(entries, files)
     manifest["note"] = (
-        "accept and reject members are graded against revision 0.1.3 as written, and a "
-        "reject names its conformant parent. A proposed member declares both what the "
-        "revision says of it and what proposedText says; no verifier is failed on one."
+        "accept and reject members are graded against specRevision as written, and a "
+        "reject names its conformant parent. A member carrying source was produced by the "
+        "upstream implementation it names and is that file byte for byte. A proposed member "
+        "declares both what the revision says of it and what proposedText says; no verifier "
+        "is failed on one."
     )
     files["MANIFEST.json"] = json.dumps(manifest, indent=2, ensure_ascii=False).encode() + b"\n"
     files["INDEX.md"] = render_index(manifest).encode("utf-8")
@@ -1099,7 +1205,7 @@ def expectation(entry: dict[str, Any]) -> str:
     expected = entry["expected"]
     if entry["kind"] == "proposed":
         return (
-            f"0.1.3: {outcome_text(expected['rev013'])}; "
+            f"{SPEC_REVISION}: {outcome_text(expected['asWritten'])}; "
             f"proposal: {outcome_text(expected['proposal'])}"
         )
     if "canonicalSha256" in expected:
@@ -1145,7 +1251,9 @@ verifier is never failed on one.
 The specification, its JSON Schema and its licence are vendored under
 `spec-vendored/` and pinned by digest in the manifest. The golden member is
 the upstream repository's pinned golden vector, transcribed from the test that
-pins it.
+pins it. Four accept members were signed by the upstream implementations
+themselves and are copied byte for byte from `{UPSTREAM_PATH}/` at the pinned
+commit; their manifest rows carry the upstream path and digest under `source`.
 
 Regenerate byte-identically: `python3 gen_vectors.py`.
 Self-check: `aee-verify vectors-ai-generation/` from the repository root.

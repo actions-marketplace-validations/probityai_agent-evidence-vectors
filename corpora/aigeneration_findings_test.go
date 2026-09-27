@@ -81,7 +81,8 @@ func aiGenerationFindings() []findingCase {
 	accept := agAll(kindIs("accept"), agFormIs("attestation"))
 	golden := agFormIs("statement")
 	signoffs := declares("distinctSignoffKeys")
-	overlap := agAll(kindIs("proposed"), agCarries("ofg-p-6"))
+	overlap := agAll(kindIs("proposed"), agCarries("ofg-p-1"))
+	copied := declaresSource
 	return []findingCase{
 		{"ag/unknown-kind", agDir, agEdit(reject, func(_ *testing.T, r map[string]any) { r["kind"] = "maybe" }),
 			"which this reader does not grade"},
@@ -122,11 +123,17 @@ func aiGenerationFindings() []findingCase {
 				pin["canonicalSha256"] = strings.Repeat("0", 64)
 			})
 		}, "not the pinned"},
-		{"ag/golden-unparseable", agDir, agWriteMember(golden, "{"), "the golden statement does not parse"},
-		{"ag/golden-out-of-domain", agDir, agWriteMember(golden, `{"n":1}`),
-			"the golden statement does not canonicalize"},
-		{"ag/golden-orders-differ", agDir, agWriteMember(golden, "{\"｡\":\"a\",\"\U0001f600\":\"b\"}"),
-			"code-point form and its RFC 8785 form differ"},
+		{"ag/golden-unparseable", agDir, agWriteMember(golden, "{"), "the golden statement does not canonicalize"},
+		{"ag/source-bytes", agDir, agEdit(copied, func(t *testing.T, r map[string]any) {
+			setDeep(t, r, strings.Repeat("0", 64), "source", "sha256")
+		}), "not the upstream file its source pins"},
+		{"ag/source-unnamed", agDir, agEdit(copied, func(t *testing.T, r map[string]any) {
+			setDeep(t, r, "", "source", "commit")
+		}), "names no repository, commit or path"},
+		{"ag/source-not-accept", agDir, agEdit(copied, func(_ *testing.T, r map[string]any) {
+			r["kind"] = "reject"
+			r["expected"] = map[string]any{"verdict": "invalid", "code": "signature-invalid"}
+		}), "copied from upstream is not an accept member"},
 		{"ag/not-an-envelope", agDir, agWriteMember(reject, "[]"), "not an attestation envelope"},
 		{"ag/statement-not-object", agDir, agWriteMember(reject, `{"statement":"x"}`),
 			"the statement is not a JSON object"},
@@ -138,7 +145,7 @@ func aiGenerationFindings() []findingCase {
 			})
 		}, "the artifact file is missing"},
 		{"ag/accept-refused", agDir, agEdit(accept, func(_ *testing.T, r map[string]any) { r["artifacts"] = []any{} }),
-			"an accept member that revision 0.1.3 refuses"},
+			"an accept member that the revision refuses"},
 		{"ag/accept-refused-by-proposal", agDir, func(t *testing.T, d string) {
 			editManifest(t, d, func(m map[string]any) {
 				other, _ := firstRowWhere(t, m, agAll(declaresTrailer, kindIs("proposed")))["trailer"].(string)
@@ -150,10 +157,10 @@ func aiGenerationFindings() []findingCase {
 		}), "declares no invalid verdict and code"},
 		{"ag/reject-wrong-code", agDir, agEdit(reject, func(t *testing.T, r map[string]any) {
 			setDeep(t, r, "a-code-no-rule-emits", "expected", "code")
-		}), "under revision 0.1.3, got"},
+		}), "under the revision, got"},
 		{"ag/proposed-half-declared", agDir, agEdit(overlap, func(_ *testing.T, r map[string]any) {
 			expected, _ := r["expected"].(map[string]any)
-			delete(expected, "rev013")
+			delete(expected, "asWritten")
 		}), "does not declare both"},
 		{"ag/proposed-wrong-proposal", agDir, agEdit(overlap, func(t *testing.T, r map[string]any) {
 			setDeep(t, r, map[string]any{"verdict": "invalid", "code": "trailer-disagrees"},
@@ -192,8 +199,8 @@ func aiGenerationFindings() []findingCase {
 		{"ag/refused-never-accepted", agDir, agEdit(agAll(kindIs("accept"), agCarries("ofg-c-6")),
 			func(_ *testing.T, r map[string]any) { r["conditions"] = []any{"ofg-c-7"} }),
 			"conditions refused and never accepted"},
-		{"ag/proposal-refuses-never-accepts", agDir, agEdit(agAll(kindIs("accept"), agCarries("ofg-p-6")),
-			func(_ *testing.T, r map[string]any) { r["conditions"] = []any{"ofg-p-7"} }),
+		{"ag/proposal-refuses-never-accepts", agDir, agEdit(agAll(kindIs("accept"), agCarries("ofg-p-1")),
+			func(_ *testing.T, r map[string]any) { r["conditions"] = []any{"ofg-p-2"} }),
 			"conditions the proposal refuses and never accepts"},
 		{"ag/idle-condition", agDir, func(t *testing.T, d string) {
 			editManifest(t, d, func(m map[string]any) {
@@ -216,6 +223,12 @@ func aiGenerationFindings() []findingCase {
 			agProposalText(t, d, "The member vdeadbeefdeadbeef shows it.\n")
 		}, "which are not members of this corpus"},
 	}
+}
+
+// declaresSource picks a row copied byte for byte from the upstream repository.
+func declaresSource(row map[string]any) bool {
+	_, has := row["source"]
+	return has
 }
 
 // declaresTrailer picks a row that ships a commit-message sidecar.

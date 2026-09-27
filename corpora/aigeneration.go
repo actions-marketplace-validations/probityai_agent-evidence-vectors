@@ -10,7 +10,6 @@ import (
 	"math/big"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -20,17 +19,18 @@ import (
 func init() { register(aiGeneration{}) }
 
 // aiGeneration judges vectors-ai-generation/, the conformance corpus for the
-// generation predicate at specification revision 0.1.3 in its default
+// generation predicate at specification revision 0.1.4 in its default
 // attest-only mode.
 //
-// It is two verifiers, not one. The first reads revision 0.1.3 as written:
-// every signature covers the canonical form of the statement as received, keys
-// ordered by code point, no numbers in the value domain. The second reads the
-// proposal the corpus puts forward: RFC 8785 member order, I-JSON integers,
-// sign-offs covering stated parts of the statement and bound to their records.
+// It is two verifiers, not one. The first reads revision 0.1.4 as written:
+// RFC 8785 member order, I-JSON integers, duplicate names refused, the fab
+// signature and payload_sha256 over the statement without sign-offs, and the
+// n-th sign-off over the first n records, each record bound to its signer. The
+// second adds the two rules the corpus still proposes: attribution ranges that
+// do not overlap, and a supplied Assisted-by trailer that matches the agent.
 // Every member is run through both, and what each returns is compared with
 // what the member declares. An accept member must be valid under both; a
-// reject member must fail revision 0.1.3 with the code it names; a proposed
+// reject member must fail the revision with the code it names; a proposed
 // member must produce exactly the two outcomes it declares, and they must
 // differ, or it is an accept or a reject wearing the wrong label.
 type aiGeneration struct{}
@@ -71,6 +71,14 @@ type agGolden struct {
 	CanonicalSha256 string `json:"canonicalSha256"`
 }
 
+// agSource names the upstream file a member was copied from, byte for byte.
+type agSource struct {
+	Repo   string `json:"repo"`
+	Commit string `json:"commit"`
+	Path   string `json:"path"`
+	Sha256 string `json:"sha256"`
+}
+
 type agArtifact struct {
 	Name string `json:"name"`
 	File string `json:"file"`
@@ -85,6 +93,7 @@ type agVector struct {
 	Trailer    string       `json:"trailer"`
 	Conditions []string     `json:"conditions"`
 	Artifacts  []agArtifact `json:"artifacts"`
+	Source     *agSource    `json:"source"`
 	Expected   agExpected   `json:"expected"`
 }
 
@@ -108,7 +117,7 @@ type agExpected struct {
 	CanonicalLength     *int       `json:"canonicalLength"`
 	CanonicalSha256     string     `json:"canonicalSha256"`
 	DistinctSignoffKeys *int       `json:"distinctSignoffKeys"`
-	Rev013              *agOutcome `json:"rev013"`
+	AsWritten           *agOutcome `json:"asWritten"`
 	Proposal            *agOutcome `json:"proposal"`
 }
 
@@ -201,7 +210,7 @@ func agProposedTextFindings(dir string, m *agManifest, ids []string) []string {
 }
 
 // agTwinFindings makes each refusal scoreable. A condition refused under
-// revision 0.1.3 needs an accept member carrying it, and a condition refused
+// the revision as written needs an accept member carrying it, and a condition refused
 // under the proposal needs a member the proposal accepts, or a verifier that
 // refuses everything scores full marks on it.
 func agTwinFindings(m *agManifest) []string {
@@ -266,6 +275,7 @@ func judgeAGMember(dir string, m *agManifest, v agVector, out *Member) {
 	if idFromBytes(preimage) != v.ID {
 		out.Findings = append(out.Findings, "identifier does not recompute from the member's own bytes")
 	}
+	out.Findings = append(out.Findings, agSourceFindings(v, body)...)
 	switch v.Form {
 	case "statement":
 		out.Findings = append(out.Findings, judgeAGGolden(m, v, body)...)
@@ -300,6 +310,26 @@ func agParentFindings(m *agManifest, v agVector) []string {
 	return []string{"names parent " + v.Parent + ", which is not a member"}
 }
 
+// agSourceFindings holds a copied member to the upstream file it names. The
+// member's bytes are that file's bytes, so its digest is the upstream digest,
+// and a member someone else produced is only ever offered as an accept.
+func agSourceFindings(v agVector, body []byte) []string {
+	if v.Source == nil {
+		return nil
+	}
+	var out []string
+	if v.Source.Repo == "" || v.Source.Commit == "" || v.Source.Path == "" {
+		out = append(out, "a source names no repository, commit or path")
+	}
+	if sha(body) != v.Source.Sha256 {
+		out = append(out, "the member's bytes are not the upstream file its source pins")
+	}
+	if v.Kind != "accept" {
+		out = append(out, "a member copied from upstream is not an accept member")
+	}
+	return out
+}
+
 func agTrailer(dir string, v agVector, out *Member) ([]byte, bool) {
 	if v.Trailer == "" {
 		return nil, true
@@ -312,8 +342,8 @@ func agTrailer(dir string, v agVector, out *Member) ([]byte, bool) {
 	return trailer, true
 }
 
-// judgeAGGolden checks the golden member: its canonical form, under the
-// revision's code-point order and under RFC 8785 alike, is the pinned bytes.
+// judgeAGGolden checks the golden member: its RFC 8785 form, which revision
+// 0.1.4 names as the canonical form, is the pinned bytes.
 func judgeAGGolden(m *agManifest, v agVector, body []byte) []string {
 	var out []string
 	if v.Kind != "accept" {
@@ -323,21 +353,13 @@ func judgeAGGolden(m *agManifest, v agVector, body []byte) []string {
 		v.Expected.CanonicalSha256 != m.GoldenSource.CanonicalSha256 {
 		out = append(out, "the golden member does not declare the length and sha256 goldenSource pins")
 	}
-	value, err := agDecode(body)
-	if err != nil {
-		return append(out, "the golden statement does not parse: "+err.Error())
-	}
-	codePoint, err := agCodePointCanonical(value)
+	canonical, err := aee.Canonicalize(body)
 	if err != nil {
 		return append(out, "the golden statement does not canonicalize: "+err.Error())
 	}
-	rfc8785, err := aee.Canonicalize(body)
-	if err != nil || !bytes.Equal(codePoint, rfc8785) {
-		out = append(out, "the golden statement's code-point form and its RFC 8785 form differ")
-	}
-	if len(codePoint) != m.GoldenSource.CanonicalLength || sha(codePoint) != m.GoldenSource.CanonicalSha256 {
+	if len(canonical) != m.GoldenSource.CanonicalLength || sha(canonical) != m.GoldenSource.CanonicalSha256 {
 		out = append(out, fmt.Sprintf("the golden statement canonicalizes to %d bytes with sha256 %s, "+
-			"not the pinned %d bytes with sha256 %s", len(codePoint), short(sha(codePoint)),
+			"not the pinned %d bytes with sha256 %s", len(canonical), short(sha(canonical)),
 			m.GoldenSource.CanonicalLength, short(m.GoldenSource.CanonicalSha256)))
 	}
 	return out
@@ -348,7 +370,7 @@ func judgeAGAttestation(dir string, v agVector, body, trailer []byte) []string {
 	if err != "" {
 		return []string{err}
 	}
-	rev := subject.evaluate(agRev013)
+	rev := subject.evaluate(agRevision)
 	prop := subject.evaluate(agProposal)
 	out := agGrade(v, rev, prop)
 	out = append(out, agSignoffCount(v, subject)...)
@@ -363,7 +385,7 @@ func agGrade(v agVector, rev, prop agOutcome) []string {
 	case "accept":
 		var out []string
 		if rev != valid {
-			out = append(out, "an accept member that revision 0.1.3 refuses: "+rev.String())
+			out = append(out, "an accept member that the revision refuses: "+rev.String())
 		}
 		if prop != valid {
 			out = append(out, "an accept member that the proposal refuses: "+prop.String())
@@ -374,7 +396,7 @@ func agGrade(v agVector, rev, prop agOutcome) []string {
 			return []string{"a reject member that declares no invalid verdict and code"}
 		}
 		if rev != v.Expected.agOutcome {
-			return []string{fmt.Sprintf("expected %s under revision 0.1.3, got %s", v.Expected.agOutcome, rev)}
+			return []string{fmt.Sprintf("expected %s under the revision, got %s", v.Expected.agOutcome, rev)}
 		}
 		return nil
 	default:
@@ -383,17 +405,17 @@ func agGrade(v agVector, rev, prop agOutcome) []string {
 }
 
 func agGradeProposed(v agVector, rev, prop agOutcome) []string {
-	if v.Expected.Rev013 == nil || v.Expected.Proposal == nil {
-		return []string{"a proposed member that does not declare both its rev013 and its proposal outcome"}
+	if v.Expected.AsWritten == nil || v.Expected.Proposal == nil {
+		return []string{"a proposed member that does not declare both its asWritten and its proposal outcome"}
 	}
 	var out []string
-	if rev != *v.Expected.Rev013 {
-		out = append(out, fmt.Sprintf("expected %s under revision 0.1.3, got %s", *v.Expected.Rev013, rev))
+	if rev != *v.Expected.AsWritten {
+		out = append(out, fmt.Sprintf("expected %s under the revision, got %s", *v.Expected.AsWritten, rev))
 	}
 	if prop != *v.Expected.Proposal {
 		out = append(out, fmt.Sprintf("expected %s under the proposal, got %s", *v.Expected.Proposal, prop))
 	}
-	if *v.Expected.Rev013 == *v.Expected.Proposal {
+	if *v.Expected.AsWritten == *v.Expected.Proposal {
 		out = append(out, "a proposed member whose two outcomes are the same, so the proposal changes nothing about it")
 	}
 	return out
@@ -438,7 +460,7 @@ func agModeFindings(v agVector) []string {
 type agMode int
 
 const (
-	agRev013 agMode = iota
+	agRevision agMode = iota
 	agProposal
 )
 
@@ -512,20 +534,10 @@ func (s *agSubject) evaluate(mode agMode) agOutcome {
 
 func agRefuse(code string) (agOutcome, bool) { return agOutcome{Verdict: agInvalid, Code: code}, true }
 
-// valueDomain: revision 0.1.3 admits strings, booleans, objects and arrays
-// only, and says nothing of duplicate names. The proposal admits I-JSON: safe
-// integers, unique names.
-func (s *agSubject) valueDomain(mode agMode) (agOutcome, bool) {
+// valueDomain: revision 0.1.4 admits I-JSON: integers within the safe range,
+// no floating-point numbers, and unique member names.
+func (s *agSubject) valueDomain(agMode) (agOutcome, bool) {
 	err := aee.CheckIJSON(s.env.Statement)
-	if mode == agRev013 {
-		if errors.Is(err, aee.ErrDuplicateMember) {
-			return agOutcome{Verdict: agIndeterminate}, true
-		}
-		if code := agNumberCode(s.stmt); code != "" {
-			return agRefuse(code)
-		}
-		return agOutcome{}, false
-	}
 	switch {
 	case err == nil:
 		return agOutcome{}, false
@@ -538,31 +550,6 @@ func (s *agSubject) valueDomain(mode agMode) (agOutcome, bool) {
 	default:
 		return agRefuse("not-i-json")
 	}
-}
-
-// agNumberCode walks a decoded value for the first number, in sorted member
-// order so the answer does not depend on map iteration.
-func agNumberCode(value any) string {
-	switch t := value.(type) {
-	case json.Number:
-		if strings.ContainsAny(string(t), ".eE") {
-			return "floating-point-number"
-		}
-		return "number-outside-value-domain"
-	case []any:
-		for _, item := range t {
-			if code := agNumberCode(item); code != "" {
-				return code
-			}
-		}
-	case map[string]any:
-		for _, name := range sortedKeys(t) {
-			if code := agNumberCode(t[name]); code != "" {
-				return code
-			}
-		}
-	}
-	return ""
 }
 
 func agMap(value any, name string) map[string]any {
@@ -611,30 +598,10 @@ func (s *agSubject) fieldTable(agMode) (agOutcome, bool) {
 }
 
 // envelopeBytes checks payload_sha256 and every signature against the bytes
-// each is said to cover.
-func (s *agSubject) envelopeBytes(mode agMode) (agOutcome, bool) {
-	if mode == agRev013 {
-		payload, err := agCodePointCanonical(s.stmt)
-		if err != nil {
-			return agRefuse("not-canonicalizable")
-		}
-		if sha(payload) != s.env.PayloadSHA256 {
-			return agRefuse("payload-digest-mismatch")
-		}
-		for _, sig := range s.env.Signatures {
-			if code := agVerify(sig, payload); code != "" {
-				return agRefuse(code)
-			}
-		}
-		return agOutcome{}, false
-	}
-	return s.proposalSignatures()
-}
-
-// proposalSignatures: the fab signature and payload_sha256 cover the statement
-// without signoffs; the n-th sign-off covers the first n records, its own
-// included; each record names the key that signed it.
-func (s *agSubject) proposalSignatures() (agOutcome, bool) {
+// revision 0.1.4's Signature coverage says each covers: the fab signature and
+// payload_sha256 the statement without signoffs, the n-th sign-off the first n
+// records, its own included, and each record naming the key that signed it.
+func (s *agSubject) envelopeBytes(agMode) (agOutcome, bool) {
 	records := agList(agMap(s.stmt, "predicate"), "signoffs")
 	var humans []agSignature
 	for _, sig := range s.env.Signatures {
@@ -657,10 +624,10 @@ func (s *agSubject) proposalSignatures() (agOutcome, bool) {
 	if sha(payload) != s.env.PayloadSHA256 {
 		return agRefuse("payload-digest-mismatch")
 	}
-	return s.proposalEachSignature(records, payload)
+	return s.eachSignature(records, payload)
 }
 
-func (s *agSubject) proposalEachSignature(records []any, fabPayload []byte) (agOutcome, bool) {
+func (s *agSubject) eachSignature(records []any, fabPayload []byte) (agOutcome, bool) {
 	signed := 0
 	for _, sig := range s.env.Signatures {
 		switch sig.Role {
@@ -761,7 +728,7 @@ func agRange(lines string) (int, int, bool) {
 
 // proposalRules are the two checks the revision leaves to a MAY or to nothing.
 func (s *agSubject) proposalRules(mode agMode) (agOutcome, bool) {
-	if mode == agRev013 {
+	if mode == agRevision {
 		return agOutcome{}, false
 	}
 	if agRangesOverlap(agList(agMap(s.stmt, "predicate"), "generated")) {
@@ -824,69 +791,6 @@ func agRFC8785(value any) ([]byte, error) {
 		return nil, err
 	}
 	return aee.Canonicalize(raw)
-}
-
-// agCodePointCanonical is revision 0.1.3's form: RFC 8785 in every respect but
-// member order, which is by Unicode code point. Strings are emitted through
-// aee.Canonicalize, so the escaping is the repository's one spelling of it.
-func agCodePointCanonical(value any) ([]byte, error) {
-	var buf bytes.Buffer
-	if err := agAppendCodePoint(&buf, value); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
-}
-
-func agAppendCodePoint(buf *bytes.Buffer, value any) error {
-	switch t := value.(type) {
-	case nil, bool, string:
-		scalar, err := agRFC8785(t)
-		if err != nil {
-			return err
-		}
-		buf.Write(scalar)
-	case []any:
-		buf.WriteByte('[')
-		for i, item := range t {
-			if i > 0 {
-				buf.WriteByte(',')
-			}
-			if err := agAppendCodePoint(buf, item); err != nil {
-				return err
-			}
-		}
-		buf.WriteByte(']')
-	case map[string]any:
-		return agAppendObject(buf, t)
-	default:
-		return fmt.Errorf("a %T is outside the revision's value domain", value)
-	}
-	return nil
-}
-
-func agAppendObject(buf *bytes.Buffer, object map[string]any) error {
-	names := make([]string, 0, len(object))
-	for name := range object {
-		names = append(names, name)
-	}
-	// Go orders strings by their UTF-8 bytes, and UTF-8 byte order is code-point
-	// order: this is the line that differs from RFC 8785.
-	sort.Strings(names)
-	buf.WriteByte('{')
-	for i, name := range names {
-		if i > 0 {
-			buf.WriteByte(',')
-		}
-		if err := agAppendCodePoint(buf, name); err != nil {
-			return err
-		}
-		buf.WriteByte(':')
-		if err := agAppendCodePoint(buf, object[name]); err != nil {
-			return err
-		}
-	}
-	buf.WriteByte('}')
-	return nil
 }
 
 // agVerify checks one signature over message. It returns "" or a code.
