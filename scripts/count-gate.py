@@ -1465,6 +1465,22 @@ FROZEN: tuple[Frozen, ...] = (
         "quantity.",
     ),
     Frozen(
+        "scripts/uncited-obligations-proof-test.py",
+        "the same coverage measurement, restated in the test's docstring",
+        "to 57 while the anchor gate",
+        "The second figure of the before-and-after coverage reading frozen "
+        "above, as the test that pins it restates it. An obligation count, "
+        "equal to the observed-effect corpus total only by coincidence.",
+    ),
+    Frozen(
+        "spec/CITATION-MIGRATION.md",
+        "the anchor count the citation migration produced",
+        "119 citation sites migrated, 57 anchors",
+        "A count of specification anchors at the migration revision named in "
+        "the same document. It is not a size of any corpus and equals the "
+        "observed-effect corpus total only by coincidence.",
+    ),
+    Frozen(
         "scripts/uncited-obligations-proof.py",
         "the replay taken beside that measurement",
         "250 of 250 green",
