@@ -2,11 +2,13 @@ package corpora
 
 import (
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -49,15 +51,33 @@ func (o rsOutcome) String() string {
 }
 
 type rsVector struct {
-	ID                     string     `json:"id"`
-	Kind                   string     `json:"kind"`
-	File                   string     `json:"file"`
-	Conditions             []string   `json:"conditions"`
-	KeyID                  string     `json:"keyId"`
-	Expected               rsOutcome  `json:"expected"`
-	ExpectedWithoutWindows rsOutcome  `json:"expectedWithoutWindows"`
-	ExpectedIfNotHonoured  *rsOutcome `json:"expectedIfNotHonoured"`
-	SignedInputHex         string     `json:"signedInputHex"`
+	ID                                string     `json:"id"`
+	Kind                              string     `json:"kind"`
+	File                              string     `json:"file"`
+	Context                           *rsContext `json:"context"`
+	Conditions                        []string   `json:"conditions"`
+	KeyID                             string     `json:"keyId"`
+	Expected                          rsOutcome  `json:"expected"`
+	ExpectedWithoutWindows            rsOutcome  `json:"expectedWithoutWindows"`
+	ExpectedIfNotHonoured             *rsOutcome `json:"expectedIfNotHonoured"`
+	ExpectedIfGapClosed               *rsOutcome `json:"expectedIfGapClosed"`
+	ExpectedIfGapClosedWithoutWindows *rsOutcome `json:"expectedIfGapClosedWithoutWindows"`
+	SignedInputHex                    string     `json:"signedInputHex"`
+}
+
+// rsContext places a member's receipt after the receipts of a chain, and
+// optionally against a commitment to that chain recorded at a given time.
+type rsContext struct {
+	Chain              []string `json:"chain"`
+	Commitment         string   `json:"commitment,omitempty"`
+	CommitmentLoggedAt string   `json:"commitmentLoggedAt,omitempty"`
+}
+
+// rsGap is a question the draft does not decide, with the code of the rule
+// proposed to close it.
+type rsGap struct {
+	ID   string `json:"id"`
+	Code string `json:"code"`
 }
 
 type rsRequirement struct {
@@ -69,6 +89,7 @@ type rsRequirement struct {
 
 type rsCondition struct {
 	Requirements []string `json:"requirements"`
+	Gaps         []string `json:"gaps"`
 }
 
 type rsKeySet struct {
@@ -84,15 +105,17 @@ type rsManifest struct {
 		WithWindows    rsKeySet `json:"withWindows"`
 		WithoutWindows rsKeySet `json:"withoutWindows"`
 	} `json:"keySets"`
-	Origin struct {
+	Origins []struct {
+		Path    string `json:"path"`
 		Members []struct {
 			UpstreamFile string `json:"upstreamFile"`
-			ID           string `json:"id"`
+			File         string `json:"file"`
 			Sha256       string `json:"sha256"`
 		} `json:"members"`
-	} `json:"origin"`
+	} `json:"origins"`
 	CodeRegistry map[string]string      `json:"codeRegistry"`
 	Requirements []rsRequirement        `json:"requirements"`
+	Gaps         []rsGap                `json:"gaps"`
 	Conditions   map[string]rsCondition `json:"conditions"`
 	Counts       map[string]int         `json:"counts"`
 	CorpusDigest string                 `json:"corpusDigest"`
@@ -108,6 +131,7 @@ type rsJWK struct {
 	X          string  `json:"x"`
 	ValidFrom  *string `json:"valid_from"`
 	ValidUntil *string `json:"valid_until"`
+	RevokedAt  *string `json:"revoked_at"`
 }
 
 // rsJudging is what one Judge call carries between its steps.
@@ -212,7 +236,7 @@ func (j *rsJudging) checkKeySets() {
 // checkBareSet refuses a window in the set that is meant to carry none.
 func (j *rsJudging) checkBareSet() {
 	for _, kid := range sortedKeys(j.withoutW) {
-		if key := j.withoutW[kid]; key.ValidFrom != nil || key.ValidUntil != nil {
+		if key := j.withoutW[kid]; key.ValidFrom != nil || key.ValidUntil != nil || key.RevokedAt != nil {
 			j.find("the windowless key set carries a window on key %s", kid)
 		}
 	}
@@ -266,22 +290,116 @@ func (j *rsJudging) judgeMember(v rsVector) []string {
 	if err != nil {
 		return append(findings, err.Error())
 	}
-	if idFromBytes(body) != v.ID {
-		findings = append(findings, "identifier does not recompute from the receipt's own bytes")
+	ctx, bad := j.readContext(v)
+	if len(bad) > 0 {
+		return append(findings, bad...)
 	}
-	withW := rsVerify(body, j.withW)
-	if withW.String() != v.Expected.String() {
-		findings = append(findings, fmt.Sprintf(
-			"with the windowed key set the reference verification is %s and the manifest declares %s",
-			withW, v.Expected))
+	if preimage, perr := rsPreimage(j.dir, v); perr != nil || idFromBytes(preimage) != v.ID {
+		findings = append(findings, "identifier does not recompute from the member's own bytes")
 	}
-	withoutW := rsVerify(body, j.withoutW)
-	if withoutW.String() != v.ExpectedWithoutWindows.String() {
-		findings = append(findings, fmt.Sprintf(
-			"without the windows the reference verification is %s and the manifest declares %s",
-			withoutW, v.ExpectedWithoutWindows))
+	type pass struct {
+		label string
+		keys  map[string]rsJWK
+		draft rsOutcome
+	}
+	passes := []pass{
+		{"with the windowed key set", j.withW, v.Expected},
+		{"without the windows", j.withoutW, v.ExpectedWithoutWindows},
+	}
+	closed := []rsOutcome{v.Expected, v.ExpectedWithoutWindows}
+	if v.Kind == "gap" {
+		closed = []rsOutcome{rsOrAbsent(v.ExpectedIfGapClosed), rsOrAbsent(v.ExpectedIfGapClosedWithoutWindows)}
+	}
+	for i, p := range passes {
+		if got := rsVerifyInContext(body, p.keys, ctx, false); got.String() != p.draft.String() {
+			findings = append(findings, fmt.Sprintf(
+				"%s the reference verification is %s and the manifest declares %s", p.label, got, p.draft))
+		}
+		if got := rsVerifyInContext(body, p.keys, ctx, true); got.String() != closed[i].String() {
+			findings = append(findings, fmt.Sprintf(
+				"%s the reference verification with every gap closed is %s and the manifest declares %s",
+				p.label, got, closed[i]))
+		}
 	}
 	return append(findings, j.checkSignedInput(v, body)...)
+}
+
+// rsOrAbsent renders a missing outcome the way the Python reader does.
+func rsOrAbsent(o *rsOutcome) rsOutcome {
+	if o == nil {
+		return rsOutcome{Verdict: "absent"}
+	}
+	return *o
+}
+
+// readContext reads a member's context from disk: each chain receipt must be a
+// member presented without a context, and the commitment must be named after
+// its own bytes and come with the time it was logged.
+func (j *rsJudging) readContext(v rsVector) (*rsReadContext, []string) {
+	if v.Context == nil {
+		return nil, nil
+	}
+	if len(v.Context.Chain) == 0 {
+		return nil, []string{"carries a context that names no chain"}
+	}
+	plain := map[string]bool{}
+	for _, m := range j.manifest.Vectors {
+		if m.Context == nil {
+			plain[m.File] = true
+		}
+	}
+	var findings []string
+	ctx := &rsReadContext{loggedAt: v.Context.CommitmentLoggedAt}
+	for _, rel := range v.Context.Chain {
+		body, err := readIn(j.dir, rel)
+		if err != nil || !plain[rel] {
+			findings = append(findings, "its chain names "+rel+", which is not a member without a context")
+			continue
+		}
+		ctx.chain = append(ctx.chain, body)
+	}
+	if rel := v.Context.Commitment; rel != "" {
+		body, err := readIn(j.dir, rel)
+		switch {
+		case err != nil:
+			findings = append(findings, "its context names a commitment "+rel+" that does not exist")
+		case "context/c"+sha(body)[:16]+".json" != rel:
+			findings = append(findings, "its commitment "+rel+" is not named after its own bytes")
+		default:
+			ctx.commitment = body
+		}
+	}
+	if (v.Context.Commitment == "") != (v.Context.CommitmentLoggedAt == "") {
+		findings = append(findings, "its context names a commitment without a time, or a time without one")
+	}
+	return ctx, findings
+}
+
+// rsPreimage is what a member's identifier and the corpus digest hash: its
+// receipt's bytes and, for a member with a context, that context in RFC 8785
+// form and the bytes of the commitment it names.
+func rsPreimage(dir string, v rsVector) ([]byte, error) {
+	body, err := readIn(dir, v.File)
+	if err != nil || v.Context == nil {
+		return body, err
+	}
+	raw, err := json.Marshal(v.Context)
+	if err != nil {
+		return nil, err
+	}
+	canonical, err := aee.Canonicalize(raw)
+	if err != nil {
+		return nil, err
+	}
+	out := append(append([]byte{}, body...), canonical...)
+	if v.Context.Commitment == "" {
+		return out, nil
+	}
+	commitment, err := readIn(dir, v.Context.Commitment)
+	if err != nil {
+		return nil, err
+	}
+	return append(out, commitment...), nil
 }
 
 // checkDeclaration holds a member's kind to the level of what it cites.
@@ -291,7 +409,12 @@ func (j *rsJudging) checkDeclaration(v rsVector) []string {
 	}
 	levels, findings := j.conditionLevels(v)
 	findings = append(findings, j.unregisteredCodes(v)...)
+	if v.Kind != "gap" && (v.ExpectedIfGapClosed != nil || v.ExpectedIfGapClosedWithoutWindows != nil) {
+		findings = append(findings, "carries a gap-closed outcome, which only a gap member has")
+	}
 	switch v.Kind {
+	case "gap":
+		findings = append(findings, j.checkGap(v, levels)...)
 	case "accept":
 		findings = append(findings, rsCheckAccept(v)...)
 	case "reject":
@@ -324,7 +447,13 @@ func (j *rsJudging) conditionLevels(v rsVector) (map[string]bool, []string) {
 
 func (j *rsJudging) unregisteredCodes(v rsVector) []string {
 	var findings []string
-	for _, outcome := range []rsOutcome{v.Expected, v.ExpectedWithoutWindows} {
+	outcomes := []rsOutcome{v.Expected, v.ExpectedWithoutWindows}
+	for _, o := range []*rsOutcome{v.ExpectedIfNotHonoured, v.ExpectedIfGapClosed, v.ExpectedIfGapClosedWithoutWindows} {
+		if o != nil {
+			outcomes = append(outcomes, *o)
+		}
+	}
+	for _, outcome := range outcomes {
 		if outcome.Code == nil {
 			continue
 		}
@@ -342,6 +471,40 @@ func rsCheckAccept(v rsVector) []string {
 	}
 	if v.ExpectedIfNotHonoured != nil {
 		findings = append(findings, "is an accept member carrying expectedIfNotHonoured, which only a SHOULD member has")
+	}
+	return findings
+}
+
+// checkGap: a member whose verdict the draft decides and whose decision is the
+// gap. It cites gaps and no requirement, the draft accepts it in both passes,
+// and the rule that closes one of its gaps refuses it with that gap's code.
+func (j *rsJudging) checkGap(v rsVector, levels map[string]bool) []string {
+	var findings []string
+	gaps := map[string]bool{}
+	for _, c := range v.Conditions {
+		for _, g := range j.manifest.Conditions[c].Gaps {
+			gaps[g] = true
+		}
+	}
+	if len(levels) > 0 || len(gaps) == 0 {
+		findings = append(findings, "is a gap member whose conditions cite a requirement or no gap")
+	}
+	if v.Expected.Verdict != rsValid || v.ExpectedWithoutWindows.Verdict != rsValid {
+		findings = append(findings, "is a gap member the draft does not accept in both passes")
+	}
+	closed := v.ExpectedIfGapClosed
+	if closed == nil || closed.Verdict != rsInvalid || v.ExpectedIfGapClosedWithoutWindows == nil {
+		findings = append(findings, "is a gap member with no invalid outcome when the gap is closed")
+	}
+	named := false
+	for _, g := range j.manifest.Gaps {
+		named = named || (gaps[g.ID] && closed != nil && closed.Code != nil && *closed.Code == g.Code)
+	}
+	if closed != nil && !named {
+		findings = append(findings, "is a gap member closed with a code none of its gaps names")
+	}
+	if v.ExpectedIfNotHonoured != nil {
+		findings = append(findings, "is a gap member carrying expectedIfNotHonoured, which only a SHOULD member has")
 	}
 	return findings
 }
@@ -421,10 +584,8 @@ func (j *rsJudging) verifiesOver(env *rsEnvelope, signed []byte) bool {
 func (j *rsJudging) checkCorpus() error {
 	m := j.manifest
 	accepted, rejected, used := map[string]bool{}, map[string]bool{}, map[string]bool{}
-	measured := map[string]int{"accept": 0, "indeterminate": 0, "reject": 0}
-	ids, files := make([]string, 0, len(m.Vectors)), make([]string, 0, len(m.Vectors))
+	measured := map[string]int{"accept": 0, "gap": 0, "indeterminate": 0, "reject": 0}
 	for _, v := range m.Vectors {
-		ids, files = append(ids, v.ID), append(files, v.File)
 		if _, known := measured[v.Kind]; known {
 			measured[v.Kind]++
 		}
@@ -448,15 +609,31 @@ func (j *rsJudging) checkCorpus() error {
 	if bad := countsDisagree(m.Counts, measured); bad != "" {
 		j.find("%s", bad)
 	}
-	digest, err := orderedCorpusDigest(j.dir, ids, files)
+	digest, err := j.corpusDigest()
 	if err != nil {
 		return err
 	}
 	if digest != m.CorpusDigest {
 		j.find("corpusDigest does not match the receipt files on disk")
 	}
-	j.checkOrigin()
+	j.checkOrigins()
 	return nil
+}
+
+// corpusDigest is SHA-256 over every member's preimage in identifier order. A
+// file that cannot be read contributes nothing, so the digest disagrees and the
+// finding names the corpus rather than stopping the judgement.
+func (j *rsJudging) corpusDigest() (string, error) {
+	ordered := append([]rsVector{}, j.manifest.Vectors...)
+	sort.Slice(ordered, func(a, b int) bool { return ordered[a].ID < ordered[b].ID })
+	h := sha256.New()
+	for _, v := range ordered {
+		preimage, _ := rsPreimage(j.dir, v)
+		if _, err := h.Write(preimage); err != nil {
+			return "", err
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func (j *rsJudging) checkRequirementsCited() {
@@ -472,24 +649,38 @@ func (j *rsJudging) checkRequirementsCited() {
 	if idle := declaredMinusUsed(j.levels, cited); len(idle) > 0 {
 		j.find("requirements declared and cited by no condition: %v", idle)
 	}
+	j.checkGapsCited()
 }
 
-// checkOrigin holds the lifted members to the upstream digests the manifest
-// records, so "lifted unchanged" is a property the reader checks.
-func (j *rsJudging) checkOrigin() {
-	files := map[string]string{}
-	for _, v := range j.manifest.Vectors {
-		files[v.ID] = v.File
+// checkGapsCited: every gap a condition cites is declared, and every declared
+// gap is cited.
+func (j *rsJudging) checkGapsCited() {
+	declared, cited := map[string]bool{}, map[string]bool{}
+	for _, g := range j.manifest.Gaps {
+		declared[g.ID] = true
 	}
-	for _, o := range j.manifest.Origin.Members {
-		rel, ok := files[o.ID]
-		if !ok {
-			j.find("origin names %s as member %s and the manifest has no such member", o.UpstreamFile, o.ID)
-			continue
+	for _, name := range sortedKeys(j.manifest.Conditions) {
+		for _, g := range j.manifest.Conditions[name].Gaps {
+			if !declared[g] {
+				j.find("condition %s cites gap %s the manifest does not declare", name, g)
+			}
+			cited[g] = true
 		}
-		body, err := readIn(j.dir, rel)
-		if err != nil || sha(body) != o.Sha256 {
-			j.find("member %s is not the upstream bytes of %s", o.ID, o.UpstreamFile)
+	}
+	if idle := declaredMinusUsed(declared, cited); len(idle) > 0 {
+		j.find("gaps declared and cited by no condition: %v", idle)
+	}
+}
+
+// checkOrigins holds every lifted file to the upstream digest the manifest
+// records, so "lifted unchanged" is a property the reader checks.
+func (j *rsJudging) checkOrigins() {
+	for _, o := range j.manifest.Origins {
+		for _, m := range o.Members {
+			body, err := readIn(j.dir, m.File)
+			if err != nil || sha(body) != m.Sha256 {
+				j.find("%s is not the upstream bytes of %s/%s", m.File, o.Path, m.UpstreamFile)
+			}
 		}
 	}
 }
@@ -554,8 +745,9 @@ func rsPublicKey(key rsJWK) (ed25519.PublicKey, string) {
 
 // rsVerify is the reference verification: Sections 2.1, 2.2, 5.2, 6.6 and 9.2 of
 // draft-03, with the key resolved only from the external key set (Section 9.5)
-// and the window, where the key set publishes one, applied to issued_at.
-func rsVerify(body []byte, keys map[string]rsJWK) rsOutcome {
+// and the window, where the key set publishes one, applied to issued_at. With
+// gapClosed the closing rule of RS-G-001 applies after the window.
+func rsVerify(body []byte, keys map[string]rsJWK, gapClosed bool) rsOutcome {
 	env, fail := rsParse(body)
 	if fail != nil {
 		return *fail
@@ -581,7 +773,141 @@ func rsVerify(body []byte, keys map[string]rsJWK) rsOutcome {
 	if !ed25519.Verify(pub, canonical, env.sig) {
 		return rsResult(rsInvalid, "signature_invalid")
 	}
-	return rsWindow(env, key)
+	window := rsWindow(env, key)
+	if window.Verdict != rsValid || !gapClosed {
+		return window
+	}
+	return rsRevocation(env, key)
+}
+
+// rsRevocation is the closing rule of RS-G-001: a receipt issued at or after its
+// key's revoked_at is invalid.
+func rsRevocation(env *rsEnvelope, key rsJWK) rsOutcome {
+	if key.RevokedAt == nil {
+		return rsOutcome{Verdict: rsValid}
+	}
+	at, ok := rsInstant(env.fields["issued_at"])
+	revoked, err := time.Parse(time.RFC3339, *key.RevokedAt)
+	if !ok || err != nil {
+		return rsResult(rsUndecidable, "window_not_applicable")
+	}
+	if !at.Before(revoked) {
+		return rsResult(rsInvalid, "key_revoked")
+	}
+	return rsOutcome{Verdict: rsValid}
+}
+
+func rsInstant(raw json.RawMessage) (time.Time, bool) {
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return time.Time{}, false
+	}
+	at, err := time.Parse(time.RFC3339, value)
+	return at, err == nil
+}
+
+// rsReadContext is a member's context as read from disk.
+type rsReadContext struct {
+	chain      [][]byte
+	commitment []byte
+	loggedAt   string
+}
+
+// rsLink is Section 6.7: "sha256:" and the lowercase hex of SHA-256 over the
+// whole signed receipt in RFC 8785 form.
+func rsLink(body []byte) (string, bool) {
+	canonical, err := aee.Canonicalize(body)
+	if err != nil {
+		return "", false
+	}
+	return "sha256:" + sha(canonical), true
+}
+
+// rsPayloadString reads one string member of a receipt's payload.
+func rsPayloadString(body []byte, member string) (string, bool) {
+	env, fail := rsParse(body)
+	if fail != nil || env.fields[member] == nil {
+		return "", false
+	}
+	var value string
+	return value, json.Unmarshal(env.fields[member], &value) == nil
+}
+
+// rsVerifyInContext is the receipt, then its chain position (Section 6.7), then,
+// with the gap closed, the time of the commitment (RS-G-002).
+func rsVerifyInContext(body []byte, keys map[string]rsJWK, ctx *rsReadContext, gapClosed bool) rsOutcome {
+	alone := rsVerify(body, keys, gapClosed)
+	if alone.Verdict != rsValid || ctx == nil {
+		return alone
+	}
+	for _, element := range ctx.chain {
+		if rsVerify(element, keys, gapClosed).Verdict != rsValid {
+			return rsResult(rsUndecidable, "chain_element_not_valid")
+		}
+	}
+	receipts := append(append([][]byte{}, ctx.chain...), body)
+	for i := 1; i < len(receipts); i++ {
+		want, ok := rsLink(receipts[i-1])
+		got, present := rsPayloadString(receipts[i], "previousReceiptHash")
+		if !ok || !present || got != want {
+			return rsResult(rsInvalid, "chain_link_mismatch")
+		}
+	}
+	if !gapClosed || ctx.commitment == nil {
+		return rsOutcome{Verdict: rsValid}
+	}
+	return rsCommitmentTime(body, keys, ctx)
+}
+
+// rsCommitment is the payload of an issuer's commitment to a chain.
+type rsCommitment struct {
+	Count        *int64  `json:"count"`
+	TerminalHash *string `json:"terminal_hash"`
+}
+
+// rsCommitmentTime is the closing rule of RS-G-002: a commitment of count c
+// below this receipt's position p, whose terminal_hash is the link to position
+// c, logged at t, means the receipt was not issued before t.
+func rsCommitmentTime(body []byte, keys map[string]rsJWK, ctx *rsReadContext) rsOutcome {
+	notApplicable := rsResult(rsUndecidable, "commitment_not_applicable")
+	logged, err := time.Parse(time.RFC3339, ctx.loggedAt)
+	issuer, _ := rsPayloadString(body, "issuer_id")
+	env, fail := rsParse(ctx.commitment)
+	if err != nil || fail != nil || !rsSignedBy(env, keys, issuer) {
+		return notApplicable
+	}
+	var c rsCommitment
+	if json.Unmarshal(env.payload, &c) != nil || c.Count == nil || c.TerminalHash == nil || *c.Count < 1 {
+		return notApplicable
+	}
+	position := int64(len(ctx.chain) + 1)
+	if *c.Count >= position {
+		return rsOutcome{Verdict: rsValid}
+	}
+	if want, ok := rsLink(ctx.chain[*c.Count-1]); !ok || *c.TerminalHash != want {
+		return notApplicable
+	}
+	issuedEnv, _ := rsParse(body)
+	issued, ok := rsInstant(issuedEnv.fields["issued_at"])
+	if !ok {
+		return notApplicable
+	}
+	if issued.Before(logged) {
+		return rsResult(rsInvalid, "issued_at_precedes_excluding_commitment")
+	}
+	return rsOutcome{Verdict: rsValid}
+}
+
+// rsSignedBy reports whether the commitment is signed, over JCS of its payload,
+// by the receipt's issuer under the external key set.
+func rsSignedBy(env *rsEnvelope, keys map[string]rsJWK, issuer string) bool {
+	var claimed string
+	if json.Unmarshal(env.fields["issuer_id"], &claimed) != nil || claimed != issuer || env.kid != issuer {
+		return false
+	}
+	pub, bad := rsPublicKey(keys[env.kid])
+	canonical, err := aee.Canonicalize(env.payload)
+	return bad == "" && err == nil && env.sigHexOK && ed25519.Verify(pub, canonical, env.sig)
 }
 
 // rsPrecheck is everything decided before a key is resolved.
@@ -611,31 +937,25 @@ func rsPrecheck(env *rsEnvelope) *rsOutcome {
 // rsWindow applies the key's validity window: valid_from included, valid_until
 // excluded. A key with no window leaves the receipt valid.
 func rsWindow(env *rsEnvelope, key rsJWK) rsOutcome {
-	var issued string
-	if err := json.Unmarshal(env.fields["issued_at"], &issued); err != nil {
+	at, ok := rsInstant(env.fields["issued_at"])
+	if !ok {
 		return rsResult(rsUndecidable, "window_not_applicable")
 	}
-	at, err := time.Parse(time.RFC3339, issued)
-	if err != nil {
-		return rsResult(rsUndecidable, "window_not_applicable")
-	}
-	for _, bound := range []struct {
-		value  *string
-		inside func(time.Time) bool
-	}{
-		{key.ValidFrom, func(b time.Time) bool { return !at.Before(b) }},
-		{key.ValidUntil, func(b time.Time) bool { return at.Before(b) }},
-	} {
-		if bound.value == nil {
+	// Every bound is read before any is compared, so an unreadable bound is
+	// undecidable whichever side of the other bound issued_at falls on.
+	bounds := make([]*time.Time, 2)
+	for i, value := range []*string{key.ValidFrom, key.ValidUntil} {
+		if value == nil {
 			continue
 		}
-		b, err := time.Parse(time.RFC3339, *bound.value)
+		b, err := time.Parse(time.RFC3339, *value)
 		if err != nil {
 			return rsResult(rsUndecidable, "window_not_applicable")
 		}
-		if !bound.inside(b) {
-			return rsResult(rsInvalid, "key_outside_validity_window")
-		}
+		bounds[i] = &b
+	}
+	if (bounds[0] != nil && at.Before(*bounds[0])) || (bounds[1] != nil && !at.Before(*bounds[1])) {
+		return rsResult(rsInvalid, "key_outside_validity_window")
 	}
 	return rsOutcome{Verdict: rsValid}
 }

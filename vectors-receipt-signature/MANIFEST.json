@@ -9,50 +9,136 @@
   "keySets": {
     "withWindows": {
       "file": "keys/jwks.json",
-      "sha256": "d87ce8558523c32ed1ee6cd4204ddc02bd074c1f9e2f81161811dc9ccdb3ba1f"
+      "sha256": "5f48f37dea8f6cc4197b97ccbb2d39e5ac12a789d054d3b6dd8edf4e642de441"
     },
     "withoutWindows": {
       "file": "keys/jwks-no-window.json",
-      "sha256": "134748071cc4f8210e2d7b365c5868fa727620e25723acb9ae163417b1a57c23"
+      "sha256": "12943aab1abb1f3cc85c058bc2a2caf5245714cf516bbab171ae622fbcce8cd7"
     }
   },
-  "testKeys": "TEST ONLY. Each Ed25519 seed is SHA-256(\"agent-evidence-vectors/test-only/\" + label), labels \"key-A-superseded\" and \"key-B-current\"; the recipe is upstream's, kept so the lifted receipts stay byte-identical.",
-  "origin": {
-    "repository": "giskard09/argentum-core",
-    "commit": "541ce84b4f970c1dd3d9e53f2a4562dbbc354e46",
-    "path": "examples/conformance/farley-receipt-signature",
-    "author": "giskard09",
-    "indexSha256": "6b9460491cdf479a85d731b4a2c6fb4fef4dde862bba4c2ba3bb91b69e71e9ec",
-    "license": "Apache-2.0",
-    "members": [
-      {
-        "upstreamFile": "signature-input-drift.reject.json",
-        "id": "ve116653dd041dda0",
-        "sha256": "e116653dd041dda0d00164fae31d899a27baffc5c8ee8f5d649fbd7d95313c06"
-      },
-      {
-        "upstreamFile": "signature-input-drift.conformant.json",
-        "id": "v4f9fe96e52a39bfb",
-        "sha256": "4f9fe96e52a39bfb332e405381beeca347a3283a491cf81aaa51717ab84ec440"
-      },
-      {
-        "upstreamFile": "superseded-key.reject.json",
-        "id": "vc4b43c5739979581",
-        "sha256": "c4b43c5739979581d7ccac7275c2caf78754f53188ca22ac23ac32d3abaa5508"
-      },
-      {
-        "upstreamFile": "superseded-key.conformant.json",
-        "id": "vea8370fb85e1b4b1",
-        "sha256": "ea8370fb85e1b4b143d88e349fb38581f30a37a86b1d8bdc7539f2cae77cb1ee"
-      }
-    ],
-    "note": "giskard09 wrote the signature-input-drift and superseded-key cases, each a reject and its conformant twin, for this corpus. superseded-key is the stale-external-key case. The second expected outcome on the window member follows the scoring his suite adopted at this commit."
-  },
-  "grade": "Section 9.2 of draft-03 makes the window check a SHOULD, so a member whose only defect is the window is indeterminate here: a verifier given the windows that rejects it with key_outside_validity_window honours Section 9.2, one that accepts it is reported by name as not honouring it and is not failed, and one that rejects it without the windows, or with another code, fails. The draft's next revision makes the check a MUST (Section 5.5 of draft-farley-acta-signed-receipts-04, open as VeritasActa/drafts#3 and not yet on the datatracker). When that revision is published these members become reject members and the not-honouring case becomes a failure.",
+  "testKeys": "TEST ONLY. Keys A and B: each Ed25519 seed is SHA-256(\"agent-evidence-vectors/test-only/\" + label), labels \"key-A-superseded\" and \"key-B-current\", argentum-core's recipe. The keys test:revoked:ed25519, test:chained:ed25519 and test:signing-input:ed25519: seeds of 31 zero bytes and then 0x0c, 0x0d and 0x0e, the upstream test-vector suite's recipe. Both are kept so the lifted receipts stay byte-identical.",
+  "origins": [
+    {
+      "repository": "giskard09/argentum-core",
+      "commit": "541ce84b4f970c1dd3d9e53f2a4562dbbc354e46",
+      "path": "examples/conformance/farley-receipt-signature",
+      "author": "giskard09",
+      "indexSha256": "6b9460491cdf479a85d731b4a2c6fb4fef4dde862bba4c2ba3bb91b69e71e9ec",
+      "license": "Apache-2.0",
+      "members": [
+        {
+          "upstreamFile": "signature-input-drift.conformant.json",
+          "file": "receipts/v4f9fe96e52a39bfb.json",
+          "sha256": "4f9fe96e52a39bfb332e405381beeca347a3283a491cf81aaa51717ab84ec440"
+        },
+        {
+          "upstreamFile": "signature-input-drift.reject.json",
+          "file": "receipts/ve116653dd041dda0.json",
+          "sha256": "e116653dd041dda0d00164fae31d899a27baffc5c8ee8f5d649fbd7d95313c06"
+        },
+        {
+          "upstreamFile": "superseded-key.conformant.json",
+          "file": "receipts/vea8370fb85e1b4b1.json",
+          "sha256": "ea8370fb85e1b4b143d88e349fb38581f30a37a86b1d8bdc7539f2cae77cb1ee"
+        },
+        {
+          "upstreamFile": "superseded-key.reject.json",
+          "file": "receipts/vc4b43c5739979581.json",
+          "sha256": "c4b43c5739979581d7ccac7275c2caf78754f53188ca22ac23ac32d3abaa5508"
+        }
+      ],
+      "note": "giskard09 wrote the signature-input-drift and superseded-key cases, each a reject and its conformant twin, for this corpus. superseded-key is the stale-external-key case. The second expected outcome on the window member follows the scoring his suite adopted at this commit."
+    },
+    {
+      "repository": "ScopeBlind/agent-governance-testvectors",
+      "commit": "56801e37a0c9e668626959a267ac8cfa02e8c27d",
+      "path": "verifier-vectors/signing-input",
+      "author": "tomjwxf",
+      "pullRequest": "https://github.com/ScopeBlind/agent-governance-testvectors/pull/28",
+      "indexSha256": "ed261453923bf9e16809ebea8472e94bb5e3593ff482c38be9107610242182f8",
+      "license": "Apache-2.0",
+      "members": [
+        {
+          "upstreamFile": "empty-member.json",
+          "file": "receipts/v2c8c0aabb75e8aa0.json",
+          "sha256": "2c8c0aabb75e8aa05a9be71a864489b748ae0de97fb7b7f6afb09e4505533972"
+        },
+        {
+          "upstreamFile": "no-member.json",
+          "file": "receipts/vcc3cdb871ff27027.json",
+          "sha256": "cc3cdb871ff270270354e67eceda3a2855ccdd941b151e6fb3919350edb8d7a4"
+        },
+        {
+          "upstreamFile": "null-member.json",
+          "file": "receipts/v2e98d2f14251c8d6.json",
+          "sha256": "2e98d2f14251c8d650db34990ce3e2c7ff35932ae6f33d98f17f1ab5ac08b255"
+        },
+        {
+          "upstreamFile": "string-member.json",
+          "file": "receipts/v3bb98f09b3068de5.json",
+          "sha256": "3bb98f09b3068de56b076c70040d7f0d7283b107f15f62afe03b54e8bff86c95"
+        }
+      ],
+      "note": "tomjwxf wrote the signing-input family from this corpus's null-member case: the same Section 6.6 rule with the member null, the empty string and a string, and the twin without it."
+    },
+    {
+      "repository": "ScopeBlind/agent-governance-testvectors",
+      "commit": "56801e37a0c9e668626959a267ac8cfa02e8c27d",
+      "path": "verifier-vectors/revocation",
+      "author": "astrogilda",
+      "pullRequest": "https://github.com/ScopeBlind/agent-governance-testvectors/pull/27",
+      "indexSha256": "449a7683e6fcfcc86e172833fc33cabc72fa2f8b38b41cacd4f188cf43569ef4",
+      "license": "Apache-2.0",
+      "members": [
+        {
+          "upstreamFile": "after-revocation.json",
+          "file": "receipts/v9f2a63a5186a2fa8.json",
+          "sha256": "9f2a63a5186a2fa87a36a93c1b0236f605b90e11fd99b60139ae3d04df8be4a7"
+        },
+        {
+          "upstreamFile": "before-revocation.json",
+          "file": "receipts/v2f0a83c1364e52bc.json",
+          "sha256": "2f0a83c1364e52bc3e43f56bffa3e2c802855d1f033dff1f3434b0f6a6ac0b37"
+        }
+      ],
+      "note": "The revocation pair, written for the upstream suite and carried here so one command runs it in both."
+    },
+    {
+      "repository": "ScopeBlind/agent-governance-testvectors",
+      "commit": "56801e37a0c9e668626959a267ac8cfa02e8c27d",
+      "path": "verifier-vectors/timeliness",
+      "author": "astrogilda",
+      "pullRequest": "https://github.com/ScopeBlind/agent-governance-testvectors/pull/27",
+      "indexSha256": "bc22e9eaf1b0ea139e3e7a2f38585ca07deacdbd9223e54b7d892e243c68e4f8",
+      "license": "Apache-2.0",
+      "members": [
+        {
+          "upstreamFile": "commitment.json",
+          "file": "context/ce0cdbb366659fa7c.json",
+          "sha256": "e0cdbb366659fa7cc657742bca35ee4423308ac46da01d7d1b90bff1292219cd"
+        },
+        {
+          "upstreamFile": "genesis.json",
+          "file": "receipts/v0142580fad54af78.json",
+          "sha256": "0142580fad54af78b8aa87581c5db0d56862662e1832f0cb417c812a5a93e3cd"
+        },
+        {
+          "upstreamFile": "receipt.json",
+          "file": "receipts/v814de39bf68212fc.json",
+          "sha256": "814de39bf68212fcac67e73f7a68f1440b429c50e00dd7e8c6580b69dc6260b2"
+        }
+      ],
+      "note": "The timeliness case, written for the upstream suite: one receipt alone, and at chain position 2 against an issuer-signed commitment logged before or after its issued_at. Carried here so one command runs it in both."
+    }
+  ],
+  "grade": "Section 9.2 of draft-03 makes the window check a SHOULD, so a member whose only defect is the window is indeterminate here: a verifier given the windows that rejects it with key_outside_validity_window honours Section 9.2, one that accepts it is reported by name as not honouring it and is not failed, and one that rejects it without the windows, or with another code, fails. The draft's next revision makes the check a MUST (Section 5.5 of draft-farley-acta-signed-receipts-04, open as VeritasActa/drafts#3 and not yet on the datatracker). When that revision is published these members become reject members and the not-honouring case becomes a failure. A gap member is one whose verdict the draft decides and whose decision is the gap: a verifier passes it by answering the draft's verdict in both passes, and is reported by name as closing the gap when it answers the closing rule's verdict in both passes instead. Any other answer fails.",
   "codeRegistry": {
     "signature_invalid": "the signature does not verify over JCS(payload) under the key the external key set resolves for kid",
     "key_outside_validity_window": "issued_at is before the key's valid_from or at or after its valid_until",
-    "signature_in_signing_input": "the canonicalized object carries a signature member (Section 6.6)"
+    "signature_in_signing_input": "the canonicalized object carries a signature member (Section 6.6)",
+    "chain_link_mismatch": "previousReceiptHash is not \"sha256:\" and the hex of SHA-256(JCS(r)), where r is the receipt before it in the chain presented (Section 6.7)",
+    "key_revoked": "issued_at is at or after the key's revoked_at (RS-G-001, proposed)",
+    "issued_at_precedes_excluding_commitment": "issued_at is before the time a commitment that excludes the receipt's chain position was recorded (RS-G-002, proposed)"
   },
   "requirements": [
     {
@@ -89,6 +175,33 @@
       "level": "MUST",
       "sentence": "In either shape the object canonicalized MUST NOT contain a signature member, and that member MUST NOT be included as null or as the empty string",
       "sentenceDigest": "9c53821e2bda94fff389bbd766933f97070256929f1e15159f6df655ed341faa"
+    },
+    {
+      "id": "RS-R-006",
+      "section": "6.7",
+      "level": "MUST",
+      "sentence": "The previousReceiptHash field MUST be the string \"sha256:\" followed by the lowercase hex encoding of SHA-256(JCS(receipt)), where receipt is the entire signed receipt object including the signature member.",
+      "sentenceDigest": "254198f82dc47e1e879ad3025caf30542f625444d41d1b7391b1a6ea48d4744f"
+    }
+  ],
+  "gaps": [
+    {
+      "id": "RS-G-001",
+      "question": "Was the key revoked before the receipt was issued?",
+      "draftSays": "Nothing. No revision of the draft defines key revocation, so a revoked_at member on a key is read by no rule and a receipt signed after it verifies.",
+      "closingRule": "A key in the external key set may carry revoked_at. A receipt whose issued_at is at or after its key's revoked_at is invalid.",
+      "code": "key_revoked",
+      "proposedIn": "https://github.com/ScopeBlind/agent-governance-testvectors/pull/27",
+      "proposedFor": "draft-farley-acta-signed-receipts-05"
+    },
+    {
+      "id": "RS-G-002",
+      "question": "Was the receipt issued after a commitment its issuer recorded where the issuer cannot rewrite it?",
+      "draftSays": "Section 9.7 defines a commitment, signed by the issuer, to the number of receipts in a chain and its terminal hash. No rule reads when the commitment was recorded, so the receipt's issued_at, which the signer asserts, is the only time it carries.",
+      "closingRule": "A receipt at chain position p, with an issuer-signed commitment of count c less than p whose terminal_hash is the link to position c, recorded at commitmentLoggedAt somewhere the issuer cannot rewrite, was not issued before commitmentLoggedAt. If its issued_at is earlier, it is invalid.",
+      "code": "issued_at_precedes_excluding_commitment",
+      "proposedIn": "https://github.com/ScopeBlind/agent-governance-testvectors/pull/27",
+      "proposedFor": "draft-farley-acta-signed-receipts-05"
     }
   ],
   "conditions": {
@@ -124,19 +237,59 @@
       ]
     },
     "rs-c-6": {
-      "requires": "A payload that carries a signature member, null included, is refused even though a signature over its canonical bytes verifies.",
+      "requires": "A payload that carries a signature member, whatever its value (null, the empty string, a string), is refused even though a signature over its canonical bytes verifies.",
       "requirements": [
         "RS-R-005"
+      ]
+    },
+    "rs-c-7": {
+      "requires": "A receipt signed inside its key's window and after the key's revoked_at verifies under the draft. A verifier that reads revoked_at refuses it; the same receipt issued before revoked_at verifies either way.",
+      "requirements": [],
+      "gaps": [
+        "RS-G-001"
+      ]
+    },
+    "rs-c-8": {
+      "requires": "A receipt presented at a chain position carries, in previousReceiptHash, the link to the receipt before it in that chain. A chain whose previous receipt is some other receipt is refused.",
+      "requirements": [
+        "RS-R-006"
+      ]
+    },
+    "rs-c-9": {
+      "requires": "One receipt, alone and at chain position 2, against an issuer-signed commitment to a chain of one logged before or after its issued_at. The draft accepts all of them; a verifier that reads the commitment's time refuses the one the commitment contradicts.",
+      "requirements": [],
+      "gaps": [
+        "RS-G-002"
       ]
     }
   },
   "counts": {
-    "accept": 6,
+    "accept": 12,
+    "gap": 2,
     "indeterminate": 3,
-    "reject": 4
+    "reject": 8
   },
-  "corpusDigest": "07845b4582146c42a1482824e76c0b8e04043efed880f37e613459574766310e",
+  "corpusDigest": "cb490284f25c5eebc0a91c7776e6f195ae571c4f7dce029ae437128fce03a6ae",
   "vectors": [
+    {
+      "id": "v0142580fad54af78",
+      "kind": "accept",
+      "file": "receipts/v0142580fad54af78.json",
+      "conditions": [
+        "rs-c-8"
+      ],
+      "keyId": "test:chained:ed25519",
+      "expected": {
+        "verdict": "valid",
+        "code": null
+      },
+      "expectedWithoutWindows": {
+        "verdict": "valid",
+        "code": null
+      },
+      "signedInputHex": "7b226465636973696f6e223a22616c6c6f77222c226973737565645f6174223a22323032362d30312d31305430303a30303a30305a222c226973737565725f6964223a22746573743a636861696e65643a65643235353139222c22706f6c6963795f646967657374223a227368613235363a38636139326637646661616636663466656538386633383932636437313232616234383931326330663936363666373064663739623239373336323762383838222c22746f6f6c5f6e616d65223a22726561645f66696c65222c2274797065223a2270726f746563746d63703a6465636973696f6e227d",
+      "cites": "the first receipt of the chain, which carries no link."
+    },
     {
       "id": "v03377fbbac6d12f8",
       "kind": "accept",
@@ -193,6 +346,82 @@
       },
       "signedInputHex": "7b227061796c6f6164223a7b226465636973696f6e223a22616c6c6f77222c226973737565645f6174223a22323032362d30372d31355431323a30303a30305a222c226973737565725f6964223a2273623a6973737565723a337a3275566777364c5a5972222c22706f6c6963795f646967657374223a227368613235363a38636139326637646661616636663466656538386633383932636437313232616234383931326330663936363666373064663739623239373336323762383838222c22746f6f6c5f6e616d65223a227265636f7264732e64656c657465222c2274797065223a2270726f746563746d63703a6465636973696f6e227d7d",
       "cites": "an envelope receipt signed under the flat rule: the receipt with its signature member removed, canonicalized, which for an envelope is JCS({\"payload\": payload}). A verifier that applies one rule to both shapes accepts it and refuses its twin."
+    },
+    {
+      "id": "v2c8c0aabb75e8aa0",
+      "kind": "reject",
+      "file": "receipts/v2c8c0aabb75e8aa0.json",
+      "conditions": [
+        "rs-c-6"
+      ],
+      "keyId": "test:signing-input:ed25519",
+      "expected": {
+        "verdict": "invalid",
+        "code": "signature_in_signing_input"
+      },
+      "expectedWithoutWindows": {
+        "verdict": "invalid",
+        "code": "signature_in_signing_input"
+      },
+      "signedInputHex": "7b226465636973696f6e223a22616c6c6f77222c226973737565645f6174223a22323032362d30372d31355431323a30303a30305a222c226973737565725f6964223a22746573743a7369676e696e672d696e7075743a65643235353139222c22706f6c6963795f646967657374223a227368613235363a38636139326637646661616636663466656538386633383932636437313232616234383931326330663936363666373064663739623239373336323762383838222c227369676e6174757265223a22222c22746f6f6c5f6e616d65223a227265636f7264732e7368617265222c2274797065223a2270726f746563746d63703a6465636973696f6e227d",
+      "cites": "the payload carries \"signature\": \"\", which Section 6.6 names beside null. The signature over JCS(payload) verifies."
+    },
+    {
+      "id": "v2e98d2f14251c8d6",
+      "kind": "reject",
+      "file": "receipts/v2e98d2f14251c8d6.json",
+      "conditions": [
+        "rs-c-6"
+      ],
+      "keyId": "test:signing-input:ed25519",
+      "expected": {
+        "verdict": "invalid",
+        "code": "signature_in_signing_input"
+      },
+      "expectedWithoutWindows": {
+        "verdict": "invalid",
+        "code": "signature_in_signing_input"
+      },
+      "signedInputHex": "7b226465636973696f6e223a22616c6c6f77222c226973737565645f6174223a22323032362d30372d31355431323a30303a30305a222c226973737565725f6964223a22746573743a7369676e696e672d696e7075743a65643235353139222c22706f6c6963795f646967657374223a227368613235363a38636139326637646661616636663466656538386633383932636437313232616234383931326330663936363666373064663739623239373336323762383838222c227369676e6174757265223a6e756c6c2c22746f6f6c5f6e616d65223a227265636f7264732e7368617265222c2274797065223a2270726f746563746d63703a6465636973696f6e227d",
+      "cites": "the payload carries \"signature\": null, under the upstream suite's key."
+    },
+    {
+      "id": "v2f0a83c1364e52bc",
+      "kind": "accept",
+      "file": "receipts/v2f0a83c1364e52bc.json",
+      "conditions": [
+        "rs-c-7"
+      ],
+      "keyId": "test:revoked:ed25519",
+      "expected": {
+        "verdict": "valid",
+        "code": null
+      },
+      "expectedWithoutWindows": {
+        "verdict": "valid",
+        "code": null
+      },
+      "signedInputHex": "7b226465636973696f6e223a22616c6c6f77222c226973737565645f6174223a22323032362d30332d31355430303a30303a30305a222c226973737565725f6964223a22746573743a7265766f6b65643a65643235353139222c22706f6c6963795f646967657374223a227368613235363a38636139326637646661616636663466656538386633383932636437313232616234383931326330663936363666373064663739623239373336323762383838222c22746f6f6c5f6e616d65223a22726561645f66696c65222c2274797065223a2270726f746563746d63703a6465636973696f6e227d",
+      "cites": "issued inside the key's window and before its revoked_at. Every verifier accepts it."
+    },
+    {
+      "id": "v3bb98f09b3068de5",
+      "kind": "reject",
+      "file": "receipts/v3bb98f09b3068de5.json",
+      "conditions": [
+        "rs-c-6"
+      ],
+      "keyId": "test:signing-input:ed25519",
+      "expected": {
+        "verdict": "invalid",
+        "code": "signature_in_signing_input"
+      },
+      "expectedWithoutWindows": {
+        "verdict": "invalid",
+        "code": "signature_in_signing_input"
+      },
+      "signedInputHex": "7b226465636973696f6e223a22616c6c6f77222c226973737565645f6174223a22323032362d30372d31355431323a30303a30305a222c226973737565725f6964223a22746573743a7369676e696e672d696e7075743a65643235353139222c22706f6c6963795f646967657374223a227368613235363a38636139326637646661616636663466656538386633383932636437313232616234383931326330663936363666373064663739623239373336323762383838222c227369676e6174757265223a226e6f7420746865207369676e6174757265222c22746f6f6c5f6e616d65223a227265636f7264732e7368617265222c2274797065223a2270726f746563746d63703a6465636973696f6e227d",
+      "cites": "the payload carries a signature member holding a string: any value is refused."
     },
     {
       "id": "v4ec9fa36ae77ce07",
@@ -256,6 +485,113 @@
       "cites": "the payload carries \"signature\": null and the signature is over JCS of that payload, so the signature verifies. Only the rule that the canonicalized object carries no signature member, not even as null, refuses it."
     },
     {
+      "id": "v6d872b14889dc9e2",
+      "kind": "gap",
+      "file": "receipts/v814de39bf68212fc.json",
+      "context": {
+        "chain": [
+          "receipts/v0142580fad54af78.json"
+        ],
+        "commitment": "context/ce0cdbb366659fa7c.json",
+        "commitmentLoggedAt": "2026-03-01T00:00:00Z"
+      },
+      "conditions": [
+        "rs-c-9"
+      ],
+      "keyId": "test:chained:ed25519",
+      "expected": {
+        "verdict": "valid",
+        "code": null
+      },
+      "expectedWithoutWindows": {
+        "verdict": "valid",
+        "code": null
+      },
+      "expectedIfGapClosed": {
+        "verdict": "invalid",
+        "code": "issued_at_precedes_excluding_commitment"
+      },
+      "expectedIfGapClosedWithoutWindows": {
+        "verdict": "invalid",
+        "code": "issued_at_precedes_excluding_commitment"
+      },
+      "signedInputHex": "7b226465636973696f6e223a22616c6c6f77222c226973737565645f6174223a22323032362d30322d31355430303a30303a30305a222c226973737565725f6964223a22746573743a636861696e65643a65643235353139222c22706f6c6963795f646967657374223a227368613235363a38636139326637646661616636663466656538386633383932636437313232616234383931326330663936363666373064663739623239373336323762383838222c2270726576696f75735265636569707448617368223a227368613235363a36633162313966353661666463336531663236303062663439383439333737393165366638373538613166383561363332393532323335653562396461643134222c22746f6f6c5f6e616d65223a227061796d656e74732e7472616e73666572222c2274797065223a2270726f746563746d63703a6465636973696f6e227d",
+      "cites": "position 2, and on 1 March the issuer committed to a chain of one, so position 2 did not exist then. The receipt's issued_at of 15 February is contradicted by the issuer's own commitment. The draft reads neither the commitment nor its time, so it verifies."
+    },
+    {
+      "id": "v75158ebfd05a56e5",
+      "kind": "accept",
+      "file": "receipts/v814de39bf68212fc.json",
+      "context": {
+        "chain": [
+          "receipts/v0142580fad54af78.json"
+        ],
+        "commitment": "context/ce0cdbb366659fa7c.json",
+        "commitmentLoggedAt": "2026-02-01T00:00:00Z"
+      },
+      "conditions": [
+        "rs-c-8",
+        "rs-c-9"
+      ],
+      "keyId": "test:chained:ed25519",
+      "expected": {
+        "verdict": "valid",
+        "code": null
+      },
+      "expectedWithoutWindows": {
+        "verdict": "valid",
+        "code": null
+      },
+      "signedInputHex": "7b226465636973696f6e223a22616c6c6f77222c226973737565645f6174223a22323032362d30322d31355430303a30303a30305a222c226973737565725f6964223a22746573743a636861696e65643a65643235353139222c22706f6c6963795f646967657374223a227368613235363a38636139326637646661616636663466656538386633383932636437313232616234383931326330663936363666373064663739623239373336323762383838222c2270726576696f75735265636569707448617368223a227368613235363a36633162313966353661666463336531663236303062663439383439333737393165366638373538613166383561363332393532323335653562396461643134222c22746f6f6c5f6e616d65223a227061796d656e74732e7472616e73666572222c2274797065223a2270726f746563746d63703a6465636973696f6e227d",
+      "cites": "the conformant twin: the same receipt and the same signed commitment, logged on 1 February, before issued_at. The receipt is now bounded below."
+    },
+    {
+      "id": "v814de39bf68212fc",
+      "kind": "accept",
+      "file": "receipts/v814de39bf68212fc.json",
+      "conditions": [
+        "rs-c-9"
+      ],
+      "keyId": "test:chained:ed25519",
+      "expected": {
+        "verdict": "valid",
+        "code": null
+      },
+      "expectedWithoutWindows": {
+        "verdict": "valid",
+        "code": null
+      },
+      "signedInputHex": "7b226465636973696f6e223a22616c6c6f77222c226973737565645f6174223a22323032362d30322d31355430303a30303a30305a222c226973737565725f6964223a22746573743a636861696e65643a65643235353139222c22706f6c6963795f646967657374223a227368613235363a38636139326637646661616636663466656538386633383932636437313232616234383931326330663936363666373064663739623239373336323762383838222c2270726576696f75735265636569707448617368223a227368613235363a36633162313966353661666463336531663236303062663439383439333737393165366638373538613166383561363332393532323335653562396461643134222c22746f6f6c5f6e616d65223a227061796d656e74732e7472616e73666572222c2274797065223a2270726f746563746d63703a6465636973696f6e227d",
+      "cites": "the receipt alone. Its signature verifies, and its issued_at is the signer's word with nothing bounding it."
+    },
+    {
+      "id": "v9f2a63a5186a2fa8",
+      "kind": "gap",
+      "file": "receipts/v9f2a63a5186a2fa8.json",
+      "conditions": [
+        "rs-c-7"
+      ],
+      "keyId": "test:revoked:ed25519",
+      "expected": {
+        "verdict": "valid",
+        "code": null
+      },
+      "expectedWithoutWindows": {
+        "verdict": "valid",
+        "code": null
+      },
+      "expectedIfGapClosed": {
+        "verdict": "invalid",
+        "code": "key_revoked"
+      },
+      "expectedIfGapClosedWithoutWindows": {
+        "verdict": "valid",
+        "code": null
+      },
+      "signedInputHex": "7b226465636973696f6e223a22616c6c6f77222c226973737565645f6174223a22323032362d30352d31355430303a30303a30305a222c226973737565725f6964223a22746573743a7265766f6b65643a65643235353139222c22706f6c6963795f646967657374223a227368613235363a38636139326637646661616636663466656538386633383932636437313232616234383931326330663936363666373064663739623239373336323762383838222c22746f6f6c5f6e616d65223a22726561645f66696c65222c2274797065223a2270726f746563746d63703a6465636973696f6e227d",
+      "cites": "issued inside the key's window and six weeks after its revoked_at. The draft defines no revocation, so it verifies; a verifier that reads revoked_at refuses it. issued_at is the signer's word, so a holder of the revoked key who dates a receipt earlier passes either way: rs-c-9 is what bounds it."
+    },
+    {
       "id": "vaafe541bbd74c320",
       "kind": "accept",
       "file": "receipts/vaafe541bbd74c320.json",
@@ -273,6 +609,30 @@
       },
       "signedInputHex": "7b226465636973696f6e223a22616c6c6f77222c226973737565645f6174223a22323032362d30372d31355431323a30303a30305a222c226973737565725f6964223a2273623a6973737565723a337a3275566777364c5a5972222c22706f6c6963795f646967657374223a227368613235363a38636139326637646661616636663466656538386633383932636437313232616234383931326330663936363666373064663739623239373336323762383838222c22746f6f6c5f6e616d65223a227265636f7264732e64656c657465222c2274797065223a2270726f746563746d63703a6465636973696f6e227d",
       "cites": "the same payload, signed under the envelope rule over JCS(payload)."
+    },
+    {
+      "id": "vab0c4dde2038340e",
+      "kind": "accept",
+      "file": "receipts/v814de39bf68212fc.json",
+      "context": {
+        "chain": [
+          "receipts/v0142580fad54af78.json"
+        ]
+      },
+      "conditions": [
+        "rs-c-8"
+      ],
+      "keyId": "test:chained:ed25519",
+      "expected": {
+        "verdict": "valid",
+        "code": null
+      },
+      "expectedWithoutWindows": {
+        "verdict": "valid",
+        "code": null
+      },
+      "signedInputHex": "7b226465636973696f6e223a22616c6c6f77222c226973737565645f6174223a22323032362d30322d31355430303a30303a30305a222c226973737565725f6964223a22746573743a636861696e65643a65643235353139222c22706f6c6963795f646967657374223a227368613235363a38636139326637646661616636663466656538386633383932636437313232616234383931326330663936363666373064663739623239373336323762383838222c2270726576696f75735265636569707448617368223a227368613235363a36633162313966353661666463336531663236303062663439383439333737393165366638373538613166383561363332393532323335653562396461643134222c22746f6f6c5f6e616d65223a227061796d656e74732e7472616e73666572222c2274797065223a2270726f746563746d63703a6465636973696f6e227d",
+      "cites": "the same receipt at chain position 2 after the receipt its link names."
     },
     {
       "id": "vad088133176d7114",
@@ -359,6 +719,25 @@
       "cites": "a valid signature under key A with issued_at after key A's valid_until. issued_at is asserted by the signer, so this catches a key still in use after an honest rotation, not a compromised key dated into its window. This is the stale-external-key case."
     },
     {
+      "id": "vcc3cdb871ff27027",
+      "kind": "accept",
+      "file": "receipts/vcc3cdb871ff27027.json",
+      "conditions": [
+        "rs-c-6"
+      ],
+      "keyId": "test:signing-input:ed25519",
+      "expected": {
+        "verdict": "valid",
+        "code": null
+      },
+      "expectedWithoutWindows": {
+        "verdict": "valid",
+        "code": null
+      },
+      "signedInputHex": "7b226465636973696f6e223a22616c6c6f77222c226973737565645f6174223a22323032362d30372d31355431323a30303a30305a222c226973737565725f6964223a22746573743a7369676e696e672d696e7075743a65643235353139222c22706f6c6963795f646967657374223a227368613235363a38636139326637646661616636663466656538386633383932636437313232616234383931326330663936363666373064663739623239373336323762383838222c22746f6f6c5f6e616d65223a227265636f7264732e7368617265222c2274797065223a2270726f746563746d63703a6465636973696f6e227d",
+      "cites": "the twin of the three above: the same fields with no signature member."
+    },
+    {
       "id": "ve116653dd041dda0",
       "kind": "reject",
       "file": "receipts/ve116653dd041dda0.json",
@@ -376,6 +755,30 @@
       },
       "signedInputHex": "7b0a20202274797065223a202270726f746563746d63703a6465636973696f6e222c0a2020226973737565645f6174223a2022323032362d30372d31355431323a30303a30305a222c0a2020226973737565725f6964223a202273623a6973737565723a337a3275566777364c5a5972222c0a202022746f6f6c5f6e616d65223a20227061796d656e74732e7472616e73666572222c0a2020226465636973696f6e223a2022616c6c6f77222c0a202022706f6c6963795f646967657374223a20227368613235363a38636139326637646661616636663466656538386633383932636437313232616234383931326330663936363666373064663739623239373336323762383838220a7d",
       "cites": "signed over the pretty-printed payload bytes, Python json.dumps(payload, indent=2), and not over JCS(payload). The signature verifies over the bytes it was made over and fails over the bytes a verifier must recompute."
+    },
+    {
+      "id": "ve24bce7210cacee9",
+      "kind": "reject",
+      "file": "receipts/v814de39bf68212fc.json",
+      "context": {
+        "chain": [
+          "receipts/v2f0a83c1364e52bc.json"
+        ]
+      },
+      "conditions": [
+        "rs-c-8"
+      ],
+      "keyId": "test:chained:ed25519",
+      "expected": {
+        "verdict": "invalid",
+        "code": "chain_link_mismatch"
+      },
+      "expectedWithoutWindows": {
+        "verdict": "invalid",
+        "code": "chain_link_mismatch"
+      },
+      "signedInputHex": "7b226465636973696f6e223a22616c6c6f77222c226973737565645f6174223a22323032362d30322d31355430303a30303a30305a222c226973737565725f6964223a22746573743a636861696e65643a65643235353139222c22706f6c6963795f646967657374223a227368613235363a38636139326637646661616636663466656538386633383932636437313232616234383931326330663936363666373064663739623239373336323762383838222c2270726576696f75735265636569707448617368223a227368613235363a36633162313966353661666463336531663236303062663439383439333737393165366638373538613166383561363332393532323335653562396461643134222c22746f6f6c5f6e616d65223a227061796d656e74732e7472616e73666572222c2274797065223a2270726f746563746d63703a6465636973696f6e227d",
+      "cites": "the same receipt at chain position 2 after a receipt that is not the one its link names. Every signature verifies; only the Section 6.7 link refuses the chain."
     },
     {
       "id": "vea8370fb85e1b4b1",

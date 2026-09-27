@@ -37,6 +37,7 @@ func receiptSignatureFindings() []findingCase {
 	cases = append(cases, rsKeySetFindings(dir, edit)...)
 	cases = append(cases, rsDeclarationFindings(dir, edit)...)
 	cases = append(cases, rsMemberFindings(dir, edit)...)
+	cases = append(cases, rsGapFindings(dir, edit)...)
 	return append(cases, rsCorpusFindings(dir, edit)...)
 }
 
@@ -130,7 +131,7 @@ func rsKeySetFindings(dir string, edit rsEdit) []findingCase {
 		}), "the key sets disagree on key"},
 		{"rs/keyset-sizes", dir, keysEdit("withoutWindows", func(keys []any) []any {
 			return keys[:1]
-		}), "the key sets carry 2 and 1 keys"},
+		}), "the key sets carry 5 and 1 keys"},
 		{"rs/keyset-bare-windowed", dir, keysEdit("withoutWindows", func(keys []any) []any {
 			keys[0].(map[string]any)["valid_until"] = "2026-06-01T00:00:00Z"
 			return keys
@@ -219,7 +220,7 @@ func rsMemberFindings(dir string, edit rsEdit) []findingCase {
 				}
 				writeFile(t, d, rel, string(raw)+"\n")
 			})
-		}, "identifier does not recompute from the receipt's own bytes"},
+		}, "identifier does not recompute from the member's own bytes"},
 		{"rs/windowed-outcome", dir, edit(func(t *testing.T, _ string, m map[string]any) {
 			setDeep(t, rsRow(t, m, "indeterminate"), "signature_invalid", "expected", "code")
 		}), "with the windowed key set the reference verification is"},
@@ -257,7 +258,7 @@ func rsCorpusFindings(dir string, edit rsEdit) []findingCase {
 			m["vectors"] = kept
 		}), "conditions that are refused and never accepted"},
 		{"rs/idle-condition", dir, edit(func(_ *testing.T, _ string, m map[string]any) {
-			m["conditions"].(map[string]any)["rs-c-9"] = map[string]any{"requirements": []any{"RS-R-001"}}
+			m["conditions"].(map[string]any)["rs-c-99"] = map[string]any{"requirements": []any{"RS-R-001"}}
 		}), "conditions declared and carried by no member"},
 		{"rs/undeclared-requirement", dir, edit(func(_ *testing.T, _ string, m map[string]any) {
 			cond := m["conditions"].(map[string]any)["rs-c-1"].(map[string]any)
@@ -271,13 +272,75 @@ func rsCorpusFindings(dir string, edit rsEdit) []findingCase {
 			extra["id"] = "RS-R-009"
 			m["requirements"] = append(rsList(t, m, "requirements"), extra)
 		}), "requirements declared and cited by no condition"},
-		{"rs/origin-unknown-member", dir, edit(func(t *testing.T, _ string, m map[string]any) {
-			origin := m["origin"].(map[string]any)
-			rsList(t, origin, "members")[0].(map[string]any)["id"] = "v0000000000000000"
-		}), "and the manifest has no such member"},
 		{"rs/origin-not-upstream", dir, edit(func(t *testing.T, _ string, m map[string]any) {
-			origin := m["origin"].(map[string]any)
+			origin := rsList(t, m, "origins")[0].(map[string]any)
 			rsList(t, origin, "members")[0].(map[string]any)["sha256"] = zeros()
 		}), "is not the upstream bytes of"},
+		{"rs/undeclared-gap", dir, edit(func(_ *testing.T, _ string, m map[string]any) {
+			cond := m["conditions"].(map[string]any)["rs-c-7"].(map[string]any)
+			cond["gaps"] = []any{"RS-G-001", "RS-G-999"}
+		}), "cites gap RS-G-999 the manifest does not declare"},
+		{"rs/uncited-gap", dir, edit(func(t *testing.T, _ string, m map[string]any) {
+			extra := map[string]any{"id": "RS-G-009", "code": "key_revoked"}
+			m["gaps"] = append(rsList(t, m, "gaps"), extra)
+		}), "gaps declared and cited by no condition"},
+	}
+}
+
+// rsContextRow is the first member presented with a context that names a commitment.
+func rsContextRow(t *testing.T, m map[string]any) map[string]any {
+	t.Helper()
+	return firstRowWhere(t, m, func(row map[string]any) bool {
+		ctx, _ := row["context"].(map[string]any)
+		return ctx != nil && ctx["commitment"] != nil
+	})
+}
+
+func rsGapFindings(dir string, edit rsEdit) []findingCase {
+	valid := map[string]any{"verdict": "valid", "code": nil}
+	return []findingCase{
+		{"rs/gap-cites-requirement", dir, edit(func(t *testing.T, _ string, m map[string]any) {
+			rsRow(t, m, "gap")["conditions"] = []any{"rs-c-1"}
+		}), "is a gap member whose conditions cite a requirement or no gap"},
+		{"rs/gap-draft-refuses", dir, edit(func(t *testing.T, _ string, m map[string]any) {
+			setDeep(t, rsRow(t, m, "gap"), "invalid", "expected", "verdict")
+		}), "is a gap member the draft does not accept in both passes"},
+		{"rs/gap-closed-valid", dir, edit(func(t *testing.T, _ string, m map[string]any) {
+			rsRow(t, m, "gap")["expectedIfGapClosed"] = valid
+		}), "is a gap member with no invalid outcome when the gap is closed"},
+		{"rs/gap-closed-other-code", dir, edit(func(t *testing.T, _ string, m map[string]any) {
+			setDeep(t, rsRow(t, m, "gap"), "signature_invalid", "expectedIfGapClosed", "code")
+		}), "is a gap member closed with a code none of its gaps names"},
+		{"rs/gap-second-outcome", dir, edit(func(t *testing.T, _ string, m map[string]any) {
+			rsRow(t, m, "gap")["expectedIfNotHonoured"] = valid
+		}), "is a gap member carrying expectedIfNotHonoured"},
+		{"rs/accept-gap-outcome", dir, edit(func(t *testing.T, _ string, m map[string]any) {
+			rsRow(t, m, "accept")["expectedIfGapClosed"] = valid
+		}), "carries a gap-closed outcome, which only a gap member has"},
+		{"rs/gap-closed-outcome", dir, edit(func(t *testing.T, _ string, m map[string]any) {
+			setDeep(t, rsRow(t, m, "gap"), "valid", "expectedIfGapClosedWithoutWindows", "verdict")
+			setDeep(t, rsRow(t, m, "gap"), nil, "expectedIfGapClosedWithoutWindows", "code")
+		}), "the reference verification with every gap closed is"},
+		{"rs/context-no-chain", dir, edit(func(t *testing.T, _ string, m map[string]any) {
+			rsContextRow(t, m)["context"].(map[string]any)["chain"] = []any{}
+		}), "carries a context that names no chain"},
+		{"rs/context-chain-not-member", dir, edit(func(t *testing.T, _ string, m map[string]any) {
+			rsContextRow(t, m)["context"].(map[string]any)["chain"] = []any{"receipts/v0000000000000000.json"}
+		}), "which is not a member without a context"},
+		{"rs/context-commitment-gone", dir, edit(func(t *testing.T, d string, m map[string]any) {
+			removeFile(t, d, rsContextRow(t, m)["context"].(map[string]any)["commitment"].(string))
+		}), "that does not exist"},
+		{"rs/context-commitment-renamed", dir, edit(func(t *testing.T, d string, m map[string]any) {
+			ctx := rsContextRow(t, m)["context"].(map[string]any)
+			raw, err := os.ReadFile(filepath.Join(d, ctx["commitment"].(string))) // #nosec G304 -- a test editing its own copy
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, d, "context/c0000000000000000.json", string(raw))
+			ctx["commitment"] = "context/c0000000000000000.json"
+		}), "is not named after its own bytes"},
+		{"rs/context-commitment-untimed", dir, edit(func(t *testing.T, _ string, m map[string]any) {
+			delete(rsContextRow(t, m)["context"].(map[string]any), "commitmentLoggedAt")
+		}), "names a commitment without a time, or a time without one"},
 	}
 }

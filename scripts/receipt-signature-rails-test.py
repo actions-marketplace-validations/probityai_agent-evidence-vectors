@@ -85,7 +85,50 @@ def windowed_bare_set(corpus: Path) -> None:
 
 def forged_origin(corpus: Path) -> None:
     manifest = manifest_of(corpus)
-    manifest["origin"]["members"][0]["sha256"] = "0" * 64
+    manifest["origins"][0]["members"][0]["sha256"] = "0" * 64
+    write_manifest(corpus, manifest)
+
+
+def gap_relabelled_accept(corpus: Path) -> None:
+    manifest = manifest_of(corpus)
+    first(manifest, "gap")["kind"] = "accept"
+    write_manifest(corpus, manifest)
+
+
+def gap_closed_with_another_code(corpus: Path) -> None:
+    manifest = manifest_of(corpus)
+    first(manifest, "gap")["expectedIfGapClosed"]["code"] = "key_outside_validity_window"
+    write_manifest(corpus, manifest)
+
+
+def commitment_byte_flipped(corpus: Path) -> None:
+    """The commitment's signature, one hex digit, so the file stays JSON."""
+    path = next((corpus / "context").iterdir())
+    body = path.read_text(encoding="utf-8")
+    at = body.index('"sig": "') + len('"sig": "')
+    path.write_text(body[:at] + ("1" if body[at] != "1" else "2") + body[at + 1:], encoding="utf-8")
+
+
+def logged_at_moved(corpus: Path) -> None:
+    """The contradicted commitment moved before issued_at: the gap member no longer
+    refuses when the gap is closed, and its identifier no longer recomputes."""
+    manifest = manifest_of(corpus)
+    member = next(v for v in manifest["vectors"]
+                  if v["kind"] == "gap" and (v.get("context") or {}).get("commitment"))
+    member["context"]["commitmentLoggedAt"] = "2026-02-01T00:00:00Z"
+    write_manifest(corpus, manifest)
+
+
+def revoked_at_in_the_bare_set(corpus: Path) -> None:
+    path = corpus / manifest_of(corpus)["keySets"]["withoutWindows"]["file"]
+    keys = json.loads(path.read_text(encoding="utf-8"))
+    keys["keys"][-1]["revoked_at"] = "2026-04-01T00:00:00Z"
+    path.write_text(json.dumps(keys, indent=2) + "\n", encoding="utf-8")
+
+
+def undeclared_gap(corpus: Path) -> None:
+    manifest = manifest_of(corpus)
+    manifest["conditions"]["rs-c-7"]["gaps"] = ["RS-G-999"]
     write_manifest(corpus, manifest)
 
 
@@ -113,6 +156,12 @@ PARITY: list[tuple[str, Callable[[Path], None] | None]] = [
     ("forged-origin", forged_origin),
     ("orphaned-condition", orphaned_condition),
     ("wrong-signed-input", wrong_signed_input),
+    ("gap-relabelled-accept", gap_relabelled_accept),
+    ("gap-closed-with-another-code", gap_closed_with_another_code),
+    ("commitment-byte-flipped", commitment_byte_flipped),
+    ("logged-at-moved", logged_at_moved),
+    ("revoked-at-in-the-bare-set", revoked_at_in_the_bare_set),
+    ("undeclared-gap", undeclared_gap),
 ]
 
 # A stub verifier: the reference verification of the Python reader, with the
@@ -137,8 +186,20 @@ with open(os.environ["AEV_RECEIPT_JWKS"]) as handle:
 if mode == "skip-windows":
     keys = {{kid: {{m: v for m, v in k.items() if m not in ("valid_from", "valid_until")}}
             for kid, k in keys.items()}}
+context = None
+if "AEV_RECEIPT_CONTEXT" in os.environ and mode != "ignores-context":
+    with open(os.environ["AEV_RECEIPT_CONTEXT"]) as handle:
+        handed = json.load(handle)
+    def read(path):
+        with open(path, "rb") as h:
+            return h.read()
+    context = rs.Context([read(p) for p in handed["chain"]],
+                         read(handed["commitment"]) if "commitment" in handed else None,
+                         handed.get("commitmentLoggedAt"))
+windowed = any("valid_from" in k or "valid_until" in k for k in keys.values())
+closed = mode == "closes-gaps" or (mode == "closes-gaps-with-windows-only" and windowed)
 with open(sys.argv[1], "rb") as handle:
-    answer = rs.verify(handle.read(), keys)
+    answer = rs.verify_in_context(handle.read(), keys, context, gap_closed=closed)
 verdict, _, code = answer.partition(" ")
 print(json.dumps({{"verdict": verdict, "code": code or None}}))
 sys.exit({{"valid": 0, "invalid": 1, "undecidable": 2}}[verdict])
@@ -161,17 +222,37 @@ def contract_case(work: Path, mode: str) -> tuple[int, dict[str, Any] | None, st
 def expected_contract(manifest: dict[str, Any]) -> dict[str, tuple[int, dict[str, int]]]:
     total = len(manifest["vectors"])
     counts = manifest["counts"]
-    decided = counts["accept"] + counts["reject"]
+    decided = counts["accept"] + counts["reject"] + counts["gap"]
+    in_context = sum(1 for v in manifest["vectors"]
+                     if v["kind"] == "reject" and "context" in v)
+    split = _gaps_closed_without_windows(manifest)
+    none = {"notHonoured": 0, "closesGap": 0}
     return {
-        "honours-windows": (0, {"pass": total, "notHonoured": 0, "fail": 0, "executed": total}),
-        "skip-windows": (0, {"pass": decided, "notHonoured": counts["indeterminate"],
+        "honours-windows": (0, {**none, "pass": total, "fail": 0, "executed": total}),
+        "skip-windows": (0, {**none, "pass": decided, "notHonoured": counts["indeterminate"],
                              "fail": 0, "executed": total}),
-        "refuse-all": (1, {"pass": counts["reject"] - _other_codes(manifest), "notHonoured": 0,
+        "closes-gaps": (0, {**none, "pass": total - counts["gap"], "closesGap": counts["gap"],
+                            "fail": 0, "executed": total}),
+        "closes-gaps-with-windows-only": (1, {**none, "pass": total - counts["gap"],
+                                              "closesGap": counts["gap"] - split,
+                                              "fail": split, "executed": total}),
+        "ignores-context": (1, {**none, "pass": total - in_context, "fail": in_context,
+                                "executed": total}),
+        "refuse-all": (1, {**none, "pass": counts["reject"] - _other_codes(manifest),
                            "fail": total - counts["reject"] + _other_codes(manifest),
                            "executed": total}),
-        "silent": (2, {"pass": 0, "notHonoured": 0, "fail": total, "executed": 0}),
-        "contradicts": (2, {"pass": 0, "notHonoured": 0, "fail": total, "executed": 0}),
+        "silent": (2, {**none, "pass": 0, "fail": total, "executed": 0}),
+        "contradicts": (2, {**none, "pass": 0, "fail": total, "executed": 0}),
     }
+
+
+def _gaps_closed_without_windows(manifest: dict[str, Any]) -> int:
+    """Gap members the closing rule refuses in the windowless pass too: a verifier
+    that closes the gap in one pass only answers them incoherently and fails."""
+    return sum(
+        1 for v in manifest["vectors"]
+        if v["kind"] == "gap" and v["expectedIfGapClosedWithoutWindows"]["verdict"] == "invalid"
+    )
 
 
 def _other_codes(manifest: dict[str, Any]) -> int:
@@ -214,7 +295,8 @@ def check_contract(work: Path) -> int:
             continue
         totals = report["totals"]
         got = {"pass": totals["pass"], "notHonoured": totals["notHonoured"],
-               "fail": totals["fail"], "executed": report["verifier"]["vectorsExecuted"]}
+               "closesGap": totals["closesGap"], "fail": totals["fail"],
+               "executed": report["verifier"]["vectorsExecuted"]}
         if status != want_status or got != want or report["rail"] != "external":
             failures += 1
             print(f"FAIL contract/{mode}: exit {status} want {want_status}; got {got} want {want}")

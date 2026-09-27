@@ -34,11 +34,18 @@ import re
 import shlex
 import subprocess
 import sys
+import tempfile
+from collections.abc import Callable
 from datetime import datetime
+from itertools import pairwise
 from typing import Any
 
 SUITE = "receipt-signature-conformance"
 KEYS_ENV = "AEV_RECEIPT_JWKS"
+CONTEXT_ENV = "AEV_RECEIPT_CONTEXT"
+# A key's lifecycle as a key set publishes it. The windowless key set carries
+# none of these members.
+LIFECYCLE = ("valid_from", "valid_until", "revoked_at")
 VALID, INVALID, UNDECIDABLE = "valid", "invalid", "undecidable"
 EXIT_VERDICTS = {0: VALID, 1: INVALID, 2: UNDECIDABLE}
 
@@ -78,6 +85,22 @@ def _read(directory: str, rel: str) -> bytes | None:
             return handle.read()
     except OSError:
         return None
+
+
+def member_preimage(v: dict[str, Any], read: Callable[[str], bytes]) -> bytes:
+    """A member's receipt bytes, and with a context, that context in RFC 8785 form
+    and the commitment it names: what the identifier and the corpus digest hash."""
+    body: bytes = read(str(v.get("file", "")))
+    context = v.get("context")
+    if not isinstance(context, dict):
+        return body
+    commitment = context.get("commitment")
+    canonical: bytes = _rail().jcs_dumps(context)
+    return body + canonical + (read(str(commitment)) if commitment else b"")
+
+
+def member_id(v: dict[str, Any], read: Callable[[str], bytes]) -> str:
+    return "v" + _sha(member_preimage(v, read))[:16]
 
 
 def outcome_text(verdict: str, code: str | None) -> str:
@@ -195,9 +218,20 @@ def _window(issued: Any, key: dict[str, Any]) -> str:
     return VALID
 
 
-def verify(body: bytes, keys: dict[str, dict[str, Any]]) -> str:
+def _revocation(issued: Any, key: dict[str, Any]) -> str:
+    """The closing rule of RS-G-001: at or after revoked_at is invalid."""
+    if "revoked_at" not in key:
+        return VALID
+    at, revoked = _instant(issued), _instant(key["revoked_at"])
+    if at is None or revoked is None:
+        return outcome_text(UNDECIDABLE, "window_not_applicable")
+    return outcome_text(INVALID, "key_revoked") if at >= revoked else VALID
+
+
+def verify(body: bytes, keys: dict[str, dict[str, Any]], gap_closed: bool = False) -> str:
     """Sections 2.1, 2.2, 5.2, 6.6 and 9.2 of draft-03, the key resolved only from
-    the external key set (Section 9.5), in the order the Go reader checks them."""
+    the external key set (Section 9.5), in the order the Go reader checks them.
+    With ``gap_closed`` the closing rule of RS-G-001 applies after the window."""
     top, stop = parse_envelope(body)
     if top is None:
         return stop or outcome_text(UNDECIDABLE, "not_envelope_shape")
@@ -226,7 +260,97 @@ def verify(body: bytes, keys: dict[str, dict[str, Any]]) -> str:
         return outcome_text(UNDECIDABLE, "payload_not_canonicalizable")
     if not rail.ed25519_verify(public, canonical, sig):
         return outcome_text(INVALID, "signature_invalid")
-    return _window(payload["issued_at"], key)
+    return _lifecycle(payload["issued_at"], key, gap_closed)
+
+
+def _lifecycle(issued: Any, key: dict[str, Any], gap_closed: bool) -> str:
+    """The key's window, and with the gap closed its revocation after it."""
+    window = _window(issued, key)
+    if window != VALID or not gap_closed:
+        return window
+    return _revocation(issued, key)
+
+
+def link(body: bytes) -> str | None:
+    """Section 6.7: "sha256:" and the hex of SHA-256(JCS(the whole receipt))."""
+    try:
+        return "sha256:" + _sha(_rail().jcs_dumps(json.loads(body)))
+    except ValueError:
+        return None
+
+
+def _payload_member(body: bytes, name: str) -> Any:
+    top, _ = parse_envelope(body)
+    return None if top is None else top["payload"].get(name)
+
+
+class Context:
+    """A member's context, read: the chain's receipts in order, and the
+    commitment with the time it was logged, when the context names one."""
+
+    def __init__(self, chain: list[bytes], commitment: bytes | None,
+                 logged_at: str | None) -> None:
+        self.chain, self.commitment, self.logged_at = chain, commitment, logged_at
+
+
+def verify_in_context(body: bytes, keys: dict[str, dict[str, Any]], context: Context | None,
+                      gap_closed: bool = False) -> str:
+    """The receipt, then its chain position (Section 6.7), then, with the gap
+    closed, the time of the commitment (RS-G-002)."""
+    alone = verify(body, keys, gap_closed)
+    if alone != VALID or context is None:
+        return alone
+    for element in context.chain:
+        if verify(element, keys, gap_closed) != VALID:
+            return outcome_text(UNDECIDABLE, "chain_element_not_valid")
+    receipts = [*context.chain, body]
+    for previous, current in pairwise(receipts):
+        expected = link(previous)
+        if expected is None or _payload_member(current, "previousReceiptHash") != expected:
+            return outcome_text(INVALID, "chain_link_mismatch")
+    if not gap_closed or context.commitment is None:
+        return VALID
+    return _commitment_time(body, keys, context)
+
+
+def _commitment_time(body: bytes, keys: dict[str, dict[str, Any]], context: Context) -> str:
+    """RS-G-002: a commitment of count c below this receipt's position p, whose
+    terminal_hash is the link to position c, logged at t, means the receipt was
+    not issued before t."""
+    not_applicable = outcome_text(UNDECIDABLE, "commitment_not_applicable")
+    commitment = context.commitment or b""
+    top, _ = parse_envelope(commitment)
+    logged = _instant(context.logged_at)
+    if top is None or logged is None or not _signed_by_issuer(top, keys, body):
+        return not_applicable
+    count, terminal = top["payload"].get("count"), top["payload"].get("terminal_hash")
+    position = len(context.chain) + 1
+    if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+        return not_applicable
+    if count >= position:
+        return VALID
+    if terminal != link(context.chain[count - 1]):
+        return not_applicable
+    issued = _instant(_payload_member(body, "issued_at"))
+    if issued is None:
+        return not_applicable
+    return outcome_text(INVALID, "issued_at_precedes_excluding_commitment") if issued < logged \
+        else VALID
+
+
+def _signed_by_issuer(top: dict[str, Any], keys: dict[str, dict[str, Any]], body: bytes) -> bool:
+    """The commitment is signed, over JCS of its payload, by the receipt's issuer."""
+    signature = top["signature"]
+    issuer = _payload_member(body, "issuer_id")
+    if top["payload"].get("issuer_id") != issuer or signature["kid"] != issuer:
+        return False
+    public = _public_key(keys.get(signature["kid"], {}))
+    try:
+        sig = bytes.fromhex(signature["sig"])
+        canonical = _rail().jcs_dumps(top["payload"])
+    except ValueError:
+        return False
+    return public is not None and len(sig) == 64 and _rail().ed25519_verify(public, canonical, sig)
 
 
 # --------------------------------------------------------------------------
@@ -322,7 +446,7 @@ class _Corpus:
             )
         for kid in sorted(self.without_windows):
             key = self.without_windows[kid]
-            if "valid_from" in key or "valid_until" in key:
+            if any(member in key for member in LIFECYCLE):
                 self.findings.append(f"the windowless key set carries a window on key {kid}")
         if not windowed:
             self.findings.append(
@@ -350,25 +474,63 @@ class _Corpus:
             out[kid] = key
         return out
 
+    def read_context(self, v: dict[str, Any]) -> tuple[Context | None, list[str]]:
+        """The member's context, read from disk, or the findings that stop it."""
+        context = v.get("context")
+        if context is None:
+            return None, []
+        if not isinstance(context, dict) or not context.get("chain"):
+            return None, ["carries a context that names no chain"]
+        findings: list[str] = []
+        members = self.manifest.get("vectors") or []
+        chain = []
+        for rel in context["chain"]:
+            body = _read(self.directory, str(rel))
+            plain = any(m.get("file") == rel and "context" not in m for m in members)
+            if body is None or not plain:
+                findings.append(f"its chain names {rel}, which is not a member without a context")
+                continue
+            chain.append(body)
+        commitment = None
+        rel = context.get("commitment")
+        if rel is not None:
+            commitment = _read(self.directory, str(rel))
+            if commitment is None:
+                findings.append(f"its context names a commitment {rel} that does not exist")
+            elif f"context/c{_sha(commitment)[:16]}.json" != rel:
+                findings.append(f"its commitment {rel} is not named after its own bytes")
+        if (rel is None) != (context.get("commitmentLoggedAt") is None):
+            findings.append("its context names a commitment without a time, or a time without one")
+        return Context(chain, commitment, context.get("commitmentLoggedAt")), findings
+
     def judge_member(self, v: dict[str, Any]) -> list[str]:
         findings = self.check_declaration(v)
         body = _read(self.directory, str(v.get("file", "")))
         if body is None:
             return [*findings, "the manifest names a receipt file that does not exist"]
-        if "v" + _sha(body)[:16] != v.get("id"):
-            findings.append("identifier does not recompute from the receipt's own bytes")
-        with_w = verify(body, self.with_windows)
-        if with_w != _declared(v.get("expected")):
-            findings.append(
-                f"with the windowed key set the reference verification is {with_w} and the "
-                f"manifest declares {_declared(v.get('expected'))}"
-            )
-        without_w = verify(body, self.without_windows)
-        if without_w != _declared(v.get("expectedWithoutWindows")):
-            findings.append(
-                f"without the windows the reference verification is {without_w} and the "
-                f"manifest declares {_declared(v.get('expectedWithoutWindows'))}"
-            )
+        context, context_findings = self.read_context(v)
+        if context_findings:
+            return [*findings, *context_findings]
+        if member_id(v, lambda rel: _read(self.directory, rel) or b"") != v.get("id"):
+            findings.append("identifier does not recompute from the member's own bytes")
+        closed = (("expectedIfGapClosed", "expectedIfGapClosedWithoutWindows")
+                  if v.get("kind") == "gap" else ("expected", "expectedWithoutWindows"))
+        passes = (("with the windowed key set", self.with_windows, "expected", closed[0]),
+                  ("without the windows", self.without_windows, "expectedWithoutWindows",
+                   closed[1]))
+        for label, keys, draft, gap_closed in passes:
+            got = verify_in_context(body, keys, context)
+            if got != _declared(v.get(draft)):
+                findings.append(
+                    f"{label} the reference verification is {got} and the manifest "
+                    f"declares {_declared(v.get(draft))}"
+                )
+            got = verify_in_context(body, keys, context, gap_closed=True)
+            if got != _declared(v.get(gap_closed)):
+                findings.append(
+                    f"{label} the reference verification with every gap closed is {got} and "
+                    f"the manifest declares {_declared(v.get(gap_closed))}"
+                )
         return [*findings, *self.check_signed_input(v, body)]
 
     def check_declaration(self, v: dict[str, Any]) -> list[str]:
@@ -384,16 +546,39 @@ class _Corpus:
                 continue
             levels.update(self.levels.get(r, "") for r in defined[c].get("requirements") or [])
         registry = self.manifest.get("codeRegistry") or {}
-        for key in ("expected", "expectedWithoutWindows"):
+        for key in OUTCOME_KEYS:
             code = (v.get(key) or {}).get("code")
             if code is not None and code not in registry:
                 findings.append(f"expects code {code} the code registry does not define")
+        gaps = {g for c in conditions for g in (defined.get(c) or {}).get("gaps") or []}
         kind = v.get("kind")
-        checks = {"accept": _check_accept, "reject": _check_reject,
-                  "indeterminate": _check_indeterminate}
-        if kind not in checks:
+        if kind == "gap":
+            return [*findings, *self._check_gap(v, levels, gaps)]
+        if kind not in _CHECKS:
             return [*findings, f"declares kind {json.dumps(kind)}"]
-        return [*findings, *checks[str(kind)](v, levels)]
+        if v.get("expectedIfGapClosed") is not None or \
+                v.get("expectedIfGapClosedWithoutWindows") is not None:
+            findings.append("carries a gap-closed outcome, which only a gap member has")
+        return [*findings, *_CHECKS[str(kind)](v, levels)]
+
+    def _check_gap(self, v: dict[str, Any], levels: set[str], gaps: set[str]) -> list[str]:
+        findings = []
+        if levels or not gaps:
+            findings.append("is a gap member whose conditions cite a requirement or no gap")
+        if _verdict(v.get("expected")) != VALID or \
+                _verdict(v.get("expectedWithoutWindows")) != VALID:
+            findings.append("is a gap member the draft does not accept in both passes")
+        closed = v.get("expectedIfGapClosed")
+        if _verdict(closed) != INVALID or v.get("expectedIfGapClosedWithoutWindows") is None:
+            findings.append("is a gap member with no invalid outcome when the gap is closed")
+        codes = {str(g.get("code")) for g in self.manifest.get("gaps") or []
+                 if g.get("id") in gaps}
+        if isinstance(closed, dict) and closed.get("code") not in codes:
+            findings.append("is a gap member closed with a code none of its gaps names")
+        if v.get("expectedIfNotHonoured") is not None:
+            findings.append("is a gap member carrying expectedIfNotHonoured, which only a SHOULD "
+                            "member has")
+        return findings
 
     def check_signed_input(self, v: dict[str, Any], body: bytes) -> list[str]:
         top, _ = parse_envelope(body)
@@ -432,7 +617,7 @@ class _Corpus:
         vectors: list[dict[str, Any]] = m.get("vectors") or []
         accepted: set[str] = set()
         refused: set[str] = set()
-        measured = {"accept": 0, "indeterminate": 0, "reject": 0}
+        measured = {kind: 0 for kind in KINDS}
         for v in vectors:
             if v.get("kind") in measured:
                 measured[str(v["kind"])] += 1
@@ -459,13 +644,15 @@ class _Corpus:
         ordered = sorted(vectors, key=lambda v: str(v.get("id")))
         digest = hashlib.sha256()
         for v in ordered:
-            digest.update(_read(self.directory, str(v.get("file", ""))) or b"")
+            digest.update(member_preimage(v, lambda rel: _read(self.directory, rel) or b""))
         if digest.hexdigest() != m.get("corpusDigest"):
             self.findings.append("corpusDigest does not match the receipt files on disk")
-        self._check_origin(vectors)
+        self._check_origins()
 
     def _check_requirements_cited(self) -> None:
         cited: set[str] = set()
+        cited_gaps: set[str] = set()
+        declared_gaps = {str(g.get("id")) for g in self.manifest.get("gaps") or []}
         for name, cond in sorted((self.manifest.get("conditions") or {}).items()):
             for req in cond.get("requirements") or []:
                 if req not in self.levels:
@@ -473,27 +660,33 @@ class _Corpus:
                         f"condition {name} cites requirement {req} the manifest does not declare"
                     )
                 cited.add(req)
+            for gap in cond.get("gaps") or []:
+                if gap not in declared_gaps:
+                    self.findings.append(
+                        f"condition {name} cites gap {gap} the manifest does not declare"
+                    )
+                cited_gaps.add(gap)
         idle = sorted(set(self.levels) - cited)
         if idle:
             self.findings.append(
                 f"requirements declared and cited by no condition: [{' '.join(idle)}]"
             )
+        idle_gaps = sorted(declared_gaps - cited_gaps)
+        if idle_gaps:
+            self.findings.append(
+                f"gaps declared and cited by no condition: [{' '.join(idle_gaps)}]"
+            )
 
-    def _check_origin(self, vectors: list[dict[str, Any]]) -> None:
-        files = {str(v.get("id")): str(v.get("file", "")) for v in vectors}
-        for o in (self.manifest.get("origin") or {}).get("members") or []:
-            rel = files.get(str(o.get("id")))
-            if rel is None:
-                self.findings.append(
-                    f"origin names {o.get('upstreamFile')} as member {o.get('id')} and the "
-                    "manifest has no such member"
-                )
-                continue
-            body = _read(self.directory, rel)
-            if body is None or _sha(body) != o.get("sha256"):
-                self.findings.append(
-                    f"member {o.get('id')} is not the upstream bytes of {o.get('upstreamFile')}"
-                )
+    def _check_origins(self) -> None:
+        """Every lifted file is the upstream bytes its origin records."""
+        for o in self.manifest.get("origins") or []:
+            for member in o.get("members") or []:
+                body = _read(self.directory, str(member.get("file", "")))
+                if body is None or _sha(body) != member.get("sha256"):
+                    self.findings.append(
+                        f"{member.get('file')} is not the upstream bytes of "
+                        f"{o.get('path')}/{member.get('upstreamFile')}"
+                    )
 
 
 def _render_counts(counts: dict[str, Any]) -> str:
@@ -557,6 +750,13 @@ def _check_indeterminate(v: dict[str, Any], levels: set[str]) -> list[str]:
     return findings
 
 
+_CHECKS = {"accept": _check_accept, "reject": _check_reject,
+           "indeterminate": _check_indeterminate}
+OUTCOME_KEYS = ("expected", "expectedWithoutWindows", "expectedIfNotHonoured",
+                "expectedIfGapClosed", "expectedIfGapClosedWithoutWindows")
+KINDS = ("accept", "gap", "indeterminate", "reject")
+
+
 def _load(directory: str) -> dict[str, Any]:
     with open(os.path.join(directory, "MANIFEST.json"), encoding="utf-8") as handle:
         manifest: dict[str, Any] = json.load(handle)
@@ -610,10 +810,13 @@ def render(judged: Judged, suite: str) -> str:
 # --------------------------------------------------------------------------
 
 
-def ask(cmd: list[str], receipt: str, keys: str) -> tuple[str | None, str | None]:
+def ask(cmd: list[str], receipt: str, keys: str,
+        context: str | None = None) -> tuple[str | None, str | None]:
     """One invocation: (the answer, or None; the reason it is not an answer)."""
-    env = dict(os.environ)
+    env = {k: v for k, v in os.environ.items() if k != CONTEXT_ENV}
     env[KEYS_ENV] = keys
+    if context is not None:
+        env[CONTEXT_ENV] = context
     try:
         proc = subprocess.run(
             [*cmd, receipt], capture_output=True, timeout=120, env=env, check=False
@@ -642,7 +845,9 @@ def ask(cmd: list[str], receipt: str, keys: str) -> tuple[str | None, str | None
 
 
 def score(v: dict[str, Any], with_w: str, without_w: str) -> tuple[str, list[str]]:
-    """PASS, NOT-HONOURED or FAIL for one member, with the reasons."""
+    """PASS, NOT-HONOURED, CLOSES-GAP or FAIL for one member, with the reasons."""
+    if v.get("kind") == "gap":
+        return _score_gap(v, with_w, without_w)
     expected = _declared(v.get("expected"))
     without_expected = _declared(v.get("expectedWithoutWindows"))
     reasons = []
@@ -661,11 +866,50 @@ def score(v: dict[str, Any], with_w: str, without_w: str) -> tuple[str, list[str
     return "FAIL", reasons
 
 
+def _score_gap(v: dict[str, Any], with_w: str, without_w: str) -> tuple[str, list[str]]:
+    """The draft's verdict in both passes passes; the closing rule's verdict in
+    both passes closes the gap; anything else, a mixture of the two included,
+    fails."""
+    draft = (_declared(v.get("expected")), _declared(v.get("expectedWithoutWindows")))
+    closed = (_declared(v.get("expectedIfGapClosed")),
+              _declared(v.get("expectedIfGapClosedWithoutWindows")))
+    if (with_w, without_w) == draft:
+        return "PASS", []
+    if (with_w, without_w) == closed:
+        return "CLOSES-GAP", [
+            f"answered {with_w} with the windows and {without_w} without, the verdicts of the "
+            "rule that closes the gap this member tests"
+        ]
+    return "FAIL", [
+        f"answered {with_w} with the windows and {without_w} without; the draft's verdicts "
+        f"are {draft[0]} and {draft[1]}, and the closing rule's are {closed[0]} and {closed[1]}"
+    ]
+
+
+def write_context(directory: str, v: dict[str, Any], work: str) -> str | None:
+    """The context a verifier is handed: absolute paths, and the logged time."""
+    context = v.get("context")
+    if not isinstance(context, dict):
+        return None
+    handed: dict[str, Any] = {
+        "chain": [os.path.abspath(os.path.join(directory, str(rel))) for rel in context["chain"]]
+    }
+    if context.get("commitment"):
+        handed["commitment"] = os.path.abspath(os.path.join(directory, str(context["commitment"])))
+        handed["commitmentLoggedAt"] = context.get("commitmentLoggedAt")
+    path = os.path.join(work, f"{v.get('id')}.context.json")
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(handed, handle, indent=2)
+        handle.write("\n")
+    return path
+
+
 def _member_row(directory: str, cmd: list[str], v: dict[str, Any],
-                keys: tuple[str, str]) -> dict[str, Any]:
+                keys: tuple[str, str], work: str) -> dict[str, Any]:
     receipt = os.path.abspath(os.path.join(directory, str(v.get("file", ""))))
-    with_w, why_w = ask(cmd, receipt, keys[0])
-    without_w, why_n = ask(cmd, receipt, keys[1])
+    context = write_context(directory, v, work)
+    with_w, why_w = ask(cmd, receipt, keys[0], context)
+    without_w, why_n = ask(cmd, receipt, keys[1], context)
     row: dict[str, Any] = {
         "id": v.get("id"), "kind": v.get("kind"),
         "withWindows": with_w, "withoutWindows": without_w,
@@ -693,7 +937,9 @@ def run_external(directory: str, cmd: list[str], report_path: str, rail_note: st
         os.path.abspath(os.path.join(directory, sets[name]["file"]))
         for name in ("withWindows", "withoutWindows")
     )
-    rows = [_member_row(directory, cmd, v, (keys[0], keys[1])) for v in manifest["vectors"]]
+    with tempfile.TemporaryDirectory(prefix="receipt-signature-context-") as work:
+        rows = [_member_row(directory, cmd, v, (keys[0], keys[1]), work)
+                for v in manifest["vectors"]]
     executed = sum(1 for r in rows if r["verifierRan"])
     if executed != len(rows):
         notes.append(
@@ -703,6 +949,7 @@ def run_external(directory: str, cmd: list[str], report_path: str, rail_note: st
     refusals = (0 if judged.ok() else 1) + (0 if executed == len(rows) else 1)
     passed = sum(1 for r in rows if r["status"] == "PASS")
     not_honoured = sum(1 for r in rows if r["status"] == "NOT-HONOURED")
+    closes_gap = sum(1 for r in rows if r["status"] == "CLOSES-GAP")
     failed = sum(1 for r in rows if r["status"] == "FAIL")
     report = {
         "suite": os.path.basename(os.path.normpath(directory)),
@@ -713,8 +960,9 @@ def run_external(directory: str, cmd: list[str], report_path: str, rail_note: st
             "vectors": len(rows),
             "pass": passed,
             "fail": failed,
-            "conform": passed + not_honoured,
+            "conform": passed + not_honoured + closes_gap,
             "notHonoured": not_honoured,
+            "closesGap": closes_gap,
             "reasonParityMismatch": 0,
             "suiteRefusals": refusals,
             "notExercised": 0,
@@ -734,7 +982,7 @@ def run_external(directory: str, cmd: list[str], report_path: str, rail_note: st
     for note in notes:
         print(f"note: {note}")
     print(f"totals: {len(rows)} vectors, {passed} pass, {not_honoured} not honouring a SHOULD, "
-          f"{failed} fail; report written to {report_path}")
+          f"{closes_gap} closing a gap, {failed} fail; report written to {report_path}")
     print(f"verifier: {shlex.join(cmd)} ran on {executed} of {len(rows)} vectors")
     if executed == 0:
         return 2

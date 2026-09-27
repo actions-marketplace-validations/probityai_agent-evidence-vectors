@@ -109,7 +109,7 @@ func TestReceiptVerificationOutcomes(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := rsVerify(tc.body, tc.keys).String(); got != tc.want {
+			if got := rsVerify(tc.body, tc.keys, false).String(); got != tc.want {
 				t.Fatalf("got %q, want %q", got, tc.want)
 			}
 		})
@@ -120,7 +120,7 @@ func TestReceiptWindowBoundUnreadable(t *testing.T) {
 	_, key := rsTestKey()
 	bad := "not a time"
 	key.ValidUntil = &bad
-	got := rsVerify(rsReceipt(t, rsPayload("2026-03-15T00:00:00Z"), nil), map[string]rsJWK{rsTestKid: key})
+	got := rsVerify(rsReceipt(t, rsPayload("2026-03-15T00:00:00Z"), nil), map[string]rsJWK{rsTestKid: key}, false)
 	if got.String() != "undecidable window_not_applicable" {
 		t.Fatalf("got %q", got)
 	}
@@ -129,5 +129,114 @@ func TestReceiptWindowBoundUnreadable(t *testing.T) {
 func TestReceiptJudgeRefusesAnUnparsedManifest(t *testing.T) {
 	if _, err := (receiptSignature{}).Judge(t.TempDir(), []byte("not json")); err == nil {
 		t.Fatal("a manifest that does not parse was judged")
+	}
+}
+
+// rsChainedFixture is a genesis, a receipt at position 2 linked to it, and the
+// issuer's commitment to a chain of one, all under the internal test key.
+func rsChainedFixture(t *testing.T) (genesis, second, commitment []byte) {
+	t.Helper()
+	genesis = rsReceipt(t, rsPayload("2026-02-01T00:00:00Z"), nil)
+	link, ok := rsLink(genesis)
+	if !ok {
+		t.Fatal("the genesis does not canonicalize")
+	}
+	payload := rsPayload("2026-03-15T00:00:00Z")
+	payload["previousReceiptHash"] = link
+	second = rsReceipt(t, payload, nil)
+	commitment = rsReceipt(t, map[string]any{
+		"type": "x-test:chain-commitment", "issued_at": "2026-02-01T00:00:00Z",
+		"issuer_id": rsTestKid, "count": 1, "terminal_hash": link,
+	}, nil)
+	return genesis, second, commitment
+}
+
+func TestReceiptRevocationOutcomes(t *testing.T) {
+	_, key := rsTestKey()
+	body := rsReceipt(t, rsPayload("2026-03-15T00:00:00Z"), nil)
+	for _, tc := range []struct {
+		name, revoked, want string
+	}{
+		{"revoked before issued_at", "2026-03-01T00:00:00Z", "invalid key_revoked"},
+		{"revoked at issued_at", "2026-03-15T00:00:00Z", "invalid key_revoked"},
+		{"revoked after issued_at", "2026-04-01T00:00:00Z", "valid"},
+		{"revoked_at unreadable", "soon", "undecidable window_not_applicable"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			revoked := tc.revoked
+			key.RevokedAt = &revoked
+			keys := map[string]rsJWK{rsTestKid: key}
+			if got := rsVerify(body, keys, true).String(); got != tc.want {
+				t.Fatalf("gap closed: got %q, want %q", got, tc.want)
+			}
+			if got := rsVerify(body, keys, false).String(); got != "valid" {
+				t.Fatalf("gap open: got %q, want valid", got)
+			}
+		})
+	}
+}
+
+func TestReceiptChainAndCommitmentOutcomes(t *testing.T) {
+	_, key := rsTestKey()
+	keys := map[string]rsJWK{rsTestKid: key}
+	genesis, second, commitment := rsChainedFixture(t)
+	unlinked := rsReceipt(t, rsPayload("2026-03-15T00:00:00Z"), nil)
+	badGenesis := rsReceipt(t, rsPayload("2026-02-01T00:00:00Z"), func(d map[string]any) {
+		d["signature"].(map[string]any)["sig"] = hex.EncodeToString(make([]byte, 64))
+	})
+	stranger := rsReceipt(t, map[string]any{
+		"type": "x-test:chain-commitment", "issued_at": "2026-02-01T00:00:00Z",
+		"issuer_id": "someone else", "count": 1,
+	}, nil)
+	noCount := rsReceipt(t, map[string]any{
+		"type": "x-test:chain-commitment", "issued_at": "2026-02-01T00:00:00Z", "issuer_id": rsTestKid,
+	}, nil)
+	wrongHash := rsReceipt(t, map[string]any{
+		"type": "x-test:chain-commitment", "issued_at": "2026-02-01T00:00:00Z",
+		"issuer_id": rsTestKid, "count": 1, "terminal_hash": "sha256:00",
+	}, nil)
+	covering := rsReceipt(t, map[string]any{
+		"type": "x-test:chain-commitment", "issued_at": "2026-02-01T00:00:00Z",
+		"issuer_id": rsTestKid, "count": 2, "terminal_hash": "sha256:00",
+	}, nil)
+	ctx := func(chain [][]byte, c []byte, at string) *rsReadContext {
+		return &rsReadContext{chain: chain, commitment: c, loggedAt: at}
+	}
+	cases := []struct {
+		name   string
+		body   []byte
+		ctx    *rsReadContext
+		closed bool
+		want   string
+	}{
+		{"linked", second, ctx([][]byte{genesis}, nil, ""), false, "valid"},
+		{"chain element does not verify", second, ctx([][]byte{badGenesis}, nil, ""), false,
+			"undecidable chain_element_not_valid"},
+		{"no link", unlinked, ctx([][]byte{genesis}, nil, ""), false, "invalid chain_link_mismatch"},
+		{"commitment ignored with the gap open", second, ctx([][]byte{genesis}, commitment, "2026-04-01T00:00:00Z"),
+			false, "valid"},
+		{"commitment logged after issued_at", second, ctx([][]byte{genesis}, commitment, "2026-04-01T00:00:00Z"),
+			true, "invalid issued_at_precedes_excluding_commitment"},
+		{"commitment logged before issued_at", second, ctx([][]byte{genesis}, commitment, "2026-03-01T00:00:00Z"),
+			true, "valid"},
+		{"commitment covers the receipt", second, ctx([][]byte{genesis}, covering, "2026-04-01T00:00:00Z"),
+			true, "valid"},
+		{"logged time unreadable", second, ctx([][]byte{genesis}, commitment, "later"), true,
+			"undecidable commitment_not_applicable"},
+		{"commitment by another issuer", second, ctx([][]byte{genesis}, stranger, "2026-04-01T00:00:00Z"),
+			true, "undecidable commitment_not_applicable"},
+		{"commitment with no count", second, ctx([][]byte{genesis}, noCount, "2026-04-01T00:00:00Z"),
+			true, "undecidable commitment_not_applicable"},
+		{"terminal hash is not the link", second, ctx([][]byte{genesis}, wrongHash, "2026-04-01T00:00:00Z"),
+			true, "undecidable commitment_not_applicable"},
+		{"commitment not an envelope", second, ctx([][]byte{genesis}, []byte("{}"), "2026-04-01T00:00:00Z"),
+			true, "undecidable commitment_not_applicable"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := rsVerifyInContext(tc.body, keys, tc.ctx, tc.closed).String(); got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
