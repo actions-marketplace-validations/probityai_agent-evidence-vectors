@@ -9,8 +9,14 @@ exit status (0 valid, 1 invalid, 2 undecidable), and one JSON line on stdout
 carrying the verdict and the code. The package's own codes pass through except
 `invalid_signature`, which is this corpus's `signature_invalid`.
 
-The version defaults to the one the observed run in the README records and can
-be moved with VERITASACTA_VERIFY_VERSION. Standard library only.
+When the contract hands a context (AEV_RECEIPT_CONTEXT) and the receipt is
+valid, the chain it names and the receipt are written as JSONL and given to the
+package's `--replay-chain`, whose Section 6.7 link check is the package's own.
+A chain break there answers `invalid chain_link_mismatch`. The package reads no
+commitment, so a commitment in the context is not handed to it.
+
+The version defaults to the one the latest observed run in the README records
+and can be moved with VERITASACTA_VERIFY_VERSION. Standard library only.
 """
 
 from __future__ import annotations
@@ -19,9 +25,10 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from typing import Any
 
-DEFAULT_VERSION = "0.10.19"
+DEFAULT_VERSION = "0.10.21"
 VERDICTS = {0: "valid", 1: "invalid", 2: "undecidable"}
 CODES = {"invalid_signature": "signature_invalid"}
 
@@ -56,11 +63,35 @@ def main(argv: list[str]) -> int:
         return os.EX_SOFTWARE
     error = report.get("error") if isinstance(report, dict) else None
     if verdict == "valid":
-        return answer(verdict, None)
+        return answer(*chain_verdict(version, argv[1]))
     code = error.get("code") if isinstance(error, dict) else error
     if not isinstance(code, str):
         code = None
     return answer(verdict, CODES.get(code, code) if code else None)
+
+
+def chain_verdict(version: str, receipt: str) -> tuple[str, str | None]:
+    """The receipt verified alone; with a context, its chain position too."""
+    handed = os.environ.get("AEV_RECEIPT_CONTEXT")
+    if not handed:
+        return "valid", None
+    with open(handed, encoding="utf-8") as handle:
+        chain = json.load(handle)["chain"]
+    with tempfile.TemporaryDirectory(prefix="veritasacta-chain-") as work:
+        jsonl = os.path.join(work, "chain.jsonl")
+        with open(jsonl, "w", encoding="utf-8") as out:
+            for path in [*chain, receipt]:
+                with open(path, encoding="utf-8") as handle:
+                    out.write(json.dumps(json.load(handle)) + "\n")
+        cmd = ["npx", "--yes", f"@veritasacta/verify@{version}", "--replay-chain", jsonl, "--json"]
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300, check=False)
+    try:
+        replay: Any = json.loads(proc.stdout)
+        breaks = int(replay["chainBreaks"])
+    except (ValueError, KeyError, TypeError):
+        print("@veritasacta/verify --replay-chain wrote no chainBreaks count", file=sys.stderr)
+        return "undecidable", "chain_not_replayed"
+    return ("invalid", "chain_link_mismatch") if breaks else ("valid", None)
 
 
 if __name__ == "__main__":
