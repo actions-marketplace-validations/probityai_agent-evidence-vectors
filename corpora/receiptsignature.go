@@ -480,12 +480,7 @@ func rsCheckAccept(v rsVector) []string {
 // and the rule that closes one of its gaps refuses it with that gap's code.
 func (j *rsJudging) checkGap(v rsVector, levels map[string]bool) []string {
 	var findings []string
-	gaps := map[string]bool{}
-	for _, c := range v.Conditions {
-		for _, g := range j.manifest.Conditions[c].Gaps {
-			gaps[g] = true
-		}
-	}
+	gaps := j.gapsCited(v)
 	if len(levels) > 0 || len(gaps) == 0 {
 		findings = append(findings, "is a gap member whose conditions cite a requirement or no gap")
 	}
@@ -496,17 +491,34 @@ func (j *rsJudging) checkGap(v rsVector, levels map[string]bool) []string {
 	if closed == nil || closed.Verdict != rsInvalid || v.ExpectedIfGapClosedWithoutWindows == nil {
 		findings = append(findings, "is a gap member with no invalid outcome when the gap is closed")
 	}
-	named := false
-	for _, g := range j.manifest.Gaps {
-		named = named || (gaps[g.ID] && closed != nil && closed.Code != nil && *closed.Code == g.Code)
-	}
-	if closed != nil && !named {
+	if closed != nil && !j.gapNamesCode(gaps, closed.Code) {
 		findings = append(findings, "is a gap member closed with a code none of its gaps names")
 	}
 	if v.ExpectedIfNotHonoured != nil {
 		findings = append(findings, "is a gap member carrying expectedIfNotHonoured, which only a SHOULD member has")
 	}
 	return findings
+}
+
+// gapsCited is every gap the member's conditions cite.
+func (j *rsJudging) gapsCited(v rsVector) map[string]bool {
+	gaps := map[string]bool{}
+	for _, c := range v.Conditions {
+		for _, g := range j.manifest.Conditions[c].Gaps {
+			gaps[g] = true
+		}
+	}
+	return gaps
+}
+
+// gapNamesCode reports whether one of the cited gaps declares the code.
+func (j *rsJudging) gapNamesCode(gaps map[string]bool, code *string) bool {
+	for _, g := range j.manifest.Gaps {
+		if gaps[g.ID] && code != nil && *code == g.Code {
+			return true
+		}
+	}
+	return false
 }
 
 // rsCheckReject: a reject must be refused in both passes, because a defect a

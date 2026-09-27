@@ -166,7 +166,7 @@ agent-evidence-vectors --corpus vectors-receipt-signature \
 Runs of a third-party verifier through the contract above, recorded with the
 date and the exact version.
 
-### @veritasacta/verify 0.10.19, 25 September 2026
+### @veritasacta/verify 0.10.19, 2026-09-25
 
 Run through `tools/veritasacta-verify.py` (`--jwks <key set> --mode receipt
 --json`) on Node.js 24.19.0, with the packaged harness at the commit that added
@@ -197,7 +197,7 @@ canonical bytes of that payload. Section 6.6 says the canonicalized object MUST
 NOT contain a signature member, null included, so that acceptance is a failure
 under a MUST.
 
-### @veritasacta/verify 0.10.21, 27 September 2026
+### @veritasacta/verify 0.10.21, 2026-09-27
 
 Run through `tools/veritasacta-verify.py` on Node.js 24.19.0, with the packaged
 harness at the commit that added this section. The adapter hands a member's
