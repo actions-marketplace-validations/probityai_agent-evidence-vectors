@@ -126,7 +126,7 @@ from typing import Any, NamedTuple, TypeGuard
 # receiptsignature is the third, and the first whose corpus defines an
 # external-verifier contract of its own: a named verifier runs over it through
 # that contract instead of being refused.
-from agent_evidence_vectors import observedeffect, receiptsignature, w3creport
+from agent_evidence_vectors import auditrecord, observedeffect, receiptsignature, w3creport
 
 AEE_PREDICATE_TYPE = "https://in-toto.io/attestation/adversarial-execution-evidence/v0.7"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
@@ -3732,7 +3732,12 @@ def _run_non_reference_suite(
     suite = manifest.get("suite") if manifest is not None else None
     if suite is None or suite == REFERENCE_SUITE:
         return None
-    own_reader = suite in (w3creport.SUITE, observedeffect.SUITE, receiptsignature.SUITE)
+    own_reader = suite in (
+        w3creport.SUITE,
+        observedeffect.SUITE,
+        receiptsignature.SUITE,
+        auditrecord.SUITE,
+    )
     if not own_reader and external_cmd is not None:
         return None
     if external_cmd is not None and suite == receiptsignature.SUITE:
@@ -3762,6 +3767,13 @@ def _run_non_reference_suite(
         judged = w3creport.judge(suite_dir)
         sys.stdout.write(w3creport.render(judged, w3creport.SUITE))
         return 0 if judged.ok() else 1
+    if suite == auditrecord.SUITE:
+        # The agent audit record corpus is Appendix B of an Internet-Draft, and
+        # its reader states the draft's rules in the order the draft's
+        # verification section gives them.
+        ar_judged = auditrecord.judge(suite_dir)
+        sys.stdout.write(auditrecord.render(ar_judged, auditrecord.SUITE))
+        return 0 if ar_judged.ok() else 1
     # Same arrangement for the Observed Effect corpus: a predicate of its own
     # gets a reader of its own, and the printed lines are the ones
     # corpora/observedeffect.go prints from Go.
