@@ -27,6 +27,7 @@ body:
       label: Which corpus
       options:
         - "vectors/"
+        - "vectors-agent-audit-record/"
         - "vectors-aci/"
         - "vectors-acs-core/"
         - "vectors-ai-agent-action/"
