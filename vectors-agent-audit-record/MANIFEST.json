@@ -1,0 +1,776 @@
+{
+  "algorithm": {
+    "digest": "sha256",
+    "envelope": "ed25519"
+  },
+  "corpusDigest": "9617291fd6c1721dfd9430d3f15987da716ee5c722094f74431a95a2d4b3c3c6",
+  "counts": {
+    "accept": 9,
+    "indeterminate": 2,
+    "reject": 36
+  },
+  "draft": "draft-gilda-wimse-agent-audit-record-01",
+  "emptyTree": {
+    "sha1": "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+    "sha256": "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321"
+  },
+  "keyNote": "PUBLISHED TEST KEYS, derived from fixed seeds in gen_vectors.py. The observer key signs every envelope. The agent key signs nothing: it is the key agent.signers names, so the commitment-key disjointness rule has something to be disjoint from.",
+  "keys": {
+    "agent": {
+      "keyid": "e0426c3369f1a10946fd1338282db9e1",
+      "publicKey": "02abc70f4eefea9b9e7850484f68b5b38e3cdfea8d8aae04000f9d0c8f113178"
+    },
+    "observer": {
+      "keyid": "292f087bf72c85a72cdea8483084d18d",
+      "publicKey": "60b9ca613738a46a9350086999c93389e65c342482bbf65c6589d43116de5e7a"
+    }
+  },
+  "note": "One member per row of Appendix B of the draft, in the row's order; draftId is the row's identifier and parentDraftId its from column. A conforming verifier is scored on expected.verdict. expected.codes are the reference reader's names for its first refusal, published so two implementations can compare where they stopped; the draft does not define them. An indeterminate member lists every reading a conforming verifier may take.",
+  "payloadType": "application/vnd.in-toto+json",
+  "predicateDocument": "https://datatracker.ietf.org/doc/draft-gilda-wimse-agent-audit-record/01/",
+  "predicateType": "https://probityai.github.io/agent-evidence-vectors/predicate/v1/agent-audit-record",
+  "suite": "agent-audit-record-conformance",
+  "vectors": [
+    {
+      "draftId": "A1",
+      "expected": {
+        "codes": [],
+        "derivedTier": "authoritative",
+        "verdict": "valid"
+      },
+      "file": "statements/vded6715a80437cfb.json",
+      "id": "vded6715a80437cfb",
+      "kind": "accept",
+      "row": "every member present, permit beside occurred, all five tier clauses met",
+      "slug": "a1-permit-beside-occurred"
+    },
+    {
+      "draftId": "A2",
+      "expected": {
+        "codes": [],
+        "derivedTier": "authoritative",
+        "verdict": "valid"
+      },
+      "file": "statements/vf410c7b4b792c0b3.json",
+      "id": "vf410c7b4b792c0b3",
+      "kind": "accept",
+      "row": "deny beside none, equal roots, empty write set",
+      "slug": "a2-deny-beside-none"
+    },
+    {
+      "draftId": "A3",
+      "expected": {
+        "codes": [],
+        "derivedTier": "authoritative",
+        "verdict": "valid"
+      },
+      "file": "statements/v91afc5ba76960569.json",
+      "id": "v91afc5ba76960569",
+      "kind": "accept",
+      "row": "A1 with deny beside occurred and agreement of disagree",
+      "slug": "a3-deny-beside-occurred-disagree"
+    },
+    {
+      "draftId": "A4",
+      "expected": {
+        "codes": [],
+        "derivedTier": "authoritative",
+        "verdict": "valid"
+      },
+      "file": "statements/v49db892b2464179b.json",
+      "id": "v49db892b2464179b",
+      "kind": "accept",
+      "row": "A1 plus a remediation event with enforcement of not-enforced",
+      "slug": "a4-remediation-not-enforced"
+    },
+    {
+      "draftId": "A5",
+      "expected": {
+        "codes": [],
+        "derivedTier": "voluntary",
+        "verdict": "valid"
+      },
+      "file": "statements/v092586b714b43901.json",
+      "id": "v092586b714b43901",
+      "kind": "accept",
+      "row": "A1 with vantage of self, no prior commitment, tier of voluntary",
+      "slug": "a5-self-vantage-voluntary"
+    },
+    {
+      "draftId": "A6",
+      "expected": {
+        "codes": [],
+        "derivedTier": "voluntary",
+        "verdict": "valid"
+      },
+      "file": "statements/v43e2fe48bc27164d.json",
+      "id": "v43e2fe48bc27164d",
+      "kind": "accept",
+      "row": "A1 with binding of not-bindable, argumentsDigest absent from the record and from the request-digest preimage, tier of voluntary",
+      "slug": "a6-not-bindable-three-member-preimage"
+    },
+    {
+      "draftId": "A7",
+      "expected": {
+        "codes": [],
+        "derivedTier": "authoritative",
+        "verdict": "valid"
+      },
+      "file": "statements/v3843cd0f05c512e2.json",
+      "id": "v3843cd0f05c512e2",
+      "kind": "accept",
+      "row": "A2 plus one in-scope write inside the interval attributed to a different request, roots and chain moved to match",
+      "slug": "a7-other-requests-write-in-interval"
+    },
+    {
+      "draftId": "A8",
+      "expected": {
+        "codes": [],
+        "derivedTier": "authoritative",
+        "verdict": "valid"
+      },
+      "file": "statements/v8a9e5deb2888e02c.json",
+      "id": "v8a9e5deb2888e02c",
+      "kind": "accept",
+      "row": "A2 plus one in-scope unattributed write inside the interval, effect.observed of unknown",
+      "slug": "a8-unattributed-write-indeterminate"
+    },
+    {
+      "draftId": "A9",
+      "expected": {
+        "codes": [],
+        "derivedTier": "authoritative",
+        "verdict": "valid"
+      },
+      "file": "statements/vf9473c2b0e833da1.json",
+      "id": "vf9473c2b0e833da1",
+      "kind": "accept",
+      "row": "A1 with permit beside an empty write set, equal roots, effect.observed of none",
+      "slug": "a9-permit-beside-none-not-exercised"
+    },
+    {
+      "draftId": "F1",
+      "expected": {
+        "codes": [
+          "member-missing"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v89164703a3e83dec.json",
+      "id": "v89164703a3e83dec",
+      "kind": "reject",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "row": "A1 with the whole agent member removed",
+      "slug": "f1-agent-member-removed"
+    },
+    {
+      "draftId": "F2",
+      "expected": {
+        "codes": [
+          "delegation-subject-inconsistent"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/vcf95da9b01a6664b.json",
+      "id": "vcf95da9b01a6664b",
+      "kind": "reject",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "row": "subjectKind of none beside a named subject",
+      "slug": "f2-subject-kind-none-beside-named-subject"
+    },
+    {
+      "draftId": "F3",
+      "expected": {
+        "codes": [
+          "arguments-digest-missing"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/vb5b9abc4f83111a8.json",
+      "id": "vb5b9abc4f83111a8",
+      "kind": "reject",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "row": "digest-bound with argumentsDigest removed",
+      "slug": "f3-digest-bound-without-arguments-digest"
+    },
+    {
+      "draftId": "F3b",
+      "expected": {
+        "codes": [
+          "arguments-digest-forbidden"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v3d316ca718c2dfd5.json",
+      "id": "v3d316ca718c2dfd5",
+      "kind": "reject",
+      "parent": "v43e2fe48bc27164d",
+      "parentDraftId": "A6",
+      "row": "not-bindable carrying argumentsDigest of null",
+      "slug": "f3b-not-bindable-arguments-digest-null"
+    },
+    {
+      "draftId": "F3c",
+      "expected": {
+        "codes": [
+          "arguments-digest-forbidden"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v48b0a2fe9334a263.json",
+      "id": "v48b0a2fe9334a263",
+      "kind": "reject",
+      "parent": "v43e2fe48bc27164d",
+      "parentDraftId": "A6",
+      "row": "not-bindable carrying argumentsDigest of the empty string",
+      "slug": "f3c-not-bindable-arguments-digest-empty"
+    },
+    {
+      "draftId": "F4",
+      "expected": {
+        "codes": [
+          "request-digest-mismatch"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/vf3cf268dae0800ff.json",
+      "id": "vf3cf268dae0800ff",
+      "kind": "reject",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "row": "action changed, requestDigest left at its original value",
+      "slug": "f4-action-changed-request-digest-kept"
+    },
+    {
+      "draftId": "F5",
+      "expected": {
+        "codes": [
+          "external-anchor-inconsistent"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v4a450d67a3e14bd9.json",
+      "id": "v4a450d67a3e14bd9",
+      "kind": "reject",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "row": "beacon-anchored with externalAnchor removed",
+      "slug": "f5-beacon-anchored-without-anchor"
+    },
+    {
+      "draftId": "F6",
+      "expected": {
+        "codes": [
+          "posture-agreement-underivable"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/vce25f7662e4f70cd.json",
+      "id": "vce25f7662e4f70cd",
+      "kind": "reject",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "row": "two unequal postures declared as agree",
+      "slug": "f6-unequal-postures-declared-agree"
+    },
+    {
+      "draftId": "F7",
+      "expected": {
+        "codes": [
+          "remediation-order"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v55decc76bf3738b2.json",
+      "id": "v55decc76bf3738b2",
+      "kind": "reject",
+      "parent": "v49db892b2464179b",
+      "parentDraftId": "A4",
+      "row": "enforcedAt one second before signalReceivedAt",
+      "slug": "f7-enforced-before-signal"
+    },
+    {
+      "draftId": "T1",
+      "expected": {
+        "codes": [
+          "effect-observed-underivable"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v7fad746721358d9d.json",
+      "id": "v7fad746721358d9d",
+      "kind": "reject",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "row": "effect.observed edited to none, writes intact, signed again with the real key",
+      "slug": "t1-observed-edited-to-none-resigned"
+    },
+    {
+      "draftId": "T2",
+      "expected": {
+        "codes": [
+          "signature-invalid"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v9ec5a5a966dc0028.json",
+      "id": "v9ec5a5a966dc0028",
+      "kind": "reject",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "row": "serialized in declaration order, not RFC 8785 order",
+      "slug": "t2-declaration-order-not-rfc8785"
+    },
+    {
+      "draftId": "T3",
+      "expected": {
+        "codes": [
+          "duplicate-member"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/ve440c8b917ea6945.json",
+      "id": "ve440c8b917ea6945",
+      "kind": "reject",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "row": "a member name repeated at depth three",
+      "slug": "t3-member-repeated-at-depth-three"
+    },
+    {
+      "draftId": "T4",
+      "expected": {
+        "codes": [
+          "nesting-too-deep"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/vceed0855efea9660.json",
+      "id": "vceed0855efea9660",
+      "kind": "reject",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "row": "nesting 129 levels deep",
+      "slug": "t4-nesting-129-levels"
+    },
+    {
+      "draftId": "T5",
+      "expected": {
+        "codes": [
+          "unsafe-integer"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v95d01f289bf873d3.json",
+      "id": "v95d01f289bf873d3",
+      "kind": "reject",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "row": "an integer of magnitude exactly 2^53",
+      "slug": "t5-integer-two-to-the-53"
+    },
+    {
+      "draftId": "D1",
+      "expected": {
+        "codes": [
+          "agreement-underivable"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v7c9a446636835696.json",
+      "id": "v7c9a446636835696",
+      "kind": "reject",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "row": "agreement of disagree with both sides agreeing",
+      "slug": "d1-disagree-with-both-sides-agreeing"
+    },
+    {
+      "draftId": "D2",
+      "expected": {
+        "codes": [
+          "agreement-reserved-value"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v60025ea9854b9e10.json",
+      "id": "v60025ea9854b9e10",
+      "kind": "reject",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "row": "agreement of one-sided with both values present",
+      "slug": "d2-one-sided-with-both-values"
+    },
+    {
+      "draftId": "D3",
+      "expected": {
+        "codes": [
+          "agreement-underivable"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v411cfaf5151d4cc5.json",
+      "id": "v411cfaf5151d4cc5",
+      "kind": "reject",
+      "parent": "vf9473c2b0e833da1",
+      "parentDraftId": "A9",
+      "row": "agreement of disagree beside permit and none",
+      "slug": "d3-disagree-beside-permit-and-none"
+    },
+    {
+      "draftId": "S1",
+      "expected": {
+        "codes": [
+          "subject-interval-mismatch"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v5d7952e7b60ac201.json",
+      "id": "v5d7952e7b60ac201",
+      "kind": "reject",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "row": "second subject entry removed, interval left present",
+      "slug": "s1-second-subject-removed"
+    },
+    {
+      "draftId": "S2",
+      "expected": {
+        "codes": [
+          "subject-after-root-mismatch"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v4669a6b6d8bbeb60.json",
+      "id": "v4669a6b6d8bbeb60",
+      "kind": "reject",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "row": "second subject entry's digest set to the before-state root",
+      "slug": "s2-second-subject-is-before-root"
+    },
+    {
+      "draftId": "I1r",
+      "expected": {
+        "codes": [
+          "subject-interval-mismatch"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v0f658d55b9e959cc.json",
+      "id": "v0f658d55b9e959cc",
+      "kind": "reject",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "row": "interval removed, second subject entry left present",
+      "slug": "i1r-interval-removed-subject-kept"
+    },
+    {
+      "draftId": "TI1",
+      "expected": {
+        "codes": [
+          "tier-overclaim-vantage"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/vbca32cc3ca51563a.json",
+      "id": "vbca32cc3ca51563a",
+      "kind": "reject",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "row": "authoritative declared with vantage of self",
+      "slug": "ti1-authoritative-with-self-vantage"
+    },
+    {
+      "draftId": "TI2",
+      "expected": {
+        "codes": [
+          "tier-overclaim-commitment"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v310861912d1046c5.json",
+      "id": "v310861912d1046c5",
+      "kind": "reject",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "row": "authoritative declared with no prior commitment",
+      "slug": "ti2-authoritative-without-commitment"
+    },
+    {
+      "draftId": "TI3",
+      "expected": {
+        "codes": [
+          "tier-overclaim-scope"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/vd72e111dbe5e296f.json",
+      "id": "vd72e111dbe5e296f",
+      "kind": "reject",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "row": "authoritative declared with an empty pathScope",
+      "slug": "ti3-authoritative-with-empty-scope"
+    },
+    {
+      "draftId": "TI4",
+      "expected": {
+        "codes": [
+          "tier-overclaim-coverage"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/vf5c19153992ba091.json",
+      "id": "vf5c19153992ba091",
+      "kind": "reject",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "row": "authoritative declared with a coverage gap inside pathScope",
+      "slug": "ti4-authoritative-with-gap-inside-scope"
+    },
+    {
+      "draftId": "TI5",
+      "expected": {
+        "codes": [
+          "tier-overclaim-binding"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v508be6e23e8482f5.json",
+      "id": "v508be6e23e8482f5",
+      "kind": "reject",
+      "parent": "v43e2fe48bc27164d",
+      "parentDraftId": "A6",
+      "row": "authoritative declared on A6",
+      "slug": "ti5-authoritative-on-not-bindable"
+    },
+    {
+      "draftId": "C1",
+      "expected": {
+        "codes": [
+          "commitment-key-is-agent-signer"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v2a395d68e9697680.json",
+      "id": "v2a395d68e9697680",
+      "kind": "reject",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "row": "commitment keyid added to agent.signers",
+      "slug": "c1-commitment-key-is-agent-signer"
+    },
+    {
+      "draftId": "C2",
+      "expected": {
+        "codes": [
+          "commitment-order"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v1cbe908c9c03f36d.json",
+      "id": "v1cbe908c9c03f36d",
+      "kind": "reject",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "row": "committedAt one second after openedAt",
+      "slug": "c2-committed-after-interval-opened"
+    },
+    {
+      "draftId": "C3",
+      "expected": {
+        "codes": [
+          "commitment-digest-mismatch"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v27b72ac64d5ebd54.json",
+      "id": "v27b72ac64d5ebd54",
+      "kind": "reject",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "row": "witnessNonce changed, commitmentDigest left at its original value",
+      "slug": "c3-nonce-changed-digest-kept"
+    },
+    {
+      "draftId": "E1",
+      "expected": {
+        "codes": [
+          "effect-observed-underivable"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/vdf178c2ef7928a19.json",
+      "id": "vdf178c2ef7928a19",
+      "kind": "reject",
+      "parent": "vf410c7b4b792c0b3",
+      "parentDraftId": "A2",
+      "row": "observed of none with a non-empty write set",
+      "slug": "e1-none-with-a-write-set"
+    },
+    {
+      "draftId": "E2",
+      "expected": {
+        "codes": [
+          "write-chain-broken"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v826af5b27db24da5.json",
+      "id": "v826af5b27db24da5",
+      "kind": "reject",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "row": "a second write whose pre-state is not the first write's post-state",
+      "slug": "e2-second-write-breaks-chain"
+    },
+    {
+      "draftId": "E3",
+      "expected": {
+        "codes": [
+          "empty-tree-constant-mismatch"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/vd8d79e7a61cca51f.json",
+      "id": "vd8d79e7a61cca51f",
+      "kind": "reject",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "row": "empty-tree under sha256 carrying the sha1 constant",
+      "slug": "e3-empty-tree-carries-sha1-constant"
+    },
+    {
+      "draftId": "V1",
+      "expected": {
+        "codes": [
+          "value-outside-vocabulary"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v061304592ad49c52.json",
+      "id": "v061304592ad49c52",
+      "kind": "reject",
+      "parent": "v49db892b2464179b",
+      "parentDraftId": "A4",
+      "row": "enforcement of quarantined, outside the closed set",
+      "slug": "v1-enforcement-outside-closed-set"
+    },
+    {
+      "draftId": "V2",
+      "expected": {
+        "codes": [
+          "path-scope-glob"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v8a6cc076ed9ea03a.json",
+      "id": "v8a6cc076ed9ea03a",
+      "kind": "reject",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "row": "a pathScope member carrying a glob metacharacter",
+      "slug": "v2-glob-in-path-scope"
+    },
+    {
+      "draftId": "V3",
+      "expected": {
+        "codes": [
+          "write-scope-mismatch"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v806b41e10fa621b2.json",
+      "id": "v806b41e10fa621b2",
+      "kind": "reject",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "row": "a write outside pathScope carrying inScope of true",
+      "slug": "v3-write-outside-scope-marked-in-scope"
+    },
+    {
+      "draftId": "FE1",
+      "expected": {
+        "codes": [
+          "field-evidence-keys"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/vb5fa3c46a923c472.json",
+      "id": "vb5fa3c46a923c472",
+      "kind": "reject",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "row": "six of the seven fieldEvidence keys present",
+      "slug": "fe1-six-of-seven-field-evidence-keys"
+    },
+    {
+      "draftId": "FE2",
+      "expected": {
+        "codes": [
+          "field-evidence-self-substrate"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v66d14f47a3d0cf0b.json",
+      "id": "v66d14f47a3d0cf0b",
+      "kind": "reject",
+      "parent": "v092586b714b43901",
+      "parentDraftId": "A5",
+      "row": "substrate-covered declared beside vantage of self",
+      "slug": "fe2-substrate-covered-beside-self"
+    },
+    {
+      "draftId": "N1",
+      "expected": {
+        "codes": [],
+        "verdict": "indeterminate"
+      },
+      "file": "statements/v9aaa90d371011e59.json",
+      "id": "v9aaa90d371011e59",
+      "kind": "indeterminate",
+      "parent": "vded6715a80437cfb",
+      "parentDraftId": "A1",
+      "readings": [
+        {
+          "rationale": "the draft defines no offline validation rule for an anchor token, so a verifier that carries the digest without reading it is conforming",
+          "verdict": "valid"
+        },
+        {
+          "rationale": "the anchor cannot be resolved from the carried bytes, and a verifier that declines to rule on it is conforming",
+          "verdict": "indeterminate"
+        }
+      ],
+      "row": "an anchor token digest carried with no offline validation rule defined",
+      "slug": "n1-anchor-token-with-no-offline-rule"
+    },
+    {
+      "draftId": "N2",
+      "expected": {
+        "codes": [],
+        "verdict": "indeterminate"
+      },
+      "file": "statements/vf8180cde8874edb6.json",
+      "id": "vf8180cde8874edb6",
+      "kind": "indeterminate",
+      "parent": "v49db892b2464179b",
+      "parentDraftId": "A4",
+      "readings": [
+        {
+          "rationale": "Section 11 carries no unit for undue delay and the draft defines no bound, so the ordering rule is all a verifier checks",
+          "verdict": "valid"
+        },
+        {
+          "rationale": "whether forty days is undue is a consumer policy the record cannot settle",
+          "verdict": "indeterminate"
+        }
+      ],
+      "row": "enforcement forty days after the signal, ordering intact",
+      "slug": "n2-enforced-forty-days-after-signal"
+    }
+  ]
+}

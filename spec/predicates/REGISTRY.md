@@ -69,8 +69,9 @@ carried bytes instead of accepting an asserted one.
 - Predicate body: sixteen members, defined in Section 5 of the draft. Each is
   required unless a rule in that section makes it conditional, and no member
   has a default.
-- Corpus: Appendix B of the draft lists the conformance vectors. They are not
-  yet published in this repository.
+- Corpus: `vectors-agent-audit-record/`, suite `agent-audit-record-conformance`,
+  one member per row of Appendix B of revision 01, each carrying its Appendix B
+  identifier. Judged by `packaging/agent_evidence_vectors/auditrecord.py`.
 - Status: current. The URI will not move, because a record carries it inside
   the bytes its producer signed.
 
