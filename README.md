@@ -65,7 +65,7 @@ Inputs, all optional except the first:
 | Input | What it does |
 | --- | --- |
 | `verifier` | Command line of the verifier under test. The first token must be on `PATH` or a path relative to the workspace. This verifier is always the program that runs: the job fails when it cannot be started or when it answered fewer vectors than the corpus holds. |
-| `corpus` | The shipped corpus to replay. Defaults to `vectors`, the Adversarial Execution Evidence corpus the reference rail judges. `agent-evidence-vectors --list-corpora` prints every name. `vectors-w3c-report` and `vectors-observed-effect` are judged only by the package's own reader and define no verifier contract, so a run naming a verifier against either is refused. `vectors-receipt-signature` defines one in its README, so a named verifier runs over it through that contract. |
+| `corpus` | Corpus to replay (default: `vectors`). `agent-evidence-vectors --list-corpora` lists the shipped corpora. `vectors-w3c-report` and `vectors-observed-effect` refuse a named verifier; `vectors-receipt-signature` and `vectors-source-coverage` define external verifier contracts. |
 | `tag` | A release to replay other than the one the action itself is pinned to, such as `v0.15.0`. The default is the action's own ref. |
 | `artifact-name` | The results artifact's name. Change it only when the action runs more than once in one workflow. |
 | `report-path` | Where the report is written, relative to the workspace. |
@@ -76,11 +76,12 @@ or `fail`), so a later step can act on the count rather than re-read the file.
 
 The package is stdlib-only and carries every corpus, so `pip install
 agent-evidence-vectors` needs no network access to this repository. Without
-`--verifier` it judges four corpora itself: `vectors` with the reference rail,
-and `vectors-w3c-report`, `vectors-observed-effect` and
-`vectors-receipt-signature` with their own readers.
-Every other corpus is refused by name with exit 2 and is judged by
-`aee-verify <corpus-dir>`, whose readers cover every corpus in the tree.
+`--verifier` it judges `vectors`, `vectors-w3c-report`,
+`vectors-observed-effect`, `vectors-receipt-signature`, and
+`vectors-agent-audit-record` with their packaged readers.
+The source-coverage corpus requires a named verifier. Every other corpus
+without a packaged reader is refused by name with exit 2 and judged by
+`aee-verify <corpus-dir>`.
 `agent-evidence-vectors --self-test` runs the reference rail against its own
 oracle, which is the first thing to run when a result looks wrong.
 
@@ -150,6 +151,10 @@ answers three verdicts rather than two: `verified`, `failed`, and
 something required was never captured. The tool that produces and checks those
 records is `tools/artifact-binding/`, and `demo/four-arms.sh` runs the four
 demonstrations end to end from a fresh clone.
+
+[`vectors-source-coverage/`](vectors-source-coverage/README.md) checks whether
+selected passages appear in a bound report under a consumer-pinned capture and
+time window. Six synthetic cases ship in the wheel and require a named verifier.
 
 `vectors-w3c-report/` is the conformance set for v0.1 of the per-check
 reporting format of the W3C public-agent-conformance community group: every

@@ -75,6 +75,7 @@ only-include = [
     "vectors-observed-effect",
     "vectors-receipt-signature",
     "vectors-scitt-cose",
+    "vectors-source-coverage",
     "vectors-w3c-report",
 ]
 # Corpus directories carry their generators and checkers beside the data. They
@@ -100,6 +101,7 @@ exclude = ["**/__pycache__", "**/.build", "**/*.pyc", "vectors/**/*.py", "vector
 "vectors-observed-effect" = "agent_evidence_vectors/corpora/vectors-observed-effect"
 "vectors-receipt-signature" = "agent_evidence_vectors/corpora/vectors-receipt-signature"
 "vectors-scitt-cose" = "agent_evidence_vectors/corpora/vectors-scitt-cose"
+"vectors-source-coverage" = "agent_evidence_vectors/corpora/vectors-source-coverage"
 "vectors-w3c-report" = "agent_evidence_vectors/corpora/vectors-w3c-report"
 
 # `sources` rewrites directory prefixes and leaves a single file where it is,
@@ -130,6 +132,7 @@ only-include = [
     "vectors-observed-effect",
     "vectors-receipt-signature",
     "vectors-scitt-cose",
+    "vectors-source-coverage",
     "vectors-w3c-report",
     "README.md",
     "LICENSE",
@@ -198,7 +201,7 @@ include = ["docs/proposals", "docs/site", "packaging", "scripts", "tools", "vect
            "vectors-anchor-stream", "vectors-artifact-binding",
            "vectors-mcp-record-contract", "vectors-mcp-response-phase",
            "vectors-observed-effect", "vectors-receipt-signature",
-           "vectors-scitt-cose", "vectors-self-reported-record",
+           "vectors-scitt-cose", "vectors-source-coverage", "vectors-self-reported-record",
            "vectors-w3c-report"]
 
 # The reference rail is imported by the gates that drive it, and it lives in

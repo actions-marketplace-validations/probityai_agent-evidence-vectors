@@ -119,6 +119,7 @@ GENERATORS = (
     # key recipe rather than copied, so the generator is the only place their
     # bytes come from.
     "vectors-receipt-signature/gen_vectors.py",
+    "vectors-source-coverage/gen_vectors.py",
     "scripts/gen-w3c-appendix.py",
 )
 
@@ -207,6 +208,11 @@ OWNED = (
     ("vectors-receipt-signature/keys", "*.json"),
     ("vectors-receipt-signature", "MANIFEST.json"),
     ("vectors-receipt-signature", "INDEX.md"),
+    ("vectors-source-coverage", "MANIFEST.json"),
+    ("vectors-source-coverage/cases", "**/case.json"),
+    ("vectors-source-coverage/cases", "**/policy.json"),
+    ("vectors-source-coverage/cases", "**/report.txt"),
+    ("vectors-source-coverage/cases", "**/source.html"),
     ("vectors-self-reported-record/statements", "v*.json"),
     ("vectors-self-reported-record", "MANIFEST.json"),
     ("vectors-self-reported-record", "INDEX.md"),
@@ -289,7 +295,7 @@ def owned_files(root: Path) -> dict[str, Path]:
     found: dict[str, Path] = {}
     for directory, pattern in OWNED:
         for path in sorted((root / directory).glob(pattern)):
-            found[f"{directory}/{path.name}"] = path
+            found[str(path.relative_to(root))] = path
     return found
 
 
