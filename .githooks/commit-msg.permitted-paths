@@ -1,18 +1,13 @@
 # Owner-qualified repository paths the identity rules must not refuse.
 #
-# This repository is public and deliberately product-neutral, so the salted
-# digests in commit-msg.forbidden-words refuse the first-party names anywhere in
-# a commit message or a tracked file. The organisation that owns these
-# repositories is named in their own URLs, and a URL cannot avoid naming its
-# owner: a clone command, a badge target, a citation file, an action reference
-# and a Go module path all have to spell it.
+# The public repository can name its owning organization and its verifier.
+# Company branding, its website, and unrelated private names stay forbidden.
+# A clone URL, badge target, citation, action reference or Go module path must
+# be able to name its owner and repository.
 #
-# So the permit is a PATH permit and not a word permit. The handle passes only
-# where a slash and one of this family's repository names follow it. The handle
-# standing alone is still refused, every other form of the name is still
-# refused, and a sentence tying the organisation to anything is refused exactly
-# as before, so a reader of a public repository sees an owner and learns nothing
-# from it.
+# The owner handle passes only with a listed repository path. The organization
+# name and verifier name pass as whole names. The company name alone and its
+# website still fail.
 #
 # THIS FILE IS THE ONLY DEFINITION, and that is the point of it. Three guards
 # rule on the same strings -- .githooks/commit-msg (commit messages, as a hook
@@ -27,23 +22,28 @@
 #
 # FORMAT: one permit per line, exactly two tab-separated fields,
 # `<hex><TAB><regex>`. The compiled pattern is
-# `bytes.fromhex(<hex>).decode("ascii") + <regex>`, case-insensitive. The owner
-# half is held hex-encoded because all three readers, and this file, are
-# themselves scanned by the guards above: a rule file that spells what its
+# `bytes.fromhex(<hex>).decode("ascii") + <regex>`, case-insensitive. The
+# matched prefix is held hex-encoded because all three readers, and this file,
+# are themselves scanned by the guards above: a rule file that spells what its
 # siblings forbid refuses its own commit. `#` comments and blank lines are
 # ignored.
 #
-# An ABSENT file means no permitted paths at all. That is the fail-closed
+# An ABSENT file means no permits at all. That is the fail-closed
 # direction and it is what keeps the hook byte-shareable with a repository that
 # has none. A MALFORMED line is a hard failure rather than a dropped permit: a
 # guard whose rule surface failed to load has verified nothing, and a permit
 # that failed to load reads as the guard working.
 #
-# TWO SHAPES BEYOND THE CLONE URL, both measured rather than assumed. The
+# TWO URL SHAPES BEYOND THE CLONE URL. The
 # organisation's Pages host is the same owner written as a hostname
 # (`<handle>.github.io/<repository>/...`) and it is where the published
 # predicate type URIs live, so it is permitted in exactly the same
 # repository-qualified shape and nowhere else. And the two crate repositories
 # this family publishes are named beside the three original ones, because a
-# package's own metadata has to spell its repository.
-70726f626974796169	(?:\.github\.io)?/(?:agent-evidence-(?:vectors|vocabulary|admission)|jcs-admit|dsse)\b
+# package's own metadata has to spell its repository. Whole public organization
+# and verifier names are permitted independently of URL spelling.
+70726f626974796169	(?:\.github\.io)?/(?:agent-evidence-(?:vectors|vocabulary|admission)|jcs-admit|dsse|probity-verify)(?![A-Za-z0-9_-])
+5c6250726f62697479204149	(?![A-Za-z0-9_-])
+5c6250726f6269747920566572696679	(?![A-Za-z0-9_-])
+5c6270726f626974792d766572696679	(?![A-Za-z0-9_-])
+70726f626974792d736f757263652d636f766572616765	\.json(?![A-Za-z0-9_-])

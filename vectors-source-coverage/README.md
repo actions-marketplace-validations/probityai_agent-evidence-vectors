@@ -24,5 +24,8 @@ The wheel supports the same corpus:
 The checker verifies fixture bytes and compares each decision and reason.
 Regenerate the cases with `python3 vectors-source-coverage/gen_vectors.py`.
 
+CI runs [probity-verify](https://github.com/probityai/probity-verify)
+against this corpus. Both are maintained by Probity AI.
+
 Passing these synthetic cases does not establish source authority, passage
 materiality, or report completeness.
