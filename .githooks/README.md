@@ -68,13 +68,12 @@ the commit-message gate landed here.
 
 The gate file itself is byte-identical across the four repositories. This
 repository adds one rule through a sidecar: a commit message may not name the
-first-party products. The rule is carried as salted digests rather than as a
-pattern, because a pattern has to spell what it forbids and this repository is
-public -- see the hook's module docstring for the argument and the format.
+separate company site or private products. The rule uses salted digests so its
+own pattern does not publish the names it forbids.
 
 That rule is real rather than decorative.
 `.github/workflows/no-internal-drafts.yml` already refuses a tracked FILE
-containing a product name -- but it greps files, and a commit message is not
+containing a forbidden name -- but it scans files, and a commit message is not
 a file. Three message bodies in this history name the products, which is the
 same leak the file gate was built to stop, arriving through a surface nobody
 checked. The other three repositories do not get this rule, where it would
@@ -82,13 +81,9 @@ forbid them from naming themselves.
 
 ## commit-msg.permitted-paths (this repository only)
 
-The rule above refuses the first-party names anywhere in a message. The
-organisation that owns these repositories is named in their own URLs, and a URL
-cannot avoid naming its owner: a clone command, a badge target, a citation file,
-an action reference and a Go module path all have to spell it. This sidecar
-carries the narrow permit that lets them -- a PATH permit, so the handle passes
-only where a slash and one of this family's repository names follow it, and the
-handle standing alone stays refused.
+The rule above would also catch the public organization's name and verifier.
+This sidecar permits their whole names and listed repository paths. The company
+name alone, its site, and unrelated private names remain forbidden.
 
 It is a sidecar and not a constant because three guards rule on the same
 strings: this hook on commit messages, `scripts/pre-push-identity-scan.py` on
