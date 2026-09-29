@@ -71,17 +71,12 @@ certificate and nothing to grant. An implementer who disagrees with a verdict ca
 rerun the corpus themselves; the whole suite is offline, dependency-free on the
 consuming side, and runs against any command.
 
-No implementation has standing here, and a product has none at all. The
-reference rails in this repository are evidence about the corpus and never the
-definition of it, which is what the table below says of them; the same holds for
-every other implementation, whoever wrote it and whether or not it is something
-somebody sells. A product's behaviour is not a reason to add a vector, widen an
-expectation or retire a rule, and a vendor's interest in the answer buys nothing
-the issue tracker does not already give a stranger. The repository names no
-product at all, and that is a gate rather than an intention:
-`.github/workflows/no-internal-drafts.yml` refuses a first-party product name in
-any tracked file, so a change that gave one a mention would fail on the push
-that made it.
+No implementation has standing here. The reference rails and named external
+verifiers are evidence about the corpus, never its definition. Their behavior
+does not justify adding a vector, widening an expectation, or retiring a rule.
+The repository may name work maintained by Probity AI, including Probity Verify.
+It does not name the separate company's website or private products. The
+identity guards enforce that boundary in files and commit history.
 
 ## What is governed
 
