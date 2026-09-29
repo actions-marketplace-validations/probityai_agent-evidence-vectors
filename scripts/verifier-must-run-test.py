@@ -295,13 +295,20 @@ def shipped_corpora() -> list[str]:
 def case_no_rail_judges_a_suite_it_does_not_implement(work: Path) -> list[str]:
     """Without a verifier, every shipped corpus is judged by a reader for its
     suite or refused by name. The AEE reference rail used to run over every
-    other predicate's corpus and print its failures as the corpus's verdict."""
+    other predicate's corpus and print its failures as the corpus's verdict.
+
+    A corpus whose only contract is an external verifier (source coverage) is
+    refused by name too: it has no package reader to fall back on, so a run
+    without a verifier must say that and write no report."""
     errors: list[str] = []
     for corpus in shipped_corpora():
         run = harness(work, None, "--corpus", corpus)
         if run.code == 0:
             continue
-        if run.code == 2 and "has no reader in this package" in run.out:
+        if run.code == 2 and (
+            "has no reader in this package" in run.out
+            or "requires a named external verifier" in run.out
+        ):
             if run.report is not None:
                 errors.append(f"reference-scope {corpus}: refused, yet a report was written")
             continue

@@ -130,6 +130,19 @@ jobs:
           uv run --no-project --with "$wheel" agent-evidence-vectors --report report.json
           python3 -c "import json; t = json.load(open('report.json'))['totals']; assert t['fail'] == 0 and t['suiteRefusals'] == 0, t; print(t)"
           while read -r corpus; do
+            if [ "$corpus" = vectors-source-coverage ]; then
+              if uv run --no-project --with "$wheel" agent-evidence-vectors \
+                   --corpus "$corpus" --report "report-$corpus.json" > "out-$corpus.txt" 2>&1; then
+                echo "::error::source coverage was judged without its external verifier"
+                exit 1
+              else
+                rc=$?
+              fi
+              test "$rc" = 2
+              grep -q "requires a named external verifier" "out-$corpus.txt"
+              echo "$corpus: requires an external verifier"
+              continue
+            fi
             if uv run --no-project --with "$wheel" agent-evidence-vectors --corpus "$corpus" \
                  --report "report-$corpus.json" > "out-$corpus.txt" 2>&1; then
               echo "$corpus: judged clean by the packaged rail"

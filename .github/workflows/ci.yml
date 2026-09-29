@@ -231,7 +231,7 @@ jobs:
       - name: type-check every python file
         run: uv run python scripts/typecheck-gate.py
       - name: ruff
-        run: uv run ruff check packaging vectors vectors-observed-effect vectors-agent-audit-record vectors-ai-generation vectors-receipt-signature vectors-self-reported-record scripts
+        run: uv run ruff check packaging vectors vectors-observed-effect vectors-agent-audit-record vectors-ai-generation vectors-receipt-signature vectors-source-coverage vectors-self-reported-record scripts
       # The other half of the accepted-complexity gate. It runs here rather than
       # beside the Go half because it measures with ruff, and it measures with
       # --ignore-noqa because the marker that brings a function into
@@ -772,6 +772,8 @@ jobs:
       # the standard library.
       - name: the observed-effect corpus behaves as its manifest claims
         run: uv run --extra generators python vectors-observed-effect/check_vectors.py
+      - name: source-coverage fixtures regenerate and refuse invalid replays
+        run: uv run --extra dev pytest vectors-source-coverage/tests -q
       # A second question the checker above cannot ask about itself: would any
       # member still be refused if a rule were removed? The sweep disables one
       # rule at a time and requires some member to stop being refused. It earns

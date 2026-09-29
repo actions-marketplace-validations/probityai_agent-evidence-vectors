@@ -126,7 +126,13 @@ from typing import Any, NamedTuple, TypeGuard
 # receiptsignature is the third, and the first whose corpus defines an
 # external-verifier contract of its own: a named verifier runs over it through
 # that contract instead of being refused.
-from agent_evidence_vectors import auditrecord, observedeffect, receiptsignature, w3creport
+from agent_evidence_vectors import (
+    auditrecord,
+    observedeffect,
+    receiptsignature,
+    sourcecoverage,
+    w3creport,
+)
 
 AEE_PREDICATE_TYPE = "https://in-toto.io/attestation/adversarial-execution-evidence/v0.7"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
@@ -3737,9 +3743,12 @@ def _run_non_reference_suite(
         observedeffect.SUITE,
         receiptsignature.SUITE,
         auditrecord.SUITE,
+        sourcecoverage.SUITE,
     )
     if not own_reader and external_cmd is not None:
         return None
+    if suite == sourcecoverage.SUITE:
+        return sourcecoverage.run_or_refuse(suite_dir, external_cmd, report_path, rail_note)
     if external_cmd is not None and suite == receiptsignature.SUITE:
         return receiptsignature.run_external(suite_dir, external_cmd, report_path, rail_note)
     if external_cmd is not None:
