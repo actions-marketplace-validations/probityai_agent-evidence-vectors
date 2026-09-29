@@ -268,7 +268,7 @@ def main(argv: list[str]) -> int:
     if hits:
         print(
             f"forbidden-word-scan: {hits} hit(s) across {scanned} file(s). "
-            "This repository must stay product-neutral.",
+            "Company and private names outside public organization work are forbidden.",
             file=sys.stderr,
         )
         return 1
