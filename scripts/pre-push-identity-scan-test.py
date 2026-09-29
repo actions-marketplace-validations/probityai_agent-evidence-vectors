@@ -90,6 +90,10 @@ OWNER = _hex("70726f626974796169")
 COMPANY = _hex("70726f62697479")
 SITE = _hex("67657470726f62697479") + ".dev"
 OTHER = _hex("6d617463686c6f636b")
+ORG_NAME = COMPANY.title() + " AI"
+VERIFIER_NAME = COMPANY.title() + " Verify"
+VERIFIER_REPO = COMPANY + "-verify"
+REPORT_NAME = COMPANY + "-source-coverage.json"
 
 _sidecar = scan.Sidecar()
 
@@ -117,6 +121,11 @@ PERMITTED = (
         f"https://{OWNER}.github.io/agent-evidence-vectors/predicate/v1/observed-effect",
     ),
     ("a crate repository URL", f"https://github.com/{OWNER}/jcs-admit"),
+    ("the organization name", f"Both are maintained by {ORG_NAME}."),
+    ("the verifier name", f"Run {VERIFIER_NAME} against the corpus."),
+    ("the verifier CLI", f"uv run {VERIFIER_REPO} --json"),
+    ("the verifier repository", f"https://github.com/{OWNER}/{VERIFIER_REPO}"),
+    ("the verifier report", f"--report .build/{REPORT_NAME}"),
 )
 
 REFUSED = (
@@ -133,6 +142,10 @@ REFUSED = (
     ("the website inside a link", f"[docs](https://{SITE}/predicate/v1/)"),
     ("the website bare", SITE),
     ("another first-party product", f"the {OTHER} runtime"),
+    ("a company name beside the organization", f"Get{ORG_NAME} maintains this"),
+    ("a longer verifier name", f"the {VERIFIER_REPO}-private runtime"),
+    ("a lookalike repository", f"{OWNER}/{VERIFIER_REPO}-private"),
+    ("a longer report name", f".build/{REPORT_NAME}-private"),
 )
 
 
@@ -412,6 +425,16 @@ def _material_cases() -> tuple[int, list[str]]:
         print("ok   declared   every rule span this scanner holds is in the shared list")
     else:
         bad.append("a rule span is undeclared; the sibling scan would refuse this file")
+    ran += 1
+    permit_prefixes = {
+        line.split("\t", 1)[0]
+        for line in scan.PERMIT_SIDECAR.read_text(encoding="utf-8").splitlines()
+        if line and not line.startswith("#")
+    }
+    if permit_prefixes <= set(scan.GUARD_SPANS):
+        print("ok   declared   every permit prefix is in the shared rule material")
+    else:
+        bad.append("a permit prefix is undeclared; the sibling scan would refuse it")
     return ran, bad
 
 
