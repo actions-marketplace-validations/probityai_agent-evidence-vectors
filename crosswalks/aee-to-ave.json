@@ -19,12 +19,12 @@
     "standard": "AVE (Agentic Vulnerability Enumeration)",
     "url": "https://aveproject.org",
     "repository": "https://github.com/aveproject/ave",
-    "commit": "3b9fcc001b61f92a5e0b748183261dadf230f92a",
-    "record_count": 80,
-    "records_read": "2026-09-05",
+    "commit": "debfb518ea517c3c7f83bb5625689180246fbfdc",
+    "record_count": 84,
+    "records_read": "2026-09-29",
     "derived_by": "git -C <ave-checkout> rev-parse HEAD && ls <ave-checkout>/records/AVE-*.json | wc -l"
   },
-  "generated": "2026-09-05",
+  "generated": "2026-09-29",
   "generated_by": "scripts/crosswalk-gen.py",
   "crosswalk_kind": "vocabulary-to-structure",
   "note": "AEE is not a scanner and emits no finding IDs, so a finding-to-record table would invent a correspondence that does not exist. This maps AVE's existing evidence-provenance vocabulary onto AEE's evidence structure instead: for each way AVE already describes how a finding was reached, what the corresponding signed, offline-verifiable record looks like. Every count in this file is derived by scripts/crosswalk-gen.py from the upstream commit named in target.commit and from this repository's own vectors/MANIFEST.json; the command for each side is recorded beside the figures it produces. Offered as a basis for collaboration, not as a competing taxonomy.",
@@ -32,7 +32,7 @@
     {
       "ave_field": "detection_stage",
       "ave_value": "static_detection",
-      "record_count": 58,
+      "record_count": 60,
       "aee_field": "aeeKind",
       "aee_value": "examination",
       "notes": "The component was read, not run. An examination record is the substrate's account of artifact-independent state inspected after the fact, and its aeeMethod is necessarily reconstructed. AEE will not let such a record be signed as intercepted, which is the structural version of the distinction AVE draws here."
@@ -40,7 +40,7 @@
     {
       "ave_field": "detection_stage",
       "ave_value": "runtime_observed",
-      "record_count": 20,
+      "record_count": 22,
       "aee_field": "aeeKind",
       "aee_value": "interception, under a run-level arming and sealed pair",
       "notes": "The component executed and something watched. An interception record covers the caught event; an arming record says a live vantage existed before the corpus was injected, and a sealed record says it stayed armed to run-end. AVE records the stage; the arming and sealed pair is what makes a clean result at that stage mean anything, because absence of a catch is only evidence if something was watching for it."
@@ -64,7 +64,7 @@
     {
       "ave_field": "detection_layer",
       "ave_value": "runtime",
-      "record_count": 22,
+      "record_count": 24,
       "aee_field": "observationEnvironment",
       "aee_value": "substrate + corpus + manifest + catchPolicy + networkPosture",
       "notes": "A real environment existed and every part of it is pinnable. networkPosture in particular (no_network, allowlist, sinkhole) changes what a runtime finding means and is not currently recoverable from an AVE record."
@@ -72,7 +72,7 @@
     {
       "ave_field": "detection_layer",
       "ave_value": "registry_metadata",
-      "record_count": 12,
+      "record_count": 14,
       "aee_field": "method",
       "aee_value": "reconstructed",
       "notes": "The observation is about a registry response, so the fetch itself is the thing needing provenance and the claim rests on state read after the fact."
@@ -96,7 +96,7 @@
     {
       "ave_field": "evidence_basis_engines",
       "ave_value": "sandbox",
-      "record_count": 9,
+      "record_count": 12,
       "aee_field": "basis",
       "aee_value": "substrate, with method intercepted",
       "notes": "The engine value where a substrate basis is available, because here the component actually ran and something outside it watched. Both members are required on every AEE row and both compose by weakest input, so a sandbox observation fused with the component's own stdout degrades to artifact rather than silently keeping the stronger label.",
@@ -109,7 +109,10 @@
         "AVE-2026-00070",
         "AVE-2026-00078",
         "AVE-2026-00079",
-        "AVE-2026-00080"
+        "AVE-2026-00080",
+        "AVE-2026-00081",
+        "AVE-2026-00083",
+        "AVE-2026-00084"
       ]
     },
     {
@@ -126,14 +129,14 @@
     {
       "ave_field": "evidence_basis_engines",
       "ave_value": "llm",
-      "record_count": 34,
+      "record_count": 36,
       "aee_field": "aeeKind",
       "aee_value": "examination",
       "notes": "The case where a signed record helps most: a model's judgement is exactly the kind of claim a reader has no independent way to check."
     }
   ],
   "coverage": {
-    "ave_records_read": 80,
+    "ave_records_read": 84,
     "ave_values_mapped": 11,
     "ave_values_not_mapped": 4
   },
