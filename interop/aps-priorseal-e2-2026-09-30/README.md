@@ -58,10 +58,26 @@ PriorSeal asset mapping in entry 5 is this checker's reading (SPEC-GAPS.md 3).
 
 ## Rerun
 
-    sh fetch_inputs.sh
-    uv run --no-project --python 3.13 --with agent-evidence-vectors==0.15.0 --with pycryptodome==3.23.0 \
-      python e2check.py inputs pins.json > RESULTS.json
-    uv run --no-project --python 3.13 --with agent-evidence-vectors==0.15.0 --with pycryptodome==3.23.0 \
-      --with cryptography==44.0.2 python build_and_run.py inputs pins.json e2check.py work > NEGATIVES.json
+Use Python 3.13.15. From this directory:
+
+```sh
+python -m pip install --require-hashes -r requirements-ci.txt
+python -m pytest -q test_reproduction.py
+sh fetch_inputs.sh
+python check_reproduction.py
+```
+
+The gate writes reports and variants under the repository's `.build/e2-reproduction/`,
+checks all 96 rows and seven controls, and compares both reports byte for byte with
+the committed expectations. It preserves the unexercised PriorSeal signatures and
+the surviving rehashed negative. A malformed report, changed vocabulary, omitted
+control, unsafe output path, or byte difference fails the run. Committed reports
+are never regenerated in place. `--inputs` and `--output` accept separate paths;
+outputs must remain outside the inputs and this suite.
+
+`.github/workflows/e2-reproduction.yml` runs the same tests, fetches and SHA-256
+checks all 31 inputs, and executes the gate on relevant pushes and pull requests.
+It installs version- and hash-pinned dependencies and retains the generated
+reports as CI artifacts. This is a reproduction of offline fixture results.
 
 Both outputs reproduced byte for byte from a clean directory before publication (Python 3.13.3).
