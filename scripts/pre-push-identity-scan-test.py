@@ -108,6 +108,7 @@ ESCAPED_HTML_HOST = "&#103;" + SITE[1:]
 # the joined shape.
 HOME_PATH = "/".join(("", "home", "someone", "notes.txt"))
 DOSSIER_PATH = "/".join(("research", "123-private-dossier"))
+THIRD_PRODUCT = "-".join(("mcp", "test", "toolkit"))
 
 _sidecar = scan.Sidecar()
 
@@ -181,7 +182,35 @@ REFUSED = (
 HISTORY_REFUSED = (
     ("an absolute home path", f"see {HOME_PATH}"),
     ("a private dossier name", f"see {DOSSIER_PATH}/notes.md"),
+    ("a private product name only the history scanner lists", f"the {THIRD_PRODUCT} runner"),
 )
+
+
+def _pattern_cases() -> tuple[int, list[str]]:
+    """Pin the history scanner's own word list, apart from the salted sidecar.
+
+    The history scanner refuses a line when either its own pattern list or the
+    salted sidecar fires, so a case run through the whole scanner cannot tell
+    whether the list still holds a word the sidecar also holds. Measured: with
+    the website name, the host's tail or the other product deleted from the
+    list, every case above still held. These cases read the list alone.
+    """
+    bad: list[str] = []
+    ran = 0
+    names = [(w, l) for w, l in REFUSED] + [HISTORY_REFUSED[-1]]
+    for what, line in names:
+        ran += 1
+        if scan.IDENTITY.search(scan.permit(line)):
+            print(f"ok   refused    {what} (history scanner's own list)")
+        else:
+            bad.append(f"{what} (history scanner's own list): PASSED, the list lost a word")
+    for what, line in PERMITTED:
+        ran += 1
+        if scan.IDENTITY.search(scan.permit(line)):
+            bad.append(f"{what} (history scanner's own list): refused, but this shape is not a finding")
+        else:
+            print(f"ok   permitted  {what} (history scanner's own list)")
+    return ran, bad
 
 
 # The sibling scanner. `forbidden-word-scan.py` reads tracked CONTENT where the
@@ -689,6 +718,9 @@ def _encoding_cases() -> tuple[int, list[str]]:
 
 def main() -> int:
     total, failures = _run_cases(refused, PERMITTED, REFUSED + HISTORY_REFUSED, "")
+    more, bad = _pattern_cases()
+    total += more
+    failures += bad
     if CONTENT_SCANNER.exists():
         more, bad = _run_cases(content_refuses, PERMITTED, REFUSED, " (content scanner)")
         total += more
