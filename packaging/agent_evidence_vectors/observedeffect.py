@@ -1206,14 +1206,20 @@ def _reading_findings(slug: Any, expected: dict[str, Any], report: Report) -> li
 def _indeterminate_findings(entry: dict[str, Any], report: Report) -> list[str]:
     """A member the predicate states no rule for declares the readings a
     conforming verifier could take, and scoring either one wrong would be the
-    corpus inventing a rule the predicate does not carry. A member declaring no
-    reading is the other failure: no answer to it can be wrong."""
+    corpus inventing a rule the predicate does not carry. A member declaring
+    fewer than two readings is the other failure: one reading is a rule, and a
+    member carrying a rule belongs in accept or reject."""
     readings = entry.get("readings") or []
     allowed = sorted({str(reading.get("verdict")) for reading in readings})
-    if not allowed:
+    if "verdict" in (entry.get("expected") or {}):
         return [
-            f"{entry.get('slug')}: declared indeterminate and names no readings, so no "
-            "answer can be wrong"
+            f"{entry.get('slug')}: declared indeterminate and pins expected.verdict beside "
+            "readings, so a scorer reading that field marks a listed reading wrong"
+        ]
+    if len(allowed) < 2:
+        return [
+            f"{entry.get('slug')}: declared indeterminate and names fewer than two "
+            "readings, so it states a rule and belongs in accept or reject"
         ]
     if report.verdict not in allowed:
         return [

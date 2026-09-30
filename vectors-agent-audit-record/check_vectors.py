@@ -16,8 +16,13 @@ Three checks, each able to fail on its own.
    not. The reader borrows the rail's Ed25519, so without this check one
    Ed25519 implementation would be grading itself.
 3. The mutation sweep: disabling any one rule of the reader must turn at least
-   one reject member into a non-refusal, and must never turn an accept member
-   into a refusal. A rule whose removal changes no verdict measures nothing.
+   one reject member into a non-refusal, must never turn an accept member into
+   a refusal, and must never move an indeterminate member to a verdict none of
+   its readings lists. A rule whose removal changes no verdict measures nothing.
+
+An indeterminate member (N1, N2) is scored on its readings: any verdict it lists
+conforms, and it carries no expected.verdict. scripts/indeterminate-readers-test.py
+deletes each listed reading in turn and requires the judge to refuse the result.
 """
 
 from __future__ import annotations
@@ -100,6 +105,12 @@ def _mutation_sweep(manifest: dict[str, object]) -> tuple[list[str], list[str]]:
             report = auditrecord.verify(raw, policy, disabled=name)
             if entry["kind"] == "accept" and report.verdict != "valid":
                 findings.append(f"disabling {name} refuses accept member {entry['draftId']}")
+            open_member = entry["kind"] == "indeterminate"
+            if open_member and report.verdict not in auditrecord.conforming_verdicts(entry):
+                findings.append(
+                    f"disabling {name} moves indeterminate member {entry['draftId']} to "
+                    f"{report.verdict!r}, which none of its readings lists"
+                )
             if entry["kind"] != "reject":
                 continue
             if report.verdict == "valid":

@@ -42,7 +42,7 @@ This corpus is 57 vectors, of which 12 a conformant verifier must not fail close
 | `v721049b4e1bc6708` | reject | malformed | required-member-absent | oe-required-members |
 | `v1393248410a343af` | reject | malformed | unknown-vantage-at-voluntary-tier | oe-vocabulary |
 | `vd3291ebb0e6cd9ef` | reject | malformed | interval-not-ordered | oe-interval-order |
-| `vba26029515229883` | indeterminate | indeterminate | anchor-with-no-offline-rule | oe-anchor-unruled |
+| `vba26029515229883` | indeterminate | valid or not-established | anchor-with-no-offline-rule | oe-anchor-unruled |
 | `v701feb37d4134d5b` | reject | malformed | subject-is-not-the-after-root | oe-subject-binding |
 | `v34256c23f64d1996` | reject | malformed | predicate-type-is-another-predicates | oe-predicate-type |
 | `vfadad657edabdd3a` | reject | malformed | commitment-timestamp-with-an-offset | oe-timestamp-grammar |

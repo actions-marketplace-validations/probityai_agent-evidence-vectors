@@ -260,6 +260,13 @@ def envelope(payload: bytes) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # The members. Each is (draft id, kind, from, what the row says, how it is
 # built, expected verdict, expected codes, derived tier, readings).
+#
+# A row the draft leaves open (N1, N2) has readings and NO expected verdict.
+# Appendix B's column prints "indeterminate" for those rows, and that word is
+# the row's kind, not a verdict: one of the readings is also called
+# indeterminate, but the other is valid, and a single expected verdict would
+# score a verifier taking either listed reading as wrong. Revision 01 shipped
+# exactly that, found by an outside reader before a second implementation ran.
 # ---------------------------------------------------------------------------
 
 Built = dict[str, Any]
@@ -274,12 +281,20 @@ def member(
     parent: str | None,
     row: str,
     build: Callable[[], Built],
-    verdict: str,
+    verdict: str | None,
     codes: list[str] | None = None,
     tier: str | None = None,
     readings: list[dict[str, str]] | None = None,
 ) -> None:
-    kind = {"valid": "accept", "malformed": "reject", "indeterminate": "indeterminate"}[verdict]
+    if (verdict is None) == (readings is None):
+        raise SystemExit(
+            f"{draft_id}: a settled row carries one expected verdict and an open row "
+            "carries readings, never both and never neither"
+        )
+    if readings is not None and len({r["verdict"] for r in readings}) < 2:
+        raise SystemExit(f"{draft_id}: an open row lists at least two distinct verdicts")
+    kinds = {"valid": "accept", "malformed": "reject"}
+    kind = "indeterminate" if verdict is None else kinds[verdict]
     MEMBERS.append(
         {
             "draftId": draft_id,
@@ -957,7 +972,7 @@ def define() -> None:
         "A1",
         "an anchor token digest carried with no offline validation rule defined",
         mutate("A1", _n1),
-        "indeterminate",
+        None,
         readings=TWO_READINGS_N1,
     )
     member(
@@ -966,9 +981,19 @@ def define() -> None:
         "A4",
         "enforcement forty days after the signal, ordering intact",
         mutate("A4", lambda p: p["remediation"][0].update(enforcedAt="2026-10-29T11:04:07Z")),
-        "indeterminate",
+        None,
         readings=TWO_READINGS_N2,
     )
+
+
+def expected_of(entry: Member) -> dict[str, Any]:
+    """The manifest's expected block: a settled row's verdict, never an open row's."""
+    expected: dict[str, Any] = {"codes": entry["codes"]}
+    if entry["verdict"] is not None:
+        expected["verdict"] = entry["verdict"]
+    if entry["tier"] is not None:
+        expected["derivedTier"] = entry["tier"]
+    return expected
 
 
 def vector_id(body: bytes) -> str:
@@ -997,9 +1022,6 @@ def emit() -> None:
         with open(os.path.join(HERE, rel), "wb") as fh:
             fh.write(raw)
         keep.add(f"{ident}.json")
-        expected: dict[str, Any] = {"verdict": entry["verdict"], "codes": entry["codes"]}
-        if entry["tier"] is not None:
-            expected["derivedTier"] = entry["tier"]
         out: dict[str, Any] = {
             "id": ident,
             "draftId": entry["draftId"],
@@ -1007,7 +1029,7 @@ def emit() -> None:
             "kind": entry["kind"],
             "file": rel,
             "row": entry["row"],
-            "expected": expected,
+            "expected": expected_of(entry),
         }
         if entry["parent"] is not None:
             out["parent"] = ids[entry["parent"]]
@@ -1044,12 +1066,13 @@ def emit() -> None:
         "counts": counts,
         "note": (
             "One member per row of Appendix B of the draft, in the row's order; "
-            "draftId is the row's identifier and parentDraftId its from column. A "
-            "conforming verifier is scored on expected.verdict. expected.codes are "
-            "the reference reader's names for its first refusal, published so two "
-            "implementations can compare where they stopped; the draft does not "
-            "define them. An indeterminate member lists every reading a conforming "
-            "verifier may take."
+            "draftId is the row's identifier and parentDraftId its from column. An "
+            "accept or reject member is scored on expected.verdict. An indeterminate "
+            "member is a row the draft leaves open: it carries no expected.verdict, "
+            "and a verifier conforms on it by reaching any verdict its readings list. "
+            "expected.codes are the reference reader's names for its first refusal, "
+            "published so two implementations can compare where they stopped; the "
+            "draft does not define them."
         ),
         "vectors": vectors,
     }
@@ -1083,8 +1106,12 @@ def write_index(manifest: dict[str, Any]) -> None:
     ]
     for v in vectors:
         parent = v.get("parentDraftId", "root")
+        if v["kind"] == "indeterminate":
+            verdict = " or ".join(r["verdict"] for r in v["readings"])
+        else:
+            verdict = v["expected"]["verdict"]
         lines.append(
-            f"| `{v['draftId']}` | {parent} | {v['expected']['verdict']} | "
+            f"| `{v['draftId']}` | {parent} | {verdict} | "
             f"[`{v['id']}`]({v['file']}) | {v['row']} |"
         )
     with open(os.path.join(HERE, "INDEX.md"), "w", encoding="utf-8") as fh:

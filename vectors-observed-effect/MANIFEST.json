@@ -66,7 +66,7 @@
       "publicKey": "4f2a59edc8367deb40047ce83ee7f5ce711a57d93abbda9d1ce8588c56a3ce88"
     }
   },
-  "note": "Every reject member declares the accept member it is one mutation from, so a verifier that refuses everything scores zero rather than full marks. The indeterminate member declares the readings a conforming verifier could take, because the predicate does not choose between them.",
+  "note": "Every reject member declares the accept member it is one mutation from, so a verifier that refuses everything scores zero rather than full marks. The indeterminate member declares the readings a conforming verifier could take, because the predicate does not choose between them, and carries no expected.verdict: a verifier conforms on it by reaching any verdict its readings list.",
   "payloadType": "application/vnd.in-toto+json",
   "predicateSpec": "spec/predicates/observed-effect.md",
   "predicateType": "https://probityai.github.io/agent-evidence-vectors/predicate/v1/observed-effect",
@@ -626,8 +626,7 @@
         "oe-anchor-unruled"
       ],
       "expected": {
-        "codes": [],
-        "verdict": "indeterminate"
+        "codes": []
       },
       "file": "statements/vba26029515229883.json",
       "id": "vba26029515229883",

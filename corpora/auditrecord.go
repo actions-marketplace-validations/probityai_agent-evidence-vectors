@@ -774,7 +774,9 @@ type arVector struct {
 	File     string `json:"file"`
 	Parent   string `json:"parent"`
 	Expected struct {
-		Verdict     string   `json:"verdict"`
+		// A pointer, because an indeterminate member must carry no verdict at
+		// all and an absent field has to be told apart from an empty one.
+		Verdict     *string  `json:"verdict"`
 		Codes       []string `json:"codes"`
 		DerivedTier *string  `json:"derivedTier"`
 	} `json:"expected"`
@@ -833,7 +835,10 @@ func arJudgeMember(dir string, manifest *arManifest, v arVector, byID map[string
 			allowed = append(allowed, reading.Verdict)
 		}
 		sort.Strings(allowed)
-		if len(allowed) < 2 {
+		if v.Expected.Verdict != nil {
+			findings = append(findings, label+": declared indeterminate and pins expected.verdict beside "+
+				"readings, so a scorer reading that field marks a listed reading wrong")
+		} else if len(allowed) < 2 {
 			findings = append(findings, label+": declared indeterminate and names fewer than two readings")
 		} else if !arContains(allowed, report.verdict) {
 			findings = append(findings, fmt.Sprintf("%s: this rail took %q, outside %v", label, report.verdict, allowed))
@@ -845,8 +850,12 @@ func arJudgeMember(dir string, manifest *arManifest, v arVector, byID map[string
 }
 
 func arDeclaredFindings(label string, v arVector, report arReport) []string {
-	if report.verdict != v.Expected.Verdict {
-		return []string{fmt.Sprintf("%s: expected %s, got %s [%s]", label, v.Expected.Verdict, report.verdict, report.code)}
+	declared := ""
+	if v.Expected.Verdict != nil {
+		declared = *v.Expected.Verdict
+	}
+	if report.verdict != declared {
+		return []string{fmt.Sprintf("%s: expected %s, got %s [%s]", label, declared, report.verdict, report.code)}
 	}
 	want := strings.Join(v.Expected.Codes, ",")
 	if want != report.code {
