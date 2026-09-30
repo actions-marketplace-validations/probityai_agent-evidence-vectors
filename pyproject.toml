@@ -42,10 +42,10 @@ agent-evidence-vectors = "agent_evidence_vectors.run_vectors:main"
 requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
-# The repository stays a virtual project for `uv sync`: nothing here imports
-# the distribution, every gate runs the rail from packaging/ by path, and an
-# editable install would copy eight corpora into the venv on every sync.
-# `uv build` still produces the wheel and sdist.
+# The repository stays a virtual project for `uv sync`: most gates run the rail
+# from packaging/ by path. Python CI installs the checkout wheel separately to
+# resolve the E2 imports of its distribution layout. The E2 reproduction job
+# keeps its released-wheel pin. `uv build` still produces the wheel and sdist.
 [tool.uv]
 package = false
 
@@ -165,7 +165,9 @@ artifact-binding = ["cryptography>=43"]
 # reported in the same shape as a real unresolved name. Declaring it once here
 # also keeps the version the site builds with and the version the checker reads
 # from being two separate pins that drift apart.
+# The E2 checker and property tests use the same pins as their reproduction job.
 dev = ["cryptography>=43", "pycose>=1.1,<2", "cbor2>=5.6,<6", "markdown>=3.9",
+       "hypothesis==6.141.1", "pycryptodome==3.23.0",
        "mypy>=1.11", "pyright>=1.1.400", "pytest>=8", "pytest-cov>=5",
        "pyyaml>=6", "ruff>=0.6", "types-Markdown>=3.9", "types-PyYAML>=6"]
 
@@ -196,7 +198,7 @@ files = ["packaging", "vectors", "tools"]
 # Directories cannot forget. A file added to any of these is checked because it
 # is there, not because it was announced, and scripts/typecheck-gate.py refuses
 # to pass if a Python file exists outside them.
-include = ["docs/proposals", "docs/site", "packaging", "scripts", "tools", "vectors",
+include = ["docs/proposals", "docs/site", "interop", "packaging", "scripts", "tools", "vectors",
            "vectors-agent-audit-record", "vectors-aci", "vectors-acs-core", "vectors-ai-agent-action", "vectors-ai-generation",
            "vectors-anchor-stream", "vectors-artifact-binding",
            "vectors-mcp-record-contract", "vectors-mcp-response-phase",
