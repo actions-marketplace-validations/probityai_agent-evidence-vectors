@@ -602,7 +602,13 @@ def add(
     makes a duplicate obvious and is dropped at emit(). The sibling corpus
     records why, and the reason holds here: an `ok-`/`bad-` prefix on the
     input's own name hands the rail the answer along with the question.
+
+    An indeterminate member carries its readings and no verdict: its readings
+    span accepting and refusing, and any single verdict in the manifest would
+    score a verifier that takes another listed reading as wrong.
     """
+    if kind == "indeterminate" and "verdict" in expected:
+        raise SystemExit(f"{slug}: an indeterminate member carries readings and no verdict")
     DRAFTS.append(
         {
             "slug": slug,
@@ -1383,7 +1389,6 @@ def build_indeterminate() -> None:
         detached=False,
         conditions=["sc-c-15"],
         expected={
-            "verdict": "invalid",
             "family": "receipt-carries-no-inclusion-proof-type",
             "readings": {
                 "inclusion-required": "receipt-not-of-inclusion",
@@ -1417,7 +1422,6 @@ def build_indeterminate() -> None:
         detached=False,
         conditions=["sc-c-16"],
         expected={
-            "verdict": "valid",
             "family": "payload-format-undeclared",
             "readings": {
                 "typ-sufficient": "valid",
@@ -1450,7 +1454,6 @@ def build_indeterminate() -> None:
         detached=False,
         conditions=["sc-c-17"],
         expected={
-            "verdict": "valid",
             "family": "registration-time-not-carried",
             "readings": {
                 "time-not-required": "valid",
@@ -1492,7 +1495,6 @@ def build_indeterminate() -> None:
         detached=False,
         conditions=["sc-c-18"],
         expected={
-            "verdict": "valid",
             "family": "two-roots-at-one-tree-size",
             "readings": {
                 "verify-any-one": "valid",
