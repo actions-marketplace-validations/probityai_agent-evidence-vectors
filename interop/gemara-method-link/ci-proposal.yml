@@ -1,0 +1,31 @@
+name: Gemara method-link conformance
+
+on:
+  pull_request:
+    paths:
+      - "interop/gemara-method-link/**"
+      - ".github/workflows/gemara-method-link.yml"
+  push:
+    paths:
+      - "interop/gemara-method-link/**"
+      - ".github/workflows/gemara-method-link.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: interop/gemara-method-link
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements-test.txt
+      - run: python method_link.py
+      - run: python -m pytest test_method_link.py -q
