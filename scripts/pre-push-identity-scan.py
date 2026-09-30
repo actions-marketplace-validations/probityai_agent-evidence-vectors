@@ -94,9 +94,13 @@ def _hex(*words: str) -> str:
 # nothing, and refusing it refused schema strings, a verifier's environment
 # variable and the organisation's own URLs while the website stayed refused by
 # the first span regardless. The bare names cover the heredoc-sentinel and
-# identifier forms. Held as hex for the reason given in the docstring.
+# identifier forms. The second span is the host's tail, so the host is still
+# refused when its first letters are written as an escape none of the decoders
+# resolve (a JSON `\u` escape, an HTML entity), which the bare word used to
+# catch. Held as hex for the reason given in the docstring.
 IDENTITY_SPANS = (
     "67657470726f62697479",
+    "70726f626974795c2e646576",
     "6d617463686c6f636b",
     "6d63705b2d5f205d746573745b2d5f205d746f6f6c6b6974",
 )

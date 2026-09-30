@@ -101,6 +101,8 @@ REPORT_NAME = COMPANY + "-source-coverage.json"
 POLICY_SCHEMA = COMPANY + "-policy/v1"
 CASE_SCHEMA = COMPANY + "-case/v1"
 PINNED = "0123456789abcdef0123456789abcdef01234567"
+ESCAPED_JSON_HOST = "\\u0067" + SITE[1:]
+ESCAPED_HTML_HOST = "&#103;" + SITE[1:]
 # Joined from parts so that no line of this file is itself a hit: the history
 # scanner reads every line this file adds, and the tree scan in CI greps for
 # the joined shape.
@@ -164,6 +166,11 @@ REFUSED = (
     ("the website beside a repository path", f"{OWNER}/agent-evidence-vectors, see {SITE}"),
     ("the website beside the bare word", f"{COMPANY.title()} docs live at {SITE}"),
     ("the website name glued to the organization name", f"Get{ORG_NAME} maintains this"),
+    # The host with its first letters written as an escape no decoder here
+    # resolves. The bare word used to catch these by accident; the host's own
+    # tail has to catch them now.
+    ("the website with its first letter JSON-escaped", f"https://{ESCAPED_JSON_HOST}/x"),
+    ("the website with its first letter as an HTML entity", f"see {ESCAPED_HTML_HOST}"),
     ("another first-party product", f"the {OTHER} runtime"),
     ("another first-party product as an identifier", f"{OTHER.upper()}_EOF"),
 )
@@ -391,6 +398,8 @@ ENCODED_REFUSED = (
         _bundle(_envelope(_statement(FORBIDDEN_URI))))),
     ("a corpus nested inside another corpus", json.dumps(
         {"sets": _corpus(_envelope(_statement(FORBIDDEN_URI)))}, indent=2)),
+    ("the JSON-escaped website inside a payload", _envelope(_statement(
+        f"https://{ESCAPED_JSON_HOST}/predicate/v1/observed-effect"))),
     ("another first-party product inside a payload", _envelope(_statement(
         f"https://example.invalid/{OTHER}/v1"))),
     ("an absolute home path inside a payload", _envelope(_statement(f"file://{HOME_PATH}"))),
