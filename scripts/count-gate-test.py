@@ -329,6 +329,41 @@ OBSERVED_EFFECT_REJECT = int(
 
 CLAIM_CASES: list[Case] = [
     (
+        "the Gemara live case count is retyped",
+        lambda root: retype(
+            root, "interop/gemara-method-link/README.md", r"The (\d+) cases use complete"
+        ),
+        ("the Gemara profile case count says",),
+    ),
+    (
+        "the Gemara manifest grows without its live prose count",
+        lambda root: revise(
+            root,
+            "interop/gemara-method-link/MANIFEST.json",
+            lambda text: json.dumps(
+                {**json.loads(text), "cases": json.loads(text)["cases"] + [{}]}
+            ),
+        ),
+        ("the Gemara profile case count says",),
+    ),
+    (
+        "the Gemara historic author result is retyped",
+        lambda root: retype(
+            root, "interop/gemara-method-link/RUN.md", r"Bundled reader: (\d+)/\d+"
+        ),
+        ("the Gemara author reader result", "was found 0 time(s)"),
+    ),
+    (
+        "the Gemara historic author result disappears",
+        lambda root: reword(
+            root,
+            "interop/gemara-method-link/RUN.md",
+            r"Bundled reader: \d+/\d+ matching answers\.",
+            "Bundled reader: historic result removed.",
+        ),
+        ("the Gemara author reader result", "was found 0 time(s)"),
+    ),
+    (
         "a published count drifts from the corpus",
         lambda root: retype(root, "README.md", r"AEE%20vectors-(\d+)-e8951c"),
         (f"says '{TOTAL + 1}' where the sources say '{TOTAL}'",),

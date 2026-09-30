@@ -13,14 +13,14 @@ or externally preregistered.
 - Accept-all control: 3/20 matching answers, exit 1. Raw output: `negative-control.json`.
 - pytest: 32 passed. Raw output: `pytest-result.txt`.
 
-The CI proposal is inactive. If this directory is placed at
-`interop/gemara-method-link` in agent-evidence-vectors, install
-`ci-proposal.yml` as `.github/workflows/gemara-method-link.yml`. It exercises
-the reader and pytest suite, including the negative control. Its action SHAs
-were checked against the official actions repositories.
+These dated measurements refer to the original reader and tests retained at
+[the initial package commit](https://github.com/probityai/agent-evidence-vectors/tree/9bd6f42a1905c0c967c512251a280592250869d9/interop/gemara-method-link).
+The active [workflow](../../.github/workflows/gemara-method-link.yml) now runs
+the pytest suite, pinned-input checks, bundled reader, self-adapter and accept-all
+control. It compares reader/control reports with these checked-in records.
 
 Native Gemara CUE validation and a separately written reader remain pending.
 The proposal scores declared relationships only. It does not prove method
 reliability, actual execution, actor authenticity, or observed effects.
 
-License packaging update, September 30: the exact upstream Apache-2.0 LICENSE is included and hashed by the current manifest. The bundled author reader and accept-all control were rerun once against that manifest; all case answers/counts were unchanged and only their report provenance pins changed. The 20 case files, four upstream source files, reader and tests are unchanged. Integrity-manifest validation was repeated; the 32 pytest tests were not repeated.
+License packaging update, 2026-09-30: the exact upstream Apache-2.0 LICENSE is included and hashed by the current manifest. The bundled author reader and accept-all control were rerun once against that manifest; all case answers/counts were unchanged and only their report provenance pins changed. The 20 case files, four upstream source files, reader and tests are unchanged. Integrity-manifest validation was repeated; the 32 pytest tests were not repeated.

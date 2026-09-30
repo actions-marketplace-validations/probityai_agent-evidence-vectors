@@ -1,0 +1,71 @@
+name: Gemara method-link conformance
+
+on:
+  pull_request:
+    paths:
+      - "interop/gemara-method-link/**"
+      - ".github/workflows/gemara-method-link.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+  push:
+    paths:
+      - "interop/gemara-method-link/**"
+      - ".github/workflows/gemara-method-link.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+
+permissions:
+  contents: read
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13.15"
+      - name: install pinned test dependencies
+        run: python -m pip install -r interop/gemara-method-link/requirements-test.txt
+      - name: relationship and tampering tests
+        run: python -m pytest interop/gemara-method-link/test_method_link.py -q
+      - name: reproduce pinned inputs and reader reports
+        run: |
+          set -euo pipefail
+          cd interop/gemara-method-link
+          mkdir -p .build
+          python method_link.py > .build/result.json
+          python method_link.py --adapter "python method_link.py --stdin" > .build/self-adapter.json
+          status=0
+          python method_link.py --adapter "python controls/accept_all.py" > .build/negative-control.json || status=$?
+          test "$status" -eq 1
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          from method_link import load_cases
+
+          root = Path.cwd()
+          manifest, cases = load_cases(root)
+          pin = hashlib.sha256((root / "MANIFEST.json").read_bytes()).hexdigest()
+          for name in ("result.json", "negative-control.json"):
+              actual = json.loads((root / ".build" / name).read_text())
+              expected = json.loads((root / name).read_text())
+              assert actual == expected, f"report drift: {name}"
+              assert (root / ".build" / name).read_bytes() == (root / name).read_bytes()
+              assert actual["manifest_sha256"] == pin, f"manifest drift: {name}"
+              assert actual["total"] == len(cases) == len(manifest["cases"])
+          result = json.loads((root / ".build/result.json").read_text())
+          adapter = json.loads((root / ".build/self-adapter.json").read_text())
+          negative = json.loads((root / ".build/negative-control.json").read_text())
+          assert adapter == result, "self-adapter drift"
+          assert result["matched"] == result["total"]
+          assert negative["matched"] < negative["total"]
+          print(f"Pinned cases={len(cases)} sources={len(manifest['sources'])} manifest={pin}")
+          print(f"Author reader={result['matched']}/{result['total']}; "
+                f"self-adapter={adapter['matched']}/{adapter['total']}; "
+                f"accept-all={negative['matched']}/{negative['total']} exit=1")
+          PY

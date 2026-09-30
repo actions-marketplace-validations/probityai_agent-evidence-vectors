@@ -8,15 +8,15 @@ execution, method reliability (#496), or conflict-resolution outcomes (#482).
 from __future__ import annotations
 
 import argparse
-from collections import defaultdict
-from collections.abc import Mapping
 import hashlib
 import json
 import logging
-from pathlib import Path
 import shlex
 import subprocess
-from typing import Any
+from collections import defaultdict
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any, NoReturn, cast
 
 LOGGER = logging.getLogger(__name__)
 Document = Mapping[str, Any]
@@ -29,15 +29,11 @@ class CorpusError(ValueError):
 def assessments(log: Document) -> list[tuple[int, int, Document]]:
     """Return assessment positions without changing the source log.
 
-    Parameters
-    ----------
-    log
-        A Gemara EvaluationLog using the proposed #506 shape.
+    Args:
+        log: A Gemara EvaluationLog using the proposed #506 shape.
 
-    Returns
-    -------
-    list
-        Control index, assessment index, and the original assessment mapping.
+    Returns:
+        Control index, assessment index, and original assessment mappings.
         Indices keep equal names in separate control evaluations distinct.
     """
     return [
@@ -94,26 +90,20 @@ def _find(entries: list[Document], identifier: str) -> list[Document]:
     return [entry for entry in entries if entry["id"] == identifier]
 
 
-def _resolve(
-    assessment: Document, policies: Document
-) -> tuple[str, Document | None]:
+def _resolve(assessment: Document, policies: Document) -> tuple[str, Document | None]:
     plan_ref = assessment.get("plan")
     if plan_ref is None:
         return "unplanned", None
     policy = policies.get(plan_ref["reference-id"])
     if policy is None:
         return "unknown_policy", None
-    plans = _find(
-        policy["adherence"].get("assessment-plans", []), plan_ref["entry-id"]
-    )
+    plans = _find(policy["adherence"].get("assessment-plans", []), plan_ref["entry-id"])
     if len(plans) != 1:
         return ("unknown_plan" if not plans else "ambiguous_plan"), None
     return _resolve_method(assessment, plans[0])
 
 
-def _resolve_method(
-    assessment: Document, plan: Document
-) -> tuple[str, Document | None]:
+def _resolve_method(assessment: Document, plan: Document) -> tuple[str, Document | None]:
     if assessment["requirement"]["entry-id"] != plan["requirement-id"]:
         return "wrong_requirement", None
     method_id = assessment["plan-inputs"]["method-id"]
@@ -169,27 +159,22 @@ def _conflicts(log: Document, rows: list[dict[str, Any]]) -> list[list[str]]:
 def check_links(bundle: Document) -> dict[str, Any]:
     """Return relationship findings while retaining mismatched reported events.
 
-    Parameters
-    ----------
-    bundle
-        A mapping with log and policies. The policies mapping explicitly binds
-        mapping-reference IDs to policy documents. This function neither
-        fetches documents nor chooses their versions. Documents must first
-        pass their native schema; :func:`shape_errors` checks only corpus
-        preconditions. Repeated plan or method IDs are reported as ambiguous.
+    Args:
+        bundle: A mapping with log and policies. The policies mapping binds
+            mapping-reference IDs to policy documents. This function neither
+            fetches documents nor chooses their versions. Documents must first
+            pass their native schema; shape_errors checks only corpus
+            preconditions. Repeated plan or method IDs are reported as ambiguous.
 
-    Returns
-    -------
-    dict
+    Returns:
         Shape errors, per-assessment method and declared-executor findings,
         and groups containing both Passed and Failed reports. A mismatch
         remains a row. Conflict detection does not choose a winning method.
 
-    Notes
-    -----
-    Executor comparison uses declared IDs, not display names. It authenticates
-    no actor and establishes no independent evidence of execution. The draft
-    uses #506's convention that an omitted executor denotes metadata.author.
+    Note:
+        Executor comparison uses declared IDs, not display names. It authenticates
+        no actor and establishes no independent evidence of execution. The draft
+        uses #506's convention that an omitted executor denotes metadata.author.
     """
     log = bundle["log"]
     errors = shape_errors(log)
@@ -199,7 +184,7 @@ def check_links(bundle: Document) -> dict[str, Any]:
     return {"shape_errors": [], "rows": rows, "conflicts": _conflicts(log, rows)}
 
 
-def _fail(message: str) -> None:
+def _fail(message: str) -> NoReturn:
     LOGGER.error(message)
     raise CorpusError(message)
 
@@ -217,21 +202,15 @@ def _read_pinned(root: Path, path: str, digest: str) -> bytes:
 def load_cases(root: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Read fixtures only after checking every byte against MANIFEST.json.
 
-    Parameters
-    ----------
-    root
-        Corpus directory containing the checked-in manifest and case files.
+    Args:
+        root: Corpus directory containing the checked-in manifest and case files.
 
-    Returns
-    -------
-    tuple
+    Returns:
         The manifest and complete case data. Hashes detect drift against the
-        manifest; the manifest digest printed by :func:`run` is the pin.
+        manifest; the manifest digest printed by run is the pin.
 
-    Raises
-    ------
-    CorpusError
-        A fixture path escapes the corpus or its digest does not match.
+    Raises:
+        CorpusError: A fixture path escapes the corpus or its digest does not match.
     """
     manifest = json.loads((root / "MANIFEST.json").read_text(encoding="ascii"))
     for source in manifest["sources"]:
@@ -254,7 +233,7 @@ def _adapter(command: str, bundle: Document) -> dict[str, Any]:
     )
     if result.returncode:
         _fail(f"adapter exited {result.returncode}: {result.stderr.strip()}")
-    return json.loads(result.stdout)
+    return cast(dict[str, Any], json.loads(result.stdout))
 
 
 def run(root: Path, command: str | None = None) -> dict[str, Any]:
@@ -269,9 +248,7 @@ def run(root: Path, command: str | None = None) -> dict[str, Any]:
     rows = []
     for case in cases:
         actual = _adapter(command, case["input"]) if command else check_links(case["input"])
-        rows.append(
-            {"id": case["id"], "matches": actual == case["expected"], "actual": actual}
-        )
+        rows.append({"id": case["id"], "matches": actual == case["expected"], "actual": actual})
     return {
         "corpus": manifest["corpus"],
         "manifest_sha256": hashlib.sha256((root / "MANIFEST.json").read_bytes()).hexdigest(),

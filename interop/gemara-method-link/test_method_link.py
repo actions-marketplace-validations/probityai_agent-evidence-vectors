@@ -1,17 +1,18 @@
 """Conformance, mutation, and reader-contract checks for the draft profile."""
 
-from copy import deepcopy
 import json
 import logging
-from pathlib import Path
 import shlex
 import shutil
 import sys
-
-from hypothesis import given, strategies as st
-import pytest
+from copy import deepcopy
+from pathlib import Path
+from typing import Any, cast
 
 import method_link
+import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 ROOT = Path(__file__).parent
 _, CASES = method_link.load_cases(ROOT)
@@ -28,20 +29,20 @@ PASS_CASES = [case for case in CASES if case["id"] in PASS_IDS]
 FAIL_CASES = [case for case in CASES if case["id"] not in PASS_IDS]
 
 
-def bundle(identifier: str = "matched-method") -> dict:
+def bundle(identifier: str = "matched-method") -> dict[str, Any]:
     """Return a fresh fixture input so tests cannot contaminate later cases."""
-    return deepcopy(BY_ID[identifier]["input"])
+    return cast(dict[str, Any], deepcopy(BY_ID[identifier]["input"]))
 
 
-def first_assessment(data: dict) -> dict:
+def first_assessment(data: dict[str, Any]) -> dict[str, Any]:
     """Locate the first assessment in the single-control base fixture."""
-    return data["log"]["evaluations"][0]["assessment-logs"][0]
+    return cast(dict[str, Any], data["log"]["evaluations"][0]["assessment-logs"][0])
 
 
 class TestMethodLinkProfile:
     class TestPassingCases:
         @pytest.mark.parametrize("case", PASS_CASES, ids=lambda case: case["id"])
-        def test_expected_findings_and_unchanged_input(self, case: dict) -> None:
+        def test_expected_findings_and_unchanged_input(self, case: dict[str, Any]) -> None:
             data = deepcopy(case["input"])
             before = deepcopy(data)
             assert method_link.check_links(data) == case["expected"]
@@ -54,11 +55,15 @@ class TestMethodLinkProfile:
             assert method_link.check_links(data) == BY_ID["matched-method"]["expected"]
 
         @given(st.text(alphabet="abcdefghijklmnopqrstuvwxyz0123456789-_", min_size=1, max_size=30))
-        def test_renamed_method_resolves_only_with_matching_plan_input(self, identifier: str) -> None:
+        def test_renamed_method_resolves_only_with_matching_plan_input(
+            self, identifier: str
+        ) -> None:
             data = bundle()
             identifier = "generated-" + identifier
             first_assessment(data)["plan-inputs"]["method-id"] = identifier
-            data["policies"]["security-policy"]["adherence"]["assessment-plans"][0]["evaluation-methods"][0]["id"] = identifier
+            data["policies"]["security-policy"]["adherence"]["assessment-plans"][0][
+                "evaluation-methods"
+            ][0]["id"] = identifier
             assert method_link.check_links(data) == BY_ID["matched-method"]["expected"]
 
         def test_conflict_retains_both_events_without_selecting_a_winner(self) -> None:
@@ -92,7 +97,7 @@ class TestMethodLinkProfile:
 
     class TestFailingCases:
         @pytest.mark.parametrize("case", FAIL_CASES, ids=lambda case: case["id"])
-        def test_bad_link_or_shape_has_the_expected_finding(self, case: dict) -> None:
+        def test_bad_link_or_shape_has_the_expected_finding(self, case: dict[str, Any]) -> None:
             assert method_link.check_links(case["input"]) == case["expected"]
 
         @given(st.text(alphabet="abcdefghijklmnopqrstuvwxyz0123456789", max_size=30))
@@ -111,7 +116,9 @@ class TestMethodLinkProfile:
         def test_same_display_name_never_reconciles_different_executor_ids(self, name: str) -> None:
             data = bundle("same-name-other-executor-id")
             first_assessment(data)["executor"]["name"] = name
-            methods = data["policies"]["security-policy"]["adherence"]["assessment-plans"][0]["evaluation-methods"]
+            methods = data["policies"]["security-policy"]["adherence"]["assessment-plans"][0][
+                "evaluation-methods"
+            ]
             methods[0]["executor"]["name"] = name
             result = method_link.check_links(data)
             assert result["shape_errors"] == []
@@ -121,13 +128,21 @@ class TestMethodLinkProfile:
         def test_accept_all_negative_control_is_rejected(self) -> None:
             command = shlex.join([sys.executable, str(ROOT / "controls/accept_all.py")])
             report = method_link.run(ROOT, command)
-            assert report["matched"] < report["total"]
+            assert report["matched"] == 3
+            assert report["total"] == len(CASES) == 20
             by_id = {row["id"]: row for row in report["rows"]}
-            for identifier in ["unknown-method", "swapped-method", "two-method-conflict-retained", "plan-without-inputs"]:
+            for identifier in [
+                "unknown-method",
+                "swapped-method",
+                "two-method-conflict-retained",
+                "plan-without-inputs",
+            ]:
                 assert by_id[identifier]["matches"] is False
 
         @pytest.mark.parametrize("path", ["cases/matched-method.json", "sources/evaluationlog.cue"])
-        def test_changed_fixture_or_source_is_refused(self, tmp_path: Path, caplog: pytest.LogCaptureFixture, path: str) -> None:
+        def test_changed_fixture_or_source_is_refused(
+            self, tmp_path: Path, caplog: pytest.LogCaptureFixture, path: str
+        ) -> None:
             root = tmp_path / "corpus"
             shutil.copytree(ROOT, root)
             (root / path).write_bytes((root / path).read_bytes() + b" ")
@@ -137,7 +152,9 @@ class TestMethodLinkProfile:
                     method_link.load_cases(root)
             assert caplog.messages == [message]
 
-        def test_manifest_path_cannot_escape_corpus(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        def test_manifest_path_cannot_escape_corpus(
+            self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+        ) -> None:
             root = tmp_path / "corpus"
             shutil.copytree(ROOT, root)
             manifest_path = root / "MANIFEST.json"
@@ -146,13 +163,20 @@ class TestMethodLinkProfile:
             manifest_path.write_text(json.dumps(manifest))
             message = "fixture path escapes corpus: ../outside.json"
             with caplog.at_level(logging.ERROR, logger=method_link.__name__):
-                with pytest.raises(method_link.CorpusError, match=r"fixture path escapes corpus: \.\./outside\.json"):
+                with pytest.raises(
+                    method_link.CorpusError,
+                    match=r"fixture path escapes corpus: \.\./outside\.json",
+                ):
                     method_link.load_cases(root)
             assert caplog.messages == [message]
 
-        def test_reader_failure_records_the_error(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        def test_reader_failure_records_the_error(
+            self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+        ) -> None:
             reader = tmp_path / "broken_reader.py"
-            reader.write_text("import sys\nprint('reader failed', file=sys.stderr)\nraise SystemExit(7)\n")
+            reader.write_text(
+                "import sys\nprint('reader failed', file=sys.stderr)\nraise SystemExit(7)\n"
+            )
             command = shlex.join([sys.executable, str(reader)])
             message = "adapter exited 7: reader failed"
             with caplog.at_level(logging.ERROR, logger=method_link.__name__):

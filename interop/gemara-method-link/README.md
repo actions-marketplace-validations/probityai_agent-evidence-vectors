@@ -21,10 +21,12 @@ python -m pip install -r requirements-test.txt
 python -m pytest test_method_link.py -q
 ```
 
-The local run matched 20/20 cases. The 32 pytest checks include Hypothesis
-properties, source and fixture tampering, path traversal, reader failure, and
-an accept-all negative control. The negative control matches only 3/20 and exits
-1, as intended:
+The dated author-produced measurements are in [RUN.md](RUN.md). The pytest
+checks cover Hypothesis properties, source and fixture tampering, path traversal,
+reader failure, and an accept-all negative control. The active
+[workflow](../../.github/workflows/gemara-method-link.yml) reruns the checks,
+verifies the source and input pins, and compares reader and control reports
+with the checked-in records. The accept-all command must fail:
 
 ```sh
 python method_link.py --adapter "python controls/accept_all.py"
