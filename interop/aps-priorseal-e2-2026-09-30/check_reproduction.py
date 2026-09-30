@@ -147,6 +147,7 @@ def validate_results(value: object) -> None:
     require(vocabulary.get("rule") == CAUSE_RULE, "RESULTS.json changed the cause rule.")
     rows = report.get("rows")
     require(isinstance(rows, list), "RESULTS.json rows must be a list.")
+    rows = cast(list[Any], rows)
     require(len(rows) == ROW_COUNT, "RESULTS.json must contain 96 rows.")
     for row in rows:
         validate_row(row)
@@ -224,6 +225,7 @@ def validate_controls(value: object) -> None:
     )
     cases = report.get("cases")
     require(isinstance(cases, list), "NEGATIVES.json cases must be a list.")
+    cases = cast(list[Any], cases)
     checked = [_control(case) for case in cases]
     by_name = {case["name"]: case for case in checked}
     require(

@@ -25,7 +25,7 @@ import json
 import os
 import sys
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 
 from agent_evidence_vectors.run_vectors import ed25519_verify, jcs_dumps
 from Crypto.Hash import keccak
@@ -286,7 +286,7 @@ def check_aps_case(base: str, case: str, pins: dict[str, Any], ref_time: datetim
         rows.append(row(tag, "aps.temporal_at_reference", "not-exercised",
                         "a deny has no validity window", cause="not_applicable", producer={"unexpired_at_reference_time": exp}))
     else:
-        ok = iso_ms(vu) > ref_time
+        ok = iso_ms(cast(str, vu)) > ref_time
         rows.append(row(tag, "aps.temporal_at_reference", "pass" if ok else "fail",
                         f"valid_until {vu} against reference {pins['reference_time']}",
                         producer={"unexpired_at_reference_time": exp}, lab_entry=lab1))
