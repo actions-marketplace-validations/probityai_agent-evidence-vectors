@@ -108,7 +108,9 @@ ESCAPED_HTML_HOST = "&#103;" + SITE[1:]
 # the joined shape.
 HOME_PATH = "/".join(("", "home", "someone", "notes.txt"))
 DOSSIER_PATH = "/".join(("research", "123-private-dossier"))
-THIRD_PRODUCT = "-".join(("mcp", "test", "toolkit"))
+# Two hex halves, each of which decodes to harmless text, so neither this
+# file nor any guard that decodes it carries the joined name.
+THIRD_PRODUCT = _hex("6d63702d74657374" + "2d746f6f6c6b6974")
 
 _sidecar = scan.Sidecar()
 
@@ -197,7 +199,7 @@ def _pattern_cases() -> tuple[int, list[str]]:
     """
     bad: list[str] = []
     ran = 0
-    names = [(w, l) for w, l in REFUSED] + [HISTORY_REFUSED[-1]]
+    names = [*REFUSED, HISTORY_REFUSED[-1]]
     for what, line in names:
         ran += 1
         if scan.IDENTITY.search(scan.permit(line)):
@@ -207,7 +209,9 @@ def _pattern_cases() -> tuple[int, list[str]]:
     for what, line in PERMITTED:
         ran += 1
         if scan.IDENTITY.search(scan.permit(line)):
-            bad.append(f"{what} (history scanner's own list): refused, but this shape is not a finding")
+            bad.append(
+                f"{what} (history scanner's own list): refused, but this shape is not a finding"
+            )
         else:
             print(f"ok   permitted  {what} (history scanner's own list)")
     return ran, bad
