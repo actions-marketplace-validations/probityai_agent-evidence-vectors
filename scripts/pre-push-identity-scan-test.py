@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
-"""Tests for the owner-path permit three guards share, and for the
-encoded-carrier scan in pre-push-identity-scan.py.
+"""Tests for the identity rules three guards share, and for the encoded-carrier
+scan in pre-push-identity-scan.py.
 
-WHY THIS FILE EXISTS. The guards refuse first-party names in this public,
-product-neutral repository. The organisation that owns the repository is named
-in its own clone URL, its badge targets and its citation file, and a URL cannot
-avoid naming its owner, so one narrow permit was added: the handle passes where
-a slash and one of the three repository names follow it, and nowhere else.
+WHY THIS FILE EXISTS. This repository is public. What it must never carry is a
+path from it to the website: the website host in any spelling or encoding.
+Other private product names, absolute home paths and private dossier names are
+refused too. What it may carry is its own organisation's name, the verifier's
+name and the bare word both are built on, in any form -- a clone URL, a schema
+string, an environment variable, a sentence. A name by itself connects nothing
+to anything, so a guard that refuses it is refusing the wrong thing, and a guard
+that refuses the wrong thing teaches people to route around it.
 
-A permit on a refusal is the one change that can only ever loosen, and a
-loosening that goes unnoticed is indistinguishable from the control working. So
-every case below asserts a direction. The permitted shapes are here to prove the
-push is possible at all; the refused ones are the point, and they outnumber them.
+A loosening that goes unnoticed is indistinguishable from the control working,
+and so is a tightening that refuses legitimate work. So every case below asserts
+a direction: the permitted shapes prove the push is possible at all, and the
+refused ones prove the website still cannot get through, in every carrier.
 
 THREE guards rule on these strings and every one of them is exercised below,
 against the same two populations: `pre-push-identity-scan.py` on pushed history,
@@ -93,7 +96,16 @@ OTHER = _hex("6d617463686c6f636b")
 ORG_NAME = COMPANY.title() + " AI"
 VERIFIER_NAME = COMPANY.title() + " Verify"
 VERIFIER_REPO = COMPANY + "-verify"
+VERIFIER_ENV = COMPANY.upper() + "_VERIFY_COMMAND"
 REPORT_NAME = COMPANY + "-source-coverage.json"
+POLICY_SCHEMA = COMPANY + "-policy/v1"
+CASE_SCHEMA = COMPANY + "-case/v1"
+PINNED = "0123456789abcdef0123456789abcdef01234567"
+# Joined from parts so that no line of this file is itself a hit: the history
+# scanner reads every line this file adds, and the tree scan in CI greps for
+# the joined shape.
+HOME_PATH = "/".join(("", "home", "someone", "notes.txt"))
+DOSSIER_PATH = "/".join(("research", "123-private-dossier"))
 
 _sidecar = scan.Sidecar()
 
@@ -125,27 +137,43 @@ PERMITTED = (
     ("the verifier name", f"Run {VERIFIER_NAME} against the corpus."),
     ("the verifier CLI", f"uv run {VERIFIER_REPO} --json"),
     ("the verifier repository", f"https://github.com/{OWNER}/{VERIFIER_REPO}"),
+    ("the verifier pinned by commit", f"git+https://github.com/{OWNER}/{VERIFIER_REPO}@{PINNED}"),
     ("the verifier report", f"--report .build/{REPORT_NAME}"),
+    # Every shape below was refused until the bare word stopped being a rule.
+    # None of them is a path to the website, so none of them is a finding.
+    ("the bare word alone", f"built by {COMPANY} in 2026"),
+    ("the bare word capitalised", f"{COMPANY.title()} evidence tooling"),
+    ("the bare word beside a repository path", f"{OWNER}/agent-evidence-vectors run by {COMPANY}"),
+    ("the verifier command variable", f"{VERIFIER_ENV}: uv run {VERIFIER_REPO}"),
+    ("a policy schema string", f'"schema": "{POLICY_SCHEMA}"'),
+    ("a case schema string", f'"schema": "{CASE_SCHEMA}"'),
+    ("the organisation handle alone", f"maintainer of the {OWNER} organisation"),
+    ("the handle ending a sentence", f"the owner is {OWNER}."),
+    ("the organisation page", f"https://github.com/{OWNER}"),
+    ("a repository the permit does not list", f"https://github.com/{OWNER}/some-future-repo"),
+    ("a name that extends the verifier's", f"the {VERIFIER_REPO}-review branch"),
 )
 
 REFUSED = (
-    ("the handle with no repository after it", f"maintainer of the {OWNER} organisation"),
-    ("the handle before a repository not ours", f"{OWNER}/something-else"),
-    ("the handle ending a sentence", f"the owner is {OWNER}."),
-    ("an organisation page, which is not a repository URL", f"https://github.com/{OWNER}"),
-    ("the company word alone", f"built by {COMPANY} in 2026"),
-    (
-        "the company word beside a permitted path",
-        f"{OWNER}/agent-evidence-vectors run by {COMPANY}",
-    ),
     ("the website in a sentence", f"see {SITE} for more"),
     ("the website inside a link", f"[docs](https://{SITE}/predicate/v1/)"),
     ("the website bare", SITE),
+    ("the website in capitals", SITE.upper()),
+    ("the website on a subdomain", f"https://docs.{SITE}/start"),
+    ("the website name without its suffix", f"@{SITE.split('.')[0]} on social media"),
+    ("the website beside a repository path", f"{OWNER}/agent-evidence-vectors, see {SITE}"),
+    ("the website beside the bare word", f"{COMPANY.title()} docs live at {SITE}"),
+    ("the website name glued to the organization name", f"Get{ORG_NAME} maintains this"),
     ("another first-party product", f"the {OTHER} runtime"),
-    ("a company name beside the organization", f"Get{ORG_NAME} maintains this"),
-    ("a longer verifier name", f"the {VERIFIER_REPO}-private runtime"),
-    ("a lookalike repository", f"{OWNER}/{VERIFIER_REPO}-private"),
-    ("a longer report name", f".build/{REPORT_NAME}-private"),
+    ("another first-party product as an identifier", f"{OTHER.upper()}_EOF"),
+)
+
+# The private-path rules live in the history scanner alone. The content scanner
+# and the commit-message gate rule on the salted words, and the tree scan in CI
+# greps for home paths itself, so these are asserted where they are enforced.
+HISTORY_REFUSED = (
+    ("an absolute home path", f"see {HOME_PATH}"),
+    ("a private dossier name", f"see {DOSSIER_PATH}/notes.md"),
 )
 
 
@@ -233,7 +261,7 @@ def _run_cases(
     for what, line in permitted:
         ran += 1
         if refuses(line):
-            bad.append(f"{what}{label}: refused, but the permit exists for this shape")
+            bad.append(f"{what}{label}: refused, but this shape is not a finding")
         else:
             print(f"ok   permitted  {what}{label}")
     for what, line in refused_cases:
@@ -241,7 +269,7 @@ def _run_cases(
         if refuses(line):
             print(f"ok   refused    {what}{label}")
         else:
-            bad.append(f"{what}{label}: PASSED, which widens the permit to the bare name")
+            bad.append(f"{what}{label}: PASSED, so the guard no longer refuses it")
     return ran, bad
 
 
@@ -363,6 +391,9 @@ ENCODED_REFUSED = (
         _bundle(_envelope(_statement(FORBIDDEN_URI))))),
     ("a corpus nested inside another corpus", json.dumps(
         {"sets": _corpus(_envelope(_statement(FORBIDDEN_URI)))}, indent=2)),
+    ("another first-party product inside a payload", _envelope(_statement(
+        f"https://example.invalid/{OTHER}/v1"))),
+    ("an absolute home path inside a payload", _envelope(_statement(f"file://{HOME_PATH}"))),
 )
 
 # THE PERMIT MUST BE THE SAME ON BOTH SIDES OF A DECODE, and these cases are
@@ -648,14 +679,9 @@ def _encoding_cases() -> tuple[int, list[str]]:
 
 
 def main() -> int:
-    total, failures = _run_cases(refused, PERMITTED, REFUSED, "")
+    total, failures = _run_cases(refused, PERMITTED, REFUSED + HISTORY_REFUSED, "")
     if CONTENT_SCANNER.exists():
-        # A host shape is a URL, which only the history scanner rules on.
-        host_only = ("organisation page", "repository not ours")
-        for_content = [
-            (what, line) for what, line in REFUSED if not any(h in what for h in host_only)
-        ]
-        more, bad = _run_cases(content_refuses, PERMITTED, for_content, " (content scanner)")
+        more, bad = _run_cases(content_refuses, PERMITTED, REFUSED, " (content scanner)")
         total += more
         failures += bad
     else:
@@ -668,10 +694,8 @@ def main() -> int:
         control = _hook_control()
         failures += control
         if not control:
-            # Every shape applies here. The content scanner is handed a file and
-            # rules on words alone, so the two URL-host shapes mean nothing to
-            # it; the hook rules on the same text a human wrote, so a host shape
-            # is exactly as refusable in a message as it is in history.
+            # The hook rules on the same salted words as the content scanner,
+            # so it gets the same two populations.
             more, bad = _run_cases(hook_refuses, PERMITTED, REFUSED, " (commit-message gate)")
             total += more
             failures += bad
