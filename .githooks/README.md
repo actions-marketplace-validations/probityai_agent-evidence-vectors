@@ -68,8 +68,8 @@ the commit-message gate landed here.
 
 The gate file itself is byte-identical across the four repositories. This
 repository adds one rule through a sidecar: a commit message may not name the
-separate company site or private products. The rule uses salted digests so its
-own pattern does not publish the names it forbids.
+website or private products. The rule uses salted digests so its own pattern
+does not publish the names it forbids.
 
 That rule is real rather than decorative.
 `.github/workflows/no-internal-drafts.yml` already refuses a tracked FILE
@@ -81,9 +81,11 @@ forbid them from naming themselves.
 
 ## commit-msg.permitted-paths (this repository only)
 
-The rule above would also catch the public organization's name and verifier.
-This sidecar permits their whole names and listed repository paths. The company
-name alone, its site, and unrelated private names remain forbidden.
+The rule above refuses the website and unrelated private names. It does not
+refuse the public organization's name, the verifier's name, or the bare word
+both are built on. This sidecar lists the repository paths and whole names the
+repository uses for itself, and the tests assert the website still fails beside
+each of them.
 
 It is a sidecar and not a constant because three guards rule on the same
 strings: this hook on commit messages, `scripts/pre-push-identity-scan.py` on

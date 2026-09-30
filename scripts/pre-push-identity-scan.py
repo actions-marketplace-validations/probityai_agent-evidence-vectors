@@ -28,15 +28,14 @@ look" must never print the same way:
 
 What is matched, and where each rule comes from:
 
-  * IDENTITY -- the first-party product names, including identifier forms such
-    as a heredoc sentinel or an environment-variable name built on the name.
-    The word list is the one `build-public-admission.py` (private tooling)
-    compiles as `IDENTITY`, widened to the identifier forms its two outbound
-    gates (`slack-send.py check_identity_leak`, `gh-outbound-gate.py`) added
-    after a sentinel walked through a word-boundary match. The words are held
-    hex-encoded below: this file is itself scanned by the salted-digest guard
-    (`no-internal-drafts.yml`), and a scanner that spells what it forbids
-    refuses its own commit.
+  * IDENTITY -- the website's name, in every spelling of its host, and the
+    private product names, including identifier forms such as a heredoc
+    sentinel or an environment-variable name built on one. The organisation's
+    own name and the bare word it is built on are not in it: a finding is a
+    path from this repository to the website, and a name alone is not one. The
+    words are held hex-encoded below: this file is itself scanned by the
+    salted-digest guard (`no-internal-drafts.yml`), and a scanner that spells
+    what it forbids refuses its own commit.
   * ABSOLUTE_HOME -- an absolute home directory on either desktop OS.
   * DOSSIER -- the private research tree's numbered dossier directories.
   * EVERY DECODED VIEW of an added line or a commit message, not only its text.
@@ -89,14 +88,19 @@ def _hex(*words: str) -> str:
     return "|".join(bytes.fromhex(w).decode("ascii") for w in words)
 
 
-# Source: the `IDENTITY` pattern at line 36 of the private `build-public-admission.py`
-# (three product names, case-insensitive), plus the fourth term the Slack and
-# GitHub outbound gates match with `-`, `_` or space separators. The bare names
-# already cover the heredoc-sentinel, identifier and `.io`-domain forms those
-# gates were widened for. Held as hex for the reason given in the docstring.
+# The website's name, which is every spelling of its host, and the private
+# product names, case-insensitive. The bare word the organisation's name is
+# built on is deliberately absent: a name by itself connects this repository to
+# nothing, and refusing it refused schema strings, a verifier's environment
+# variable and the organisation's own URLs while the website stayed refused by
+# the first span regardless. The bare names cover the heredoc-sentinel and
+# identifier forms. The second span is the host's tail, so the host is still
+# refused when its first letters are written as an escape none of the decoders
+# resolve (a JSON `\u` escape, an HTML entity), which the bare word used to
+# catch. Held as hex for the reason given in the docstring.
 IDENTITY_SPANS = (
     "67657470726f62697479",
-    "70726f62697479",
+    "70726f626974795c2e646576",
     "6d617463686c6f636b",
     "6d63705b2d5f205d746573745b2d5f205d746f6f6c6b6974",
 )

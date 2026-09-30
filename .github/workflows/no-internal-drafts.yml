@@ -28,8 +28,8 @@ jobs:
 
       - name: Reject forbidden strings in tracked files
         run: |
-          # One scan covers company and private names outside the public
-          # organization work, and markers that identify an internal note.
+          # One scan covers the website host, private product names, and
+          # markers that identify an internal note.
           # Both were literal lists in this file until 2026-08-17; both are
           # now salted digests in .githooks/commit-msg.forbidden-words, shared with
           # the commit-msg hook so the message surface and the content surface
@@ -47,7 +47,7 @@ jobs:
           python3 scripts/forbidden-word-scan.py
           status=$?
           if [ "$status" -eq 1 ]; then
-            echo "::error::A tracked file contains a forbidden company or private name."
+            echo "::error::A tracked file names the website or a private product."
             exit 1
           elif [ "$status" -ne 0 ]; then
             echo "::error::The forbidden-string rule list failed to load; nothing was verified."
