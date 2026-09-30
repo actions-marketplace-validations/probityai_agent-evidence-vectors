@@ -4,7 +4,7 @@ Each row: the passage, why the text did not settle it, and what we did. No APS o
 read for this run. Where a rule was recovered by trying a construction against the bytes, it says so.
 
 1. **PriorSeal signing inputs are defined only in SDK source.** The example README and the claim-boundary
-   document say the principal signs "with EIP-712 for the exact intent", and imokokok (thread comment 34)
+   document say the principal signs "with EIP-712 for the exact intent", and [imokokok's reply](https://github.com/aeoess/agent-governance-vocabulary/issues/177#issuecomment-5906957905)
    says `priorseal-sdk@0.4.0` "and its pinned verification source define the exact hashes, canonical JSON and
    signature checks". No specification text gives the EIP-712 domain and types, the `authorizationHash`
    construction, the acceptance `entryHash` construction, or the receipt signing input. We tried the obvious
@@ -16,9 +16,9 @@ read for this run. Where a rule was recovered by trying a construction against t
    `executionHash = SHA-256(JCS(execution))` both match the carried values on both fixtures. No text we read
    states either; we use them and label them in every row that relies on them.
 3. **No rule maps the APS spend unit to the PriorSeal asset.** APS writes `eip155:31337:native:wei`; PriorSeal
-   writes `eip155:31337/native` with a separate `chainId`. The cap comparison (entry 5) needs one. We read
+   writes `eip155:31337/native` with a separate `chainId`. The APS cap-compliance comparison needs one. We read
    both as the native asset of chain 31337 in wei and say so in the row; a verifier that refuses the mapping
-   would report entry 5 as inconclusive, cause `unsupported_input`, which our checker does when the strings
+   would report APS cap compliance as inconclusive, cause `unsupported_input`, which our checker does when the strings
    do not have these exact shapes.
 4. **The APS action payload is not named.** Draft-03 Section 4.1 defines `payload_ref` over "the exact JSON
    value presented for authorization and dispatch", and the fixture README does not say which object that

@@ -24,12 +24,12 @@ producer's own result is quoted beside ours, never mapped onto it.
 
 | Lab entry | Claim | within-limit | over-limit |
 |---|---|---|---|
-| 1 | APS evidence under pinned keys at the reference time (manifest, both receipt ids, both signatures, Section 5.3 rules, action_ref, payload_ref, decision_ref, delegation id and signature, time) | pass, 12 of 12 rows | same |
+| 1 | APS evidence under pinned keys at the reference time (manifest, both receipt ids, both signatures, Section 5.3 rules, action_ref, payload_ref, decision_ref, delegation id and signature, time) | all listed claims pass | same |
 | 2 | PriorSeal signatures | not-exercised, cause out_of_scope (SPEC-GAPS.md 1) | same |
 | 3 | decision_ref correlation | pass | pass |
 | 4 | exact call against observation, value from execution.nativeValue | pass | fail: signed 1e15, observed 6e15 |
 | 5 | APS cap compliance | pass | fail: 6e15 over the 5e15 per_action cap |
-| 6 | the report: SHA-256 pin, then every value recomputed | 22 of 22 recomputed values agree; 3 quoted values agree | same |
+| 6 | the report: SHA-256 pin, then every value recomputed | all recomputed and producer-quoted values agree | same |
 
 All four APS cases recompute on every integrity row. `expired` fails only the reference-time check;
 `deny` does not admit dispatch. No result differs from what the producers state (DISAGREEMENTS.md).
