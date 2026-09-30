@@ -268,7 +268,7 @@ def main(argv: list[str]) -> int:
     if hits:
         print(
             f"forbidden-word-scan: {hits} hit(s) across {scanned} file(s). "
-            "Company and private names outside public organization work are forbidden.",
+            "The website and private product names are forbidden here.",
             file=sys.stderr,
         )
         return 1

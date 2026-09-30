@@ -1,13 +1,14 @@
 # Owner-qualified repository paths the identity rules must not refuse.
 #
 # The public repository can name its owning organization and its verifier.
-# Company branding, its website, and unrelated private names stay forbidden.
+# The website and unrelated private names stay forbidden.
 # A clone URL, badge target, citation, action reference or Go module path must
 # be able to name its owner and repository.
 #
-# The owner handle passes only with a listed repository path. The organization
-# name and verifier name pass as whole names. The company name alone and its
-# website still fail.
+# The rules no longer refuse the bare word these names are built on, so none of
+# the permits below is what lets a name through today. They stay as the
+# definition of the shapes this repository names itself by, and the tests
+# assert that the website still fails beside every one of them.
 #
 # THIS FILE IS THE ONLY DEFINITION, and that is the point of it. Three guards
 # rule on the same strings -- .githooks/commit-msg (commit messages, as a hook
