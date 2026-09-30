@@ -89,7 +89,9 @@ def refusals(root: Path) -> tuple[list[str], int]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(
+        description="refuse a pinned expected.verdict on a member whose readings allow several"
+    )
     parser.add_argument("--root", default=str(Path(__file__).resolve().parent.parent))
     args = parser.parse_args()
     found, read = refusals(Path(args.root))
