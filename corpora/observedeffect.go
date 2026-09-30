@@ -48,7 +48,9 @@ type observedEffectVector struct {
 	Parent     string   `json:"parent"`
 	Conditions []string `json:"conditions"`
 	Expected   struct {
-		Verdict string   `json:"verdict"`
+		// A pointer, because an indeterminate member must carry no verdict at
+		// all and an absent field has to be told apart from an empty one.
+		Verdict *string  `json:"verdict"`
 		Codes   []string `json:"codes"`
 		// The reading a consumer takes from a valid member. Pointers, because
 		// an absent reading must be told apart from a declared false.
@@ -145,9 +147,13 @@ func (o observedEffect) judgeMember(dir string, v observedEffectVector, policy o
 }
 
 func (o observedEffect) checkDeclared(v observedEffectVector, report *observedeffect.Report, out *Member) {
-	if report.Verdict != v.Expected.Verdict {
+	declared := ""
+	if v.Expected.Verdict != nil {
+		declared = *v.Expected.Verdict
+	}
+	if report.Verdict != declared {
 		out.Findings = append(out.Findings, fmt.Sprintf(
-			"%s: expected %s, got %s %v", v.Slug, v.Expected.Verdict, report.Verdict, report.Codes))
+			"%s: expected %s, got %s %v", v.Slug, declared, report.Verdict, report.Codes))
 		return
 	}
 	if len(v.Expected.Codes) > 0 && !sameStrings(report.Codes, v.Expected.Codes) {
@@ -184,15 +190,26 @@ func (o observedEffect) checkDeclared(v observedEffectVector, report *observedef
 }
 
 func (o observedEffect) checkIndeterminate(v observedEffectVector, report *observedeffect.Report, out *Member) {
-	if len(v.Readings) == 0 {
+	if v.Expected.Verdict != nil {
 		out.Findings = append(out.Findings, fmt.Sprintf(
-			"%s: declared indeterminate and names no readings, so no answer can be wrong", v.Slug))
+			"%s: declared indeterminate and pins expected.verdict beside readings, so a scorer "+
+				"reading that field marks a listed reading wrong", v.Slug))
 		return
 	}
-	allowed := make([]string, 0, len(v.Readings))
+	distinct := map[string]bool{}
 	for _, reading := range v.Readings {
-		allowed = append(allowed, reading.Verdict)
-		if reading.Verdict == report.Verdict {
+		distinct[reading.Verdict] = true
+	}
+	if len(distinct) < 2 {
+		out.Findings = append(out.Findings, fmt.Sprintf(
+			"%s: declared indeterminate and names fewer than two readings, so it states a "+
+				"rule and belongs in accept or reject", v.Slug))
+		return
+	}
+	allowed := make([]string, 0, len(distinct))
+	for verdict := range distinct {
+		allowed = append(allowed, verdict)
+		if verdict == report.Verdict {
 			return
 		}
 	}

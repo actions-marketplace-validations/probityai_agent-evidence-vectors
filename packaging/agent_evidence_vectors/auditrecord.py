@@ -786,10 +786,28 @@ def _declared_findings(entry: dict[str, Any], report: Report) -> list[str]:
     return []
 
 
+def conforming_verdicts(entry: dict[str, Any]) -> set[str]:
+    """Every verdict a conforming verifier may reach on one manifest entry.
+
+    An accept or reject member has one: ``expected.verdict``. An indeterminate
+    member is a row the draft leaves open, and it has every verdict its
+    ``readings`` list; it carries no ``expected.verdict``, because any single
+    value there would score a listed reading as wrong. Score a second
+    implementation with this, not with ``expected.verdict``.
+    """
+    if entry.get("kind") == "indeterminate":
+        return {str(reading.get("verdict")) for reading in entry.get("readings") or []}
+    return {str((entry.get("expected") or {}).get("verdict"))}
+
+
 def _indeterminate_findings(entry: dict[str, Any], report: Report) -> list[str]:
-    readings = entry.get("readings") or []
-    allowed = sorted({str(reading.get("verdict")) for reading in readings})
+    allowed = sorted(conforming_verdicts(entry))
     label = f"{entry.get('draftId')} {entry.get('slug')}"
+    if "verdict" in (entry.get("expected") or {}):
+        return [
+            f"{label}: declared indeterminate and pins expected.verdict beside readings, so "
+            "a scorer reading that field marks a listed reading wrong"
+        ]
     if len(allowed) < 2:
         return [f"{label}: declared indeterminate and names fewer than two readings"]
     if report.verdict not in allowed:

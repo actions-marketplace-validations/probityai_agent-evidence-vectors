@@ -27,10 +27,13 @@ hands admissibility to a profile, and for execution evidence no profile existed.
 
 Every member is named after a digest of its own bytes and lives flat in
 `statements/`. There is no `accept/` directory, no `reject/` directory, and no
-prefix that says which. The verdict lives in `MANIFEST.json`, which is where a
-scoring harness reads it, and the layout is inherited from the sibling corpus
-for the reason recorded there: a directory or a prefix that names the verdict
-lets a rail certify against the suite without opening a single statement.
+prefix that says which. What a verifier must reach lives in `MANIFEST.json`,
+which is where a scoring harness reads it: `expected.verdict` for an accept or
+reject member, and for an indeterminate member the `readings` it lists, any one of
+which conforms, with no `expected.verdict` at all. The layout is inherited from
+the sibling corpus for the reason recorded there: a directory or a prefix that
+names the verdict lets a rail certify against the suite without opening a single
+statement.
 
 ## What a vector file is
 

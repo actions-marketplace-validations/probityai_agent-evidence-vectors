@@ -447,6 +447,13 @@ def check_reject(read: Read, expected: dict[str, Any]) -> None:
 
 def check_indeterminate(read: Read, expected: dict[str, Any]) -> None:
     readings = expected.get("readings", {})
+    if "verdict" in expected:
+        fail(
+            read.vid,
+            "an indeterminate member pins expected.verdict beside readings, so a "
+            "scorer reading that field marks a listed reading wrong. Its readings "
+            "are what a verifier is scored on, and any one of them conforms.",
+        )
     if len(readings) < 2:
         fail(
             read.vid,

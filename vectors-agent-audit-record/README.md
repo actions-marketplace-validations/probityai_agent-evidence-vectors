@@ -8,9 +8,9 @@ identifier in `draftId` (`A1`, `F3b`, `TI4`, ...) and its `from` column in
 `parentDraftId`. [`INDEX.md`](INDEX.md) lists the rows beside their files.
 
 Each member is a DSSE envelope whose payload is an in-toto Statement carrying one
-agent audit record. The bytes are in `statements/`; the verdict a conforming
-verifier must reach is in the manifest under `expected.verdict`, never in the
-file, so a member cannot be scored without being read.
+agent audit record. The bytes are in `statements/`; what a conforming verifier
+must reach is in the manifest, never in the file, so a member cannot be scored
+without being read.
 
 ## Running it
 
@@ -27,10 +27,23 @@ uv run --extra generators python vectors-agent-audit-record/check_vectors.py
 ```
 
 To score your own verifier, run it over each `statements/<id>.json` with the
-observer public key from `keys.observer.publicKey` and compare its verdict with
-`expected.verdict`. The draft defines three verdicts: `valid`, `malformed`, and,
-for `N1` and `N2`, `indeterminate`, where the manifest lists under `readings`
-every verdict a conforming verifier may reach.
+observer public key from `keys.observer.publicKey`, then score each verdict:
+
+- an accept or reject member (45 rows) conforms when your verdict equals
+  `expected.verdict`;
+- an indeterminate member (`N1`, `N2`) is a row the draft leaves open. It
+  carries no `expected.verdict`, and your verifier conforms on it when its
+  verdict is any one listed under `readings`: `valid` or `indeterminate` for
+  both rows. The reference reader takes `valid` on both.
+
+`agent_evidence_vectors.auditrecord.conforming_verdicts(entry)` returns that set
+for any manifest entry, so a scorer does not have to restate the rule:
+
+```python
+from agent_evidence_vectors.auditrecord import conforming_verdicts
+
+conforms = my_verdict in conforming_verdicts(entry)
+```
 
 `expected.codes` are the reference reader's names for its first refusal. The
 draft does not define codes, so a verifier is scored on the verdict alone; the

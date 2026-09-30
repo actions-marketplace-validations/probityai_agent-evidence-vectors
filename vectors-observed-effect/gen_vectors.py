@@ -475,7 +475,7 @@ def add(
     kind: str,
     stmt: dict[str, Any],
     conditions: list[str],
-    verdict: str,
+    verdict: str | None,
     codes: list[str],
     cites: str,
     parent: str | None = None,
@@ -493,6 +493,14 @@ def add(
     if (verdict == "valid") != (reading is not None):
         raise SystemExit(
             f"{slug}: a valid member declares its reading and nothing else does"
+        )
+    # An indeterminate member is one the predicate leaves open. It carries its
+    # readings and no expected verdict, because any single verdict there scores
+    # a verifier taking another listed reading as wrong.
+    if (kind == "indeterminate") != (verdict is None) or (verdict is None) == (readings is None):
+        raise SystemExit(
+            f"{slug}: an indeterminate member carries readings and no verdict, and "
+            "every other member carries a verdict and no readings"
         )
     DRAFTS.append(
         {
@@ -1360,7 +1368,7 @@ add(
         )
     ),
     ["oe-anchor-unruled"],
-    "indeterminate",
+    None,
     [],
     "externalAnchor is optional and the predicate says a verifier MAY check the "
     "token's timestamp, while defining no offline validation rule and carrying no "
@@ -1376,6 +1384,20 @@ add(
         },
     ],
 )
+
+
+def expected_of(draft: dict[str, Any]) -> dict[str, Any]:
+    """The manifest's expected block. An indeterminate member has no verdict in it:
+    its readings are what a verifier is scored on."""
+    expected: dict[str, Any] = {"codes": draft["codes"]}
+    if draft["verdict"] is not None:
+        expected["verdict"] = draft["verdict"]
+    if draft["reading"] is not None:
+        tier, effects, absence = draft["reading"]
+        expected["derivedTier"] = tier
+        expected["effectsIndependentlyObserved"] = effects
+        expected["absenceEstablished"] = absence
+    return expected
 
 
 def vector_id(body: bytes) -> str:
@@ -2192,14 +2214,9 @@ def emit() -> None:
             "kind": draft["kind"],
             "file": rel,
             "conditions": draft["conditions"],
-            "expected": {"verdict": draft["verdict"], "codes": draft["codes"]},
+            "expected": expected_of(draft),
             "cites": draft["cites"],
         }
-        if draft["reading"] is not None:
-            tier, effects, absence = draft["reading"]
-            entry["expected"]["derivedTier"] = tier
-            entry["expected"]["effectsIndependentlyObserved"] = effects
-            entry["expected"]["absenceEstablished"] = absence
         if draft["parent"] is not None:
             entry["parent"] = slug_to_id[draft["parent"]]
         if draft["readings"] is not None:
@@ -2239,7 +2256,9 @@ def emit() -> None:
             "Every reject member declares the accept member it is one mutation from, "
             "so a verifier that refuses everything scores zero rather than full "
             "marks. The indeterminate member declares the readings a conforming "
-            "verifier could take, because the predicate does not choose between them."
+            "verifier could take, because the predicate does not choose between them, "
+            "and carries no expected.verdict: a verifier conforms on it by reaching "
+            "any verdict its readings list."
         ),
         "vectors": vectors,
     }
@@ -2285,8 +2304,11 @@ def emit() -> None:
         "| --- | --- | --- | --- | --- |",
     ]
     for entry in vectors:
+        verdict = entry["expected"].get("verdict") or " or ".join(
+            reading["verdict"] for reading in entry["readings"]
+        )
         lines.append(
-            f"| `{entry['id']}` | {entry['kind']} | {entry['expected']['verdict']} "
+            f"| `{entry['id']}` | {entry['kind']} | {verdict} "
             f"| {entry['slug']} | {', '.join(entry['conditions'])} |"
         )
     lines.append("")

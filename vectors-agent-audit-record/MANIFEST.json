@@ -25,7 +25,7 @@
       "publicKey": "60b9ca613738a46a9350086999c93389e65c342482bbf65c6589d43116de5e7a"
     }
   },
-  "note": "One member per row of Appendix B of the draft, in the row's order; draftId is the row's identifier and parentDraftId its from column. A conforming verifier is scored on expected.verdict. expected.codes are the reference reader's names for its first refusal, published so two implementations can compare where they stopped; the draft does not define them. An indeterminate member lists every reading a conforming verifier may take.",
+  "note": "One member per row of Appendix B of the draft, in the row's order; draftId is the row's identifier and parentDraftId its from column. An accept or reject member is scored on expected.verdict. An indeterminate member is a row the draft leaves open: it carries no expected.verdict, and a verifier conforms on it by reaching any verdict its readings list. expected.codes are the reference reader's names for its first refusal, published so two implementations can compare where they stopped; the draft does not define them.",
   "payloadType": "application/vnd.in-toto+json",
   "predicateDocument": "https://datatracker.ietf.org/doc/draft-gilda-wimse-agent-audit-record/01/",
   "predicateType": "https://probityai.github.io/agent-evidence-vectors/predicate/v1/agent-audit-record",
@@ -727,8 +727,7 @@
     {
       "draftId": "N1",
       "expected": {
-        "codes": [],
-        "verdict": "indeterminate"
+        "codes": []
       },
       "file": "statements/v9aaa90d371011e59.json",
       "id": "v9aaa90d371011e59",
@@ -751,8 +750,7 @@
     {
       "draftId": "N2",
       "expected": {
-        "codes": [],
-        "verdict": "indeterminate"
+        "codes": []
       },
       "file": "statements/vf8180cde8874edb6.json",
       "id": "vf8180cde8874edb6",

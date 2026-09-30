@@ -173,7 +173,6 @@
         "sc-c-15"
       ],
       "expected": {
-        "verdict": "invalid",
         "family": "receipt-carries-no-inclusion-proof-type",
         "readings": {
           "inclusion-required": "receipt-not-of-inclusion",
@@ -251,7 +250,6 @@
         "sc-c-16"
       ],
       "expected": {
-        "verdict": "valid",
         "family": "payload-format-undeclared",
         "readings": {
           "typ-sufficient": "valid",
@@ -269,7 +267,6 @@
         "sc-c-18"
       ],
       "expected": {
-        "verdict": "valid",
         "family": "two-roots-at-one-tree-size",
         "readings": {
           "verify-any-one": "valid",
@@ -319,7 +316,6 @@
         "sc-c-17"
       ],
       "expected": {
-        "verdict": "valid",
         "family": "registration-time-not-carried",
         "readings": {
           "time-not-required": "valid",

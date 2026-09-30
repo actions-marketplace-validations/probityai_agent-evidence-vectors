@@ -171,6 +171,7 @@ func TestEveryFindingIsReachable(t *testing.T) {
 	cases = append(cases, mcpResponsePhaseFindings()...)
 	cases = append(cases, aiGenerationFindings()...)
 	cases = append(cases, receiptSignatureFindings()...)
+	cases = append(cases, auditRecordFindings()...)
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := stage(t, tc.dir)
@@ -1101,6 +1102,34 @@ func aciAddCodeTo(m map[string]any, code string) {
 	}
 }
 
+// auditRecordFindings provokes the findings the agent audit record reader
+// reports about an indeterminate member.
+func auditRecordFindings() []findingCase {
+	const dir = "vectors-agent-audit-record"
+	return []findingCase{
+		{"ar/indeterminate-pins-a-verdict", dir, func(t *testing.T, d string) {
+			editManifest(t, d, func(m map[string]any) {
+				setDeep(t, firstRowWhere(t, m, kindIs("indeterminate")), "indeterminate", "expected", "verdict")
+			})
+		}, "pins expected.verdict beside readings"},
+		{"ar/indeterminate-one-reading", dir, func(t *testing.T, d string) {
+			editManifest(t, d, func(m map[string]any) {
+				firstRowWhere(t, m, kindIs("indeterminate"))["readings"] = []any{
+					map[string]any{"verdict": "valid"},
+				}
+			})
+		}, "names fewer than two readings"},
+		{"ar/indeterminate-outside-the-set", dir, func(t *testing.T, d string) {
+			editManifest(t, d, func(m map[string]any) {
+				firstRowWhere(t, m, kindIs("indeterminate"))["readings"] = []any{
+					map[string]any{"verdict": "malformed"},
+					map[string]any{"verdict": "indeterminate"},
+				}
+			})
+		}, "outside [indeterminate malformed]"},
+	}
+}
+
 // observedEffectFindings provokes every finding the Observed Effect reader can
 // report.
 //
@@ -1148,7 +1177,14 @@ func observedEffectFindings() []findingCase {
 			editManifest(t, d, func(m map[string]any) {
 				firstRowWhere(t, m, kindIs("indeterminate"))["readings"] = []any{}
 			})
-		}, "names no readings, so no answer can be wrong"},
+		}, "names fewer than two readings"},
+		{"oe/indeterminate-one-reading", dir, func(t *testing.T, d string) {
+			editManifest(t, d, func(m map[string]any) {
+				firstRowWhere(t, m, kindIs("indeterminate"))["readings"] = []any{
+					map[string]any{"verdict": "valid"},
+				}
+			})
+		}, "names fewer than two readings"},
 		{"oe/indeterminate-outside-the-set", dir, func(t *testing.T, d string) {
 			editManifest(t, d, func(m map[string]any) {
 				firstRowWhere(t, m, kindIs("indeterminate"))["readings"] = []any{
@@ -1157,6 +1193,11 @@ func observedEffectFindings() []findingCase {
 				}
 			})
 		}, "which is outside the declared set"},
+		{"oe/indeterminate-pins-a-verdict", dir, func(t *testing.T, d string) {
+			editManifest(t, d, func(m map[string]any) {
+				setDeep(t, firstRowWhere(t, m, kindIs("indeterminate")), "valid", "expected", "verdict")
+			})
+		}, "pins expected.verdict beside readings"},
 		{"oe/predicate-type", dir, func(t *testing.T, d string) {
 			editManifest(t, d, func(m map[string]any) {
 				m["predicateType"] = "https://example.invalid/predicate/v1/not-this-one"

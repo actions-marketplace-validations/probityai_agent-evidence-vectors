@@ -57,5 +57,5 @@ This corpus is 47 vectors, of which 9 a conformant verifier must not fail closed
 | `V3` | A1 | malformed | [`v806b41e10fa621b2`](statements/v806b41e10fa621b2.json) | a write outside pathScope carrying inScope of true |
 | `FE1` | A1 | malformed | [`vb5fa3c46a923c472`](statements/vb5fa3c46a923c472.json) | six of the seven fieldEvidence keys present |
 | `FE2` | A5 | malformed | [`v66d14f47a3d0cf0b`](statements/v66d14f47a3d0cf0b.json) | substrate-covered declared beside vantage of self |
-| `N1` | A1 | indeterminate | [`v9aaa90d371011e59`](statements/v9aaa90d371011e59.json) | an anchor token digest carried with no offline validation rule defined |
-| `N2` | A4 | indeterminate | [`vf8180cde8874edb6`](statements/vf8180cde8874edb6.json) | enforcement forty days after the signal, ordering intact |
+| `N1` | A1 | valid or indeterminate | [`v9aaa90d371011e59`](statements/v9aaa90d371011e59.json) | an anchor token digest carried with no offline validation rule defined |
+| `N2` | A4 | valid or indeterminate | [`vf8180cde8874edb6`](statements/vf8180cde8874edb6.json) | enforcement forty days after the signal, ordering intact |
