@@ -52,13 +52,16 @@ resolution under [Gemara #482](https://github.com/gemaraproj/gemara/pull/482)
 remain separate.
 
 The output labels are proposed reader-contract labels. They are not Gemara
-schema verdicts. Native CUE validation was not rerun here. The caller explicitly
+schema verdicts. Separately recorded [native CUE verdicts](native/README.md)
+cover the original schema revision and a versioned migration sample. The caller explicitly
 binds mapping-reference IDs to policy documents; the reader performs no remote
 lookup or version discovery. Requirement comparison covers the local entry ID
 within the fixture's catalog. Executor IDs are not authenticated, and agreement
 of records establishes neither actual execution nor independent observation.
-The duplicate key includes full reference mappings; #506's current CUE key
-uses the local entry IDs. Cross-policy identity needs a maintainer decision.
+The duplicate key includes full reference mappings; both pinned native schema
+revisions use the local entry IDs. The native identity report exposes their
+disagreement on distinct plan reference IDs. Cross-policy identity needs a
+maintainer decision.
 
 The original upstream schema and fixture sources are retained under `sources/`
 with their immutable URLs in the manifest. Gemara's sources use Apache-2.0.
