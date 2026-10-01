@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import copy
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -79,6 +80,23 @@ class TestReader:
             extra["kid"] = "unrelated"
             jwks["keys"].insert(0, extra)
             assert reader.evaluate(RAW[0], RAW[1], encode(jwks))["all_comparisons_match"] is True
+
+        def test_full_key_budget_and_documentation(self) -> None:
+            jwks = json.loads(RAW[2])
+            original = jwks["keys"][0]
+            jwks["keys"] += [
+                {**original, "kid": f"unrelated-{index}"} for index in range(reader.MAX_KEYS - 1)
+            ]
+            assert len(jwks["keys"]) == reader.MAX_KEYS
+            assert reader.evaluate(RAW[0], RAW[1], encode(jwks))["all_comparisons_match"] is True
+            readme = (HERE / "README.md").read_text(encoding="utf-8")
+            match = re.search(r"Its key count is bounded at (\d+)", readme)
+            assert match is not None
+            assert int(match[1]) == reader.MAX_KEYS
+            docstring = reader.select_key.__doc__ or ""
+            match = re.search(r"from at most (\d+) entries", docstring)
+            assert match is not None
+            assert int(match[1]) == reader.MAX_KEYS
 
         def test_utf16_key_order(self) -> None:
             assert reader.canonical({"\ufffd": 1, "\U0001f600": 2}) == '{"😀":2,"�":1}'.encode()

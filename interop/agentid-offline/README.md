@@ -4,7 +4,7 @@ This optional consumer profile recomputes an AgentID attestation from three reta
 
 The fixture comes from [preaction-governance-conformance PR #9](https://github.com/babyblueviper1/preaction-governance-conformance/pull/9), pinned at `47e80f3ed65e7295ffac4383e659de268ff0c170`. The PR was open when captured. Exact file hashes, source paths and attribution are in [INPUTS.json](INPUTS.json). The copied files retain their upstream [MIT license](fixtures/LICENSE.upstream); the reader and tests use this repository's Apache-2.0 license.
 
-The retained [positive result](RESULTS.json) establishes all eight bounded comparisons. [Five controls](CONTROLS.json) retain exact per-claim outcomes for a changed envelope, a substituted request, a wrong key, a changed action scope and the native concatenation ambiguity. These were produced by Probity on October 1, 2026; the source digest and runtime versions are retained. The 76-test pytest/Hypothesis run, lint and type checks passed locally. Remote CI is a separate result.
+The retained [positive result](RESULTS.json) establishes all eight bounded comparisons. [Five controls](CONTROLS.json) retain exact per-claim outcomes for a changed envelope, a substituted request, a wrong key, a changed action scope and the native concatenation ambiguity. These were produced by Probity on October 1, 2026; the source digest and runtime versions are retained. The 77-test pytest/Hypothesis run, lint and type checks passed locally. Remote CI is a separate result.
 
 ## Run
 
