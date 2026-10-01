@@ -1,6 +1,8 @@
 name: Gemara method-link conformance
 
 on:
+  # Bot-token merges suppress push events; allow the native jobs on exact main.
+  workflow_dispatch:
   pull_request:
     paths:
       - "interop/gemara-method-link/**"

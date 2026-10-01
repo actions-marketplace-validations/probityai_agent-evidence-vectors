@@ -1,6 +1,8 @@
 name: E2 reproduction
 
 on:
+  # Bot-token merges suppress push events; allow the native jobs on exact main.
+  workflow_dispatch:
   push:
     branches: [main, interop/aps-priorseal-e2-2026-09-30]
     paths:
