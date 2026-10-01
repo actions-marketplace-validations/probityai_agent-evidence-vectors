@@ -9,7 +9,8 @@ The field is optional. When present it must contain exactly one lowercase
 64-hex SHA-256 digest. The Go and packaged Python readers accept a separately
 selected expected digest through consumer policy. Requiring that join rejects
 missing and mismatching fields. A caller that does not request the join gets the
-same verdicts for all 57 existing observed-effect corpus members.
+same verdicts for every member in the
+[existing observed-effect corpus](../../vectors-observed-effect/MANIFEST.json).
 
 The field is a signed producer declaration. Matching it to a capability subject
 does not measure executed code, authenticate the capability, prove that its
@@ -28,7 +29,8 @@ python vectors-observed-effect/check_vectors.py
 python vectors-observed-effect/mutation_check.py
 ```
 
-`MANIFEST.json` pins 21 signed synthetic cases and the source baseline's bytes.
+[The candidate manifest](MANIFEST.json) pins the signed synthetic cases and the
+source baseline's bytes.
 They cover optional omission, exact matching, required absence/mismatch,
 malformed/extra algorithms, uppercase/short/nonhex/numeric/null digests, a trailing
 newline, invalid consumer policy, second-subject insertion, after-root
