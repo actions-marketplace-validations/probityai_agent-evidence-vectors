@@ -1,0 +1,47 @@
+name: A2A provisional S3 retained-field gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'interop/a2a-s3-retain-2026-10-01/**'
+      - '.github/workflows/a2a-s3-retain.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'interop/a2a-s3-retain-2026-10-01/**'
+      - '.github/workflows/a2a-s3-retain.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: interop/a2a-s3-retain-2026-10-01
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.13'
+      - name: Install bounded runner and test dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Exercise native signatures and adverse inputs
+        env:
+          PYTHONPATH: .
+        run: python -m pytest -q
+      - name: Recompute and retain source-pinned result
+        run: python run_regression.py > run-report.json
+      - name: Retain result
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: a2a-s3-retain-report
+          path: interop/a2a-s3-retain-2026-10-01/run-report.json
+          if-no-files-found: error
+          retention-days: 14
