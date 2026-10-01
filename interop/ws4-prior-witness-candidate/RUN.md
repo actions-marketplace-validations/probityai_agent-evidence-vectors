@@ -1,6 +1,6 @@
 # Local run
 
-Base: `probityai/agent-evidence-vectors` main `a430a9cf7a4b137d6cb899506119a1b320d1cf16`. Python 3.12.14, using the repository checkout's `packaging` source. The repository metadata requires Python 3.13 for release; CI on this unpublished patch has not run.
+Base: `probityai/agent-evidence-vectors` main `a430a9cf7a4b137d6cb899506119a1b320d1cf16`. Python 3.12.14, using the repository checkout's `packaging` source. The repository metadata requires Python 3.13 for release. This receipt records local checks, not remote CI.
 
 | Command | Result |
 | --- | --- |
