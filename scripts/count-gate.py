@@ -848,12 +848,20 @@ def claims(src: Sources) -> tuple[Claim, ...]:
 
 def declared_claims(src: Sources) -> tuple[Claim, ...]:
     """The claim sites written out one at a time, each against its own sentence."""
+    gemara = json.loads(source("interop/gemara-method-link/MANIFEST.json").read_text())
     rev = src.revision
     corpus = (
         f"{src.total} vectors ({src.accept} accept, {src.reject} reject, "
         f"{src.indeterminate} indeterminate)"
     )
     return (
+        Claim(
+            "interop/gemara-method-link/README.md",
+            "the Gemara profile case count",
+            "The ",
+            " cases use complete Policy and EvaluationLog",
+            str(len(gemara["cases"])),
+        ),
         Claim(
             "README.md",
             "the AEE vector-count badge, its image",
@@ -1156,6 +1164,31 @@ DELEGATED: tuple[Delegated, ...] = (
 
 
 FROZEN: tuple[Frozen, ...] = (
+    # Author-produced measurements made before CI integration. Only these exact
+    # dated spans are historical; the README's live case count is derived above.
+    *(
+        Frozen(
+            "interop/gemara-method-link/RUN.md",
+            name,
+            span,
+            "Author-produced 2026-09-30 package at commit "
+            "9bd6f42a1905c0c967c512251a280592250869d9. Original suite manifest "
+            "b0cda7d30ce37f6fb48ee6778b992ffcdd8f365469c3c77f5229b02f9fb1a4c9, "
+            "tests 893ddcc8dd7ff7840eb4e9620821567d36782f6e45ff8d60f6fc46372af3aa64, "
+            "reader/control report manifest "
+            "5448e5684565ea3c4211aa41ffe9a9998ad24c35b6ae6e42e125695e1accb70c. "
+            "These figures describe that recorded run, not an independent reader.",
+        )
+        for name, span in (
+            ("the Gemara original suite size", "Original 32-test suite manifest SHA-256"),
+            ("the Gemara author reader result", "Bundled reader: 20/20 matching answers."),
+            ("the Gemara self-adapter result", "Bundled reader through stdin adapter: 20/20."),
+            ("the Gemara accept-all result", "Accept-all control: 3/20 matching answers, exit 1."),
+            ("the Gemara original pytest result", "pytest: 32 passed."),
+            ("the Gemara license-only case count", "The 20 case files, four upstream source files"),
+            ("the Gemara license-only test boundary", "the 32 pytest tests were not repeated."),
+        )
+    ),
     # ---- four figures that came to collide with suiteRevision 29.
     # Each records something measured once, and none is a count of this corpus.
     # They are frozen rather than corrected because the corpus growing does not
