@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -83,6 +84,51 @@ func ruleSubjectBinding(c *ctx) *fault {
 	text, _ := value.(string)
 	if text != c.str(c.interval(), "afterRoot") {
 		return malformed("subject-not-the-after-root")
+	}
+	return nil
+}
+
+var codeSHA256 = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// ruleCodeDigestShape validates a present optional code identity. It is a
+// signed join key; passing this check does not measure executed code.
+func ruleCodeDigestShape(c *ctx) *fault {
+	value, present := c.pred["codeDigest"]
+	if !present {
+		return nil
+	}
+	digest, ok := value.(map[string]any)
+	if !ok || len(digest) != 1 {
+		return malformed("code-digest-shape")
+	}
+	sha, present := digest["sha256"]
+	if !present {
+		return malformed("code-digest-shape")
+	}
+	text, ok := sha.(string)
+	if !ok || !codeSHA256.MatchString(text) {
+		return malformed("code-digest-value")
+	}
+	return nil
+}
+
+// ruleCodeDigestPolicy joins only against a digest pinned by the consumer.
+// This does not authenticate the capability or independently measure code.
+func ruleCodeDigestPolicy(c *ctx) *fault {
+	expected := c.policy.ExpectedCodeDigest
+	if expected == "" {
+		return nil
+	}
+	if !codeSHA256.MatchString(expected) {
+		return invalid("code-digest-policy-invalid")
+	}
+	value, present := c.pred["codeDigest"]
+	if !present {
+		return invalid("code-digest-required")
+	}
+	digest, ok := value.(map[string]any)
+	if !ok || digest["sha256"] != expected {
+		return invalid("code-digest-mismatch")
 	}
 	return nil
 }

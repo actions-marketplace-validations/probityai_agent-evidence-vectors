@@ -140,16 +140,20 @@ func TestCorpusBehavesAsDeclared(t *testing.T) {
 // tree, so neither can be a stale build of the other.
 func TestEveryRuleIsLoadBearing(t *testing.T) {
 	m := loadManifest(t)
+	candidates, codePins := codeDigestCandidates(t)
+	m.Vectors = append(m.Vectors, candidates...)
 	policy := testPolicy(t, m)
 	baseline := map[string]string{}
 	bodies := map[string][]byte{}
 	for _, v := range m.Vectors {
+		policy.ExpectedCodeDigest = codePins[v.ID]
 		bodies[v.ID] = readVector(t, v)
 		baseline[v.ID] = outcome(Verify(bodies[v.ID], policy))
 	}
 	for _, name := range RuleNames() {
 		var flipped []string
 		for _, v := range m.Vectors {
+			policy.ExpectedCodeDigest = codePins[v.ID]
 			got := outcome(verify(bodies[v.ID], policy, name))
 			if got != baseline[v.ID] {
 				flipped = append(flipped, v.ID+" "+v.Slug+" -> "+got)

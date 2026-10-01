@@ -30,6 +30,7 @@ import datetime
 import hashlib
 import json
 import os
+import re
 import sys
 from collections.abc import Callable
 from typing import Any
@@ -144,11 +145,7 @@ def _hex(value: Any, width: int) -> str:
 
 
 def _lower_hex(value: Any) -> bool:
-    return (
-        isinstance(value, str)
-        and value != ""
-        and all(c in "0123456789abcdef" for c in value)
-    )
+    return isinstance(value, str) and value != "" and all(c in "0123456789abcdef" for c in value)
 
 
 def _path_normalized(value: Any, allow_trailing_slash: bool) -> bool:
@@ -231,6 +228,31 @@ def rule_predicate_type(statement: dict[str, Any]) -> None:
         raise Malformed("predicate-type-unexpected")
 
 
+def rule_code_digest_shape(pred: dict[str, Any]) -> None:
+    """Validate a present SHA-256 code join without supplying a missing field."""
+    if "codeDigest" not in pred:
+        return
+    value = pred["codeDigest"]
+    if not isinstance(value, dict) or set(value) != {"sha256"}:
+        raise Malformed("code-digest-shape")
+    sha = value["sha256"]
+    if not isinstance(sha, str) or re.fullmatch(r"[0-9a-f]{64}", sha) is None:
+        raise Malformed("code-digest-value")
+
+
+def rule_code_digest_policy(pred: dict[str, Any], expected: str) -> None:
+    """Match the producer's signed join key against a consumer-selected digest."""
+    if expected == "":
+        return
+    if not isinstance(expected, str) or re.fullmatch(r"[0-9a-f]{64}", expected) is None:
+        raise Invalid("code-digest-policy-invalid")
+    if "codeDigest" not in pred:
+        raise Invalid("code-digest-required")
+    value = pred["codeDigest"]
+    if not isinstance(value, dict) or value.get("sha256") != expected:
+        raise Invalid("code-digest-mismatch")
+
+
 def rule_subject_binding(statement: dict[str, Any]) -> None:
     """The subject is the interval's after-state, and nothing else.
 
@@ -271,9 +293,7 @@ def rule_required_members(pred: dict[str, Any]) -> None:
         "doesNotAssert",
         "issuedAt",
     )
-    _required(
-        pred["interval"], "beforeRoot", "afterRoot", "baseResolution", "openedAt", "sealedAt"
-    )
+    _required(pred["interval"], "beforeRoot", "afterRoot", "baseResolution", "openedAt", "sealedAt")
     _required(pred["observation"], "vantage", "coverage", "observedSigners", "origin")
 
 
@@ -666,9 +686,7 @@ def rule_tier_recompute(pred: dict[str, Any]) -> None:
         "authoritative-empty-path-scope": bool(pred["pathScope"]),
         "authoritative-coverage-incomplete": bool(obs["coverage"]["scopeComplete"])
         or not any(
-            _under(gap, scope)
-            for gap in obs["coverage"]["gaps"]
-            for scope in pred["pathScope"]
+            _under(gap, scope) for gap in obs["coverage"]["gaps"] for scope in pred["pathScope"]
         ),
     }
     # The prior-commitment clause is gone for the same reason, and it went the same
@@ -710,9 +728,7 @@ def rule_authoritative_carries_rows(pred: dict[str, Any]) -> None:
 #: Rules whose input is the whole statement rather than the predicate, and the one
 #: that needs the consumer's anchored key. The dispatch is by name because RULES is
 #: what mutation_check.py disables one entry of.
-STATEMENT_SCOPED = frozenset(
-    {"rule_ijson_integers", "rule_predicate_type", "rule_subject_binding"}
-)
+STATEMENT_SCOPED = frozenset({"rule_ijson_integers", "rule_predicate_type", "rule_subject_binding"})
 BLOB_SCOPED = frozenset({"rule_range_preimage"})
 KEY_SCOPED = frozenset({"rule_commitment_signature"})
 
@@ -733,6 +749,7 @@ RULES: list[tuple[str, Callable[..., None]]] = [
     ("rule_mutation_coherence", rule_mutation_coherence),
     ("rule_write_chain", rule_write_chain),
     ("rule_subject_binding", rule_subject_binding),
+    ("rule_code_digest_shape", rule_code_digest_shape),
     ("rule_read_bindings", rule_read_bindings),
     ("rule_range_preimage", rule_range_preimage),
     ("rule_read_chain", rule_read_chain),
@@ -752,6 +769,7 @@ RULES: list[tuple[str, Callable[..., None]]] = [
     ("rule_write_scope", rule_write_scope),
     ("rule_tier_recompute", rule_tier_recompute),
     ("rule_authoritative_carries_rows", rule_authoritative_carries_rows),
+    ("rule_code_digest_policy", rule_code_digest_policy),
 ]
 
 
@@ -769,6 +787,8 @@ def verify(
     observer_public_key: str,
     blobs: dict[str, bytes] | None = None,
     disabled: str | None = None,
+    *,
+    expected_code_digest: str = "",
 ) -> tuple[str, list[str]]:
     """Return (verdict, codes) for one vector file.
 
@@ -785,10 +805,30 @@ def verify(
     except Exception:
         return "malformed", ["not-parseable"]
 
-    refusal = _apply_rules(statement, blobs, disabled, observer_public_key)
+    refusal = _apply_rules(statement, blobs, disabled, observer_public_key, expected_code_digest)
     if refusal is not None:
         return refusal
     return _verify_envelope(envelope, payload, observer_public_key)
+
+
+def _rule_arguments(
+    name: str,
+    statement: dict[str, Any],
+    pred: dict[str, Any],
+    blobs: dict[str, bytes],
+    observer_public_key: str,
+    expected_code_digest: str,
+) -> tuple[Any, ...]:
+    """Select a rule's explicit evidence or consumer-policy arguments."""
+    if name == "rule_code_digest_policy":
+        return pred, expected_code_digest
+    if name in STATEMENT_SCOPED:
+        return (statement,)
+    if name in BLOB_SCOPED:
+        return pred, blobs
+    if name in KEY_SCOPED:
+        return pred, observer_public_key
+    return (pred,)
 
 
 def _apply_rules(
@@ -796,6 +836,7 @@ def _apply_rules(
     blobs: dict[str, bytes],
     disabled: str | None,
     observer_public_key: str,
+    expected_code_digest: str = "",
 ) -> tuple[str, list[str]] | None:
     """Run stage one and stage two. Return a refusal, or None where every rule held."""
     try:
@@ -805,14 +846,11 @@ def _apply_rules(
         for name, fn in RULES:
             if name == disabled:
                 continue
-            if name in STATEMENT_SCOPED:
-                fn(statement)
-            elif name in BLOB_SCOPED:
-                fn(pred, blobs)
-            elif name in KEY_SCOPED:
-                fn(pred, observer_public_key)
-            else:
-                fn(pred)
+            fn(
+                *_rule_arguments(
+                    name, statement, pred, blobs, observer_public_key, expected_code_digest
+                )
+            )
     except Malformed as exc:
         return "malformed", [exc.code]
     except Invalid as exc:
@@ -945,16 +983,13 @@ def check_counts(manifest: dict[str, Any]) -> None:
     if actual != manifest["counts"]:
         FAILURES.append(f"counts declare {manifest['counts']} and the members are {actual}")
     if manifest["predicateType"] != PREDICATE_TYPE:
-        FAILURES.append(
-            "the manifest's predicateType is not the URI this verifier enforces"
-        )
+        FAILURES.append("the manifest's predicateType is not the URI this verifier enforces")
     if manifest["emptyTree"] != EMPTY_TREE:
         FAILURES.append("the manifest's empty-tree constants are not the computed ones")
     recomputed = corpus_digest(manifest)
     if manifest["corpusDigest"] != recomputed:
         FAILURES.append(
-            f"corpusDigest {manifest['corpusDigest'][:12]} does not recompute "
-            f"({recomputed[:12]})"
+            f"corpusDigest {manifest['corpusDigest'][:12]} does not recompute ({recomputed[:12]})"
         )
 
 

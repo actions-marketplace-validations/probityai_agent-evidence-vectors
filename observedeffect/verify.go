@@ -175,6 +175,7 @@ func rules() []rule {
 		{"mutation-coherence", ruleMutationCoherence},
 		{"write-chain", ruleWriteChain},
 		{"subject-binding", ruleSubjectBinding},
+		{"code-digest-shape", ruleCodeDigestShape},
 		{"read-bindings", ruleReadBindings},
 		{"range-preimage", ruleRangePreimage},
 		{"read-chain", ruleReadChain},
@@ -194,6 +195,7 @@ func rules() []rule {
 		{"write-scope", ruleWriteScope},
 		{"tier-recompute", ruleTierRecompute},
 		{"authoritative-carries-rows", ruleAuthoritativeCarriesRows},
+		{"code-digest-policy", ruleCodeDigestPolicy},
 	}
 }
 
@@ -224,6 +226,10 @@ type Policy struct {
 	// treats the range digest as an opaque commitment, which is why the predicate
 	// calls three of the four read bindings checkable rather than four.
 	Blobs map[string][]byte
+	// ExpectedCodeDigest optionally pins a capability subject SHA-256. Empty
+	// leaves code joining unrequested; nonempty requires a present exact match.
+	// The caller supplies this value from its own trusted capability selection.
+	ExpectedCodeDigest string
 }
 
 // PredicateTypeFromSpec reads the Type URI out of the predicate document that

@@ -2,7 +2,7 @@
 
 Type URI: https://probityai.github.io/agent-evidence-vectors/predicate/v1/observed-effect
 
-Version: 0.4.0
+Version: 0.5.0
 
 Predicate Name: Observed Effect
 
@@ -185,6 +185,7 @@ Verdicts are out of scope. They belong downstream, computed over this evidence.
     },
     "pathScope": ["/srv/app/"],
     "authorityDigest": "<64-hex JCS digest of the authority document>",
+    "codeDigest": { "sha256": "<optional 64-hex code-identity join>" },
     "observation": {
       "vantage": "below-observed",
       "origin": "first-hand",
@@ -283,6 +284,43 @@ any RFC 3339 spelling was admitted. `2026-09-18T20:00:00-05:00` is
 `.` precedes `Z`, so an identical instant reads as earlier than itself. A verifier
 MAY parse both sides into instants and compare those instead, which is the same
 rule by another route; what it MUST NOT do is compare two spellings lexically.
+
+## Optional code identity join
+
+`predicate.codeDigest` is an OPTIONAL object containing exactly one member,
+`sha256`, whose value MUST be a lowercase 64-character hexadecimal SHA-256 digest.
+A present null, empty object, non-string digest, unknown or additional algorithm,
+uppercase digest, or digest of another length is malformed. Absence is permitted
+and means no code identity is carried; a reader MUST NOT infer a code digest from
+`subject`, the interval roots, authorityDigest, a path or an identifier.
+
+This field identifies the code artifact selected by the producer for the run.
+It permits a consumer to pair the effect with a capability whose authenticated
+subject digest it has independently selected. A consumer requiring this join
+MUST pin the expected SHA-256 digest through its own capability/key policy,
+require `codeDigest`, and reject a mismatch. An empty policy setting means the
+join was not requested, never that it succeeded. The candidate implementations
+name these refusals `code-digest-required`, `code-digest-mismatch`, and
+`code-digest-policy-invalid`; an invalid consumer digest is a policy failure,
+not evidence that the statement's bytes are malformed.
+
+The statement's subject remains exactly one after-state root. Code identity is
+not a second subject and MUST NOT replace that root. `codeDigest` is inside the
+DSSE-signed payload, but is not added to the existing prior-commitment preimage.
+It is therefore a signed producer declaration, not proof that those code bytes
+were measured or executed, nor that code identity was committed before the run.
+A consumer needing those stronger facts must bind a separate measurement or a
+stronger commitment profile and enforce its own trust policy. A matching code
+digest alone also does not join two records to the same run or authority; the
+interval and authority bindings remain required for an end-to-end claim.
+
+The JSON Schema overlay for this optional field is
+[`observed-effect-code-digest-v0.5.schema.json`](../schemas/observed-effect-code-digest-v0.5.schema.json).
+It validates only the extension's shape, not the whole predicate, its signature,
+or a consumer's join. Readers predating 0.5 may ignore the field; consumers that
+require the join must select a reader implementing this rule rather than infer
+support from the stable predicate URI. Existing statements without this field
+retain their previous verdicts when code joining is not requested.
 
 ## Fields
 
@@ -985,6 +1023,15 @@ A consumer implementing this predicate MUST, at minimum:
     observed, per the prohibition under [`tier`].
 
 ## Changelog and Migrations
+
+0.5.0 adds the optional signed `codeDigest` field and a consumer-pinned exact
+SHA-256 join. The one-subject after-state rule and prior-commitment preimage are
+unchanged. Existing records omitting the field retain their previous verdicts
+when no code join is requested. A previously ignored `codeDigest` extension with
+a nonconforming shape is now refused by 0.5-aware readers; this is why a consumer
+must pin its reader/profile. The separate `interop/observed-code-digest-candidate/`
+profile carries the new cases without rewriting any released corpus member.
+
 
 0.4.0 splits the voluntary prohibition in two and changes no verdict. At 0.3.0 a
 verifier could not read any voluntary record as evidence of an independently

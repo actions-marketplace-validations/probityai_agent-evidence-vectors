@@ -202,6 +202,12 @@ class Policy:
     predicate_type: str
     observer_public_key: str
     blobs: dict[str, bytes] = field(default_factory=dict)
+    expected_code_digest: str = ""
+    """Consumer-pinned SHA-256 for a required code join; empty leaves it unrequested.
+
+    The caller selects this value from its own capability policy, never from the
+    effect record. A successful match is not an independent code measurement.
+    """
 
 
 @dataclass
@@ -590,6 +596,42 @@ def _rule_write_chain(state: _State) -> None:
         raise Malformed("write-chain-does-not-reach-after-root")
 
 
+def _rule_code_digest_shape(state: _State) -> None:
+    """Validate the optional signed code identity without inventing a default.
+
+    The digest describes code selected by the producer for this run. It is a
+    join key, not an independent code measurement. A sole SHA-256 entry avoids
+    algorithm choice by different consumers. See ``_rule_code_digest_policy``
+    for matching against a capability selected by consumer policy.
+    """
+    if "codeDigest" not in state.predicate:
+        return
+    value = state.predicate["codeDigest"]
+    if not isinstance(value, dict) or set(value) != {"sha256"}:
+        raise Malformed("code-digest-shape")
+    digest = value["sha256"]
+    if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        raise Malformed("code-digest-value")
+
+
+def _rule_code_digest_policy(state: _State) -> None:
+    """Require a match only when the caller pins an expected SHA-256 digest.
+
+    Missing/mismatching fields cannot satisfy a required join. Empty policy
+    preserves existing readers that do not ask a code-identity question.
+    """
+    expected = state.policy.expected_code_digest
+    if expected == "":
+        return
+    if not isinstance(expected, str) or re.fullmatch(r"[0-9a-f]{64}", expected) is None:
+        raise Invalid("code-digest-policy-invalid")
+    if "codeDigest" not in state.predicate:
+        raise Invalid("code-digest-required")
+    value = state.predicate["codeDigest"]
+    if not isinstance(value, dict) or value.get("sha256") != expected:
+        raise Invalid("code-digest-mismatch")
+
+
 def _rule_subject_binding(state: _State) -> None:
     """The subject is the interval's after-state, and nothing else.
 
@@ -956,6 +998,7 @@ RULES: tuple[tuple[str, Rule], ...] = (
     ("mutation-coherence", _rule_mutation_coherence),
     ("write-chain", _rule_write_chain),
     ("subject-binding", _rule_subject_binding),
+    ("code-digest-shape", _rule_code_digest_shape),
     ("read-bindings", _rule_read_bindings),
     ("range-preimage", _rule_range_preimage),
     ("read-chain", _rule_read_chain),
@@ -975,6 +1018,7 @@ RULES: tuple[tuple[str, Rule], ...] = (
     ("write-scope", _rule_write_scope),
     ("tier-recompute", _rule_tier_recompute),
     ("authoritative-carries-rows", _rule_authoritative_carries_rows),
+    ("code-digest-policy", _rule_code_digest_policy),
 )
 
 
