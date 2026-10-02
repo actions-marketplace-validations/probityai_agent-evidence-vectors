@@ -157,6 +157,19 @@ git fetch --tags https://github.com/probityai/agent-evidence-vectors
 python3 scripts/verify-release-tag.py vX.Y.Z
 ```
 
+For a run that has already selected its release inputs, carry both full object
+IDs into the check. The workflow records the checkout commit and annotated tag
+object before the artifact gate, then refuses a refreshed remote tag that
+names different objects. The checker resolves the tag name once and verifies
+that exact object, so a concurrent reference change cannot switch the object
+between its type, target and signature checks.
+
+```sh
+python3 scripts/verify-release-tag.py vX.Y.Z \
+  --expected-commit SELECTED_COMMIT_SHA \
+  --expected-tag-object SELECTED_TAG_OBJECT_SHA
+```
+
 The signing key is not a CI secret and this is deliberate: a key in an Actions
 secret is readable by every workflow that ever runs and by anyone who can land a
 workflow change. Signing happens on the maintainer's machine; CI's job is the

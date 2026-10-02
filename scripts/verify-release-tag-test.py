@@ -14,12 +14,15 @@ Exit 0 when every case behaves as described; 1 otherwise.
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import subprocess
 import sys
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any, cast
+from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = Path(
@@ -83,7 +86,7 @@ class Fixture:
             name,
         )
 
-    def check(self, name: str) -> subprocess.CompletedProcess[str]:
+    def check(self, name: str, *selection: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [
                 sys.executable,
@@ -95,6 +98,7 @@ class Fixture:
                 self.pinned,
                 "--repo",
                 str(self.repo),
+                *selection,
             ],
             capture_output=True,
             text=True,
@@ -141,6 +145,90 @@ def case_missing_tag_refused(work: Path) -> None:
     assert got.returncode == 1 and "does not resolve" in got.stderr, got.stderr
 
 
+def case_selected_objects_pass(work: Path) -> None:
+    fx = Fixture(work)
+    fx.tag("v1.0.0", "-s", "-u", fx.pinned, "-m", "v1.0.0")
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=fx.repo, text=True).strip()
+    obj = subprocess.check_output(
+        ["git", "rev-parse", "refs/tags/v1.0.0"], cwd=fx.repo, text=True
+    ).strip()
+    got = fx.check("v1.0.0", "--expected-commit", commit, "--expected-tag-object", obj)
+    assert got.returncode == 0, got.stderr
+
+
+def case_other_selected_commit_refused(work: Path) -> None:
+    fx = Fixture(work)
+    fx.tag("v1.0.0", "-s", "-u", fx.pinned, "-m", "v1.0.0")
+    fx._git(
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@example.invalid",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "second",
+    )
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=fx.repo, text=True).strip()
+    got = fx.check("v1.0.0", "--expected-commit", commit)
+    assert got.returncode == 1 and "not the selected commit" in got.stderr, got.stderr
+
+
+def case_other_selected_tag_object_refused(work: Path) -> None:
+    fx = Fixture(work)
+    fx.tag("v1.0.0", "-s", "-u", fx.pinned, "-m", "v1.0.0")
+    fx.tag("v2.0.0", "-s", "-u", fx.pinned, "-m", "v2.0.0")
+    obj = subprocess.check_output(
+        ["git", "rev-parse", "refs/tags/v2.0.0"], cwd=fx.repo, text=True
+    ).strip()
+    got = fx.check("v1.0.0", "--expected-tag-object", obj)
+    assert got.returncode == 1 and "not the selected tag object" in got.stderr, got.stderr
+
+
+def case_signed_name_alias_refused(work: Path) -> None:
+    fx = Fixture(work)
+    fx.tag("v1.0.0", "-s", "-u", fx.pinned, "-m", "v1.0.0")
+    fx._git("update-ref", "refs/tags/v9.9.9", "refs/tags/v1.0.0")
+    got = fx.check("v9.9.9")
+    assert got.returncode == 1 and "aliases signed tag name" in got.stderr, got.stderr
+
+
+def case_symbolic_selection_refused(work: Path) -> None:
+    fx = Fixture(work)
+    fx.tag("v1.0.0", "-s", "-u", fx.pinned, "-m", "v1.0.0")
+    for flag in ("--expected-commit", "--expected-tag-object"):
+        got = fx.check("v1.0.0", flag, "HEAD")
+        assert got.returncode == 1 and "full immutable object ID" in got.stderr, got.stderr
+
+
+def case_ref_change_does_not_switch_verified_object(work: Path) -> None:
+    fx = Fixture(work)
+    fx.tag("v1.0.0", "-s", "-u", fx.pinned, "-m", "v1.0.0")
+    fx.tag("v2.0.0", "-a", "-m", "unsigned replacement")
+    spec = importlib.util.spec_from_file_location("tag_check_under_test", SCRIPT)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    original_run = subprocess.run
+    changed = False
+
+    def change_during_import(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        nonlocal changed
+        if command[:3] == ["gpg", "--batch", "--import"]:
+            original_run(
+                ["git", "update-ref", "refs/tags/v1.0.0", "refs/tags/v2.0.0"],
+                cwd=fx.repo,
+                check=True,
+            )
+            changed = True
+        return cast(subprocess.CompletedProcess[str], original_run(command, **kwargs))
+
+    with patch.object(module.subprocess, "run", change_during_import):
+        reason = module.verify("v1.0.0", fx.key_file, fx.pinned, fx.repo)
+    assert changed and reason is None, reason
+
+
 def case_mutation_goes_red(work: Path) -> None:
     """Without the fingerprint pin, this file must fail."""
     if os.environ.get("AEV_TAG_CHECK_UNDER_TEST"):
@@ -165,6 +253,12 @@ CASES: list[Callable[[Path], None]] = [
     case_unsigned_annotated_tag_refused,
     case_other_key_refused,
     case_missing_tag_refused,
+    case_selected_objects_pass,
+    case_other_selected_commit_refused,
+    case_other_selected_tag_object_refused,
+    case_signed_name_alias_refused,
+    case_symbolic_selection_refused,
+    case_ref_change_does_not_switch_verified_object,
     case_mutation_goes_red,
 ]
 
