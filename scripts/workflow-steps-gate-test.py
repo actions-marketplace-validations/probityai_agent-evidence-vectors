@@ -54,6 +54,7 @@ def load_gate() -> object:
 
 GATE = load_gate()
 FAILURES: list[str] = []
+RAN: list[str] = []
 
 
 @contextlib.contextmanager
@@ -76,6 +77,7 @@ def installed(version: str) -> Iterator[None]:
 
 
 def check(name: str, fn: Callable[[], None]) -> None:
+    RAN.append(name)
     try:
         fn()
     except AssertionError as exc:
@@ -333,7 +335,7 @@ def continue_on_error_is_honoured_end_to_end() -> None:
         "      - name: and it did\n"
         "        env:\n"
         "          OUTCOME: ${{ steps.must_fail.outcome }}\n"
-        "        run: test \"$OUTCOME\" = failure\n"
+        '        run: test "$OUTCOME" = failure\n'
     )
     with tempfile.TemporaryDirectory() as tmp:
         path = pathlib.Path(tmp) / "neg.yml"
@@ -358,6 +360,133 @@ def the_action_mirror_fails_on_a_non_pass_verdict() -> None:
         "the mirror exits on the harness status alone, so a report that does not "
         f"show the verifier running every vector would pass it: {local.run!r}"
     )
+
+
+def _execute(workflow: str, root: pathlib.Path | None = None) -> tuple[int, str]:
+    """Run one synthetic workflow through the gate; return (exit, printed log)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = pathlib.Path(tmp) / "wf.yml"
+        path.write_text(workflow, encoding="utf-8")
+        out = pathlib.Path(tmp) / "out.txt"
+        original = GATE.REPO  # type: ignore[attr-defined]
+        if root is not None:
+            GATE.REPO = root  # type: ignore[attr-defined]
+        try:
+            with open(out, "w") as handle, contextlib.redirect_stdout(handle):
+                rc = GATE.execute([path])  # type: ignore[attr-defined]
+        finally:
+            GATE.REPO = original  # type: ignore[attr-defined]
+        return rc, out.read_text()
+
+
+def a_default_working_directory_is_honoured() -> None:
+    """A job's defaults.run.working-directory is where its run blocks start.
+
+    The 2026-10-01 regression: e2-reproduction.yml declares a default directory
+    and runs `pytest test_reproduction.py` from it; the gate ran it from the
+    root and failed a step the remote passes. A step's own key wins over it.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        (root / "sub" / "deeper").mkdir(parents=True)
+        (root / "sub" / "marker").write_text("x")
+        (root / "sub" / "deeper" / "other").write_text("x")
+        workflow = (
+            "defaults:\n  run:\n    working-directory: nowhere\n"
+            "jobs:\n  j:\n    defaults:\n      run:\n        working-directory: sub\n"
+            "    steps:\n"
+            "      - run: test -f marker\n"
+            "      - working-directory: sub/deeper\n        run: test -f other\n"
+        )
+        rc, log = _execute(workflow, root)
+    assert rc == 0, f"a run block did not start in its declared directory:\n{log}"
+
+
+def github_env_and_runner_temp_carry_within_a_job() -> None:
+    """$RUNNER_TEMP exists, and $GITHUB_ENV and $GITHUB_PATH reach later steps.
+
+    gemara-method-link.yml writes a binary to $RUNNER_TEMP and names it in
+    $GITHUB_ENV; the next step reads the variable. Before, the first step died
+    on KeyError: 'RUNNER_TEMP' and the rest failed after it.
+    """
+    workflow = (
+        "jobs:\n  j:\n    steps:\n"
+        "      - run: |\n"
+        '          test -d "$RUNNER_TEMP"\n'
+        '          test -n "$GITHUB_WORKSPACE"\n'
+        '          mkdir -p "$RUNNER_TEMP/bin"\n'
+        "          printf '#!/bin/sh\\necho hi\\n' > \"$RUNNER_TEMP/bin/tool-xyz\"\n"
+        '          chmod +x "$RUNNER_TEMP/bin/tool-xyz"\n'
+        '          echo "TOOL=$RUNNER_TEMP/bin/tool-xyz" >> "$GITHUB_ENV"\n'
+        "          printf 'MULTI<<EOF\\na\\nb\\nEOF\\n' >> \"$GITHUB_ENV\"\n"
+        '          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"\n'
+        "      - run: |\n"
+        '          test -x "$TOOL"\n'
+        '          test "$MULTI" = "$(printf \'a\\nb\')"\n'
+        '          test "$(tool-xyz)" = hi\n'
+        "  k:\n    steps:\n"
+        '      - run: test -z "${TOOL:-}"\n'
+    )
+    rc, log = _execute(workflow)
+    assert rc == 0, f"runner variables did not carry within a job, or leaked across jobs:\n{log}"
+
+
+@contextlib.contextmanager
+def uv_provides(available: bool) -> Iterator[None]:
+    """Answer the uv availability probe, so the case does not depend on the host."""
+    original = GATE.uv_python_available  # type: ignore[attr-defined]
+    GATE.uv_python_available = lambda version: available  # type: ignore[attr-defined]
+    try:
+        yield
+    finally:
+        GATE.uv_python_available = original  # type: ignore[attr-defined]
+
+
+def setup_python_is_mirrored_with_pip() -> None:
+    """setup-python is mirrored by a pip-seeded interpreter put on $GITHUB_PATH.
+
+    Leaving it NOT RUN ran `python -m pip install` against the hook's uv venv,
+    which has no pip.
+    """
+    with uv_provides(True):
+        local = GATE.local_equivalent("actions/setup-python@abc", {"python-version": "3.13.15"})  # type: ignore[attr-defined]
+    assert local.run is not None, f"setup-python is not mirrored: {local.reason}"
+    assert "--seed" in local.run, "the mirrored interpreter is not seeded with pip"
+    assert "3.13.15" in local.run and "GITHUB_PATH" in local.run, local.run
+
+
+def an_unprovidable_python_stops_its_job() -> None:
+    """A pinned Python uv cannot provide is NOT RUN, and so is the rest of the job.
+
+    A nearby release is not a mirror: the WIMSE reproduction refuses any
+    interpreter but its pin, so running on 3.12.13 for a 3.12.14 pin failed a
+    push the remote accepts. Another job in the same workflow still runs.
+    """
+    workflow = (
+        "jobs:\n  j:\n    steps:\n"
+        "      - uses: actions/setup-python@abc\n        with:\n          python-version: '9.9.9'\n"
+        "      - run: exit 1\n"
+        "  k:\n    steps:\n      - run: exit 7\n"
+    )
+    with uv_provides(False):
+        rc, log = _execute(workflow)
+    assert "NOT RUN  j[1]" in log, f"a step ran on an interpreter the job never got:\n{log}"
+    assert rc != 0 and "FAIL  k[0]" in log, f"the block leaked into another job:\n{log}"
+
+
+def an_ambient_virtual_env_does_not_reach_the_steps() -> None:
+    """`uv pip install` in a step must land in the project environment.
+
+    The hook's `uv run --with` exported a throwaway VIRTUAL_ENV, so the
+    workflow's package install went there and later `uv run` steps could not
+    import the package. A runner has no VIRTUAL_ENV.
+    """
+    base = GATE.step_base_environment(  # type: ignore[attr-defined]
+        {"VIRTUAL_ENV": "/tmp/throwaway", "UV_PROJECT_ENVIRONMENT": "/repo/.venv", "PATH": "/bin"}
+    )
+    assert base.get("VIRTUAL_ENV") == "/repo/.venv", base.get("VIRTUAL_ENV")
+    bare = GATE.step_base_environment({"VIRTUAL_ENV": "/tmp/throwaway", "PATH": "/bin"})  # type: ignore[attr-defined]
+    assert "VIRTUAL_ENV" not in bare, bare.get("VIRTUAL_ENV")
 
 
 def main() -> int:
@@ -388,12 +517,21 @@ def main() -> int:
         the_action_mirror_fails_on_a_non_pass_verdict,
     )
 
+    check("a default working directory is honoured", a_default_working_directory_is_honoured)
+    check("runner variables carry within a job", github_env_and_runner_temp_carry_within_a_job)
+    check("setup-python is mirrored with pip", setup_python_is_mirrored_with_pip)
+    check("an unprovidable Python stops its job", an_unprovidable_python_stops_its_job)
+    check(
+        "an ambient VIRTUAL_ENV does not reach the steps",
+        an_ambient_virtual_env_does_not_reach_the_steps,
+    )
+
     if FAILURES:
         print(f"FAIL: {len(FAILURES)} case(s) do not hold:")
         for line in FAILURES:
             print(f"  {line}")
         return 1
-    print("OK: 20 case(s); the local mirror runs steps the way GitHub Actions does.")
+    print(f"OK: {len(RAN)} case(s); the local mirror runs steps the way GitHub Actions does.")
     return 0
 
 
