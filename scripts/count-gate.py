@@ -1053,6 +1053,18 @@ def declared_claims(src: Sources) -> tuple[Claim, ...]:
 
 
 DELEGATED: tuple[Delegated, ...] = (
+    # The pinned JEP manifest and run.py validate these separate populations.
+    *(Delegated(path, "pinned JEP pilot populations", pattern,
+                "interop/jep-core07-reader/run.py")
+      for path, pattern in (
+          (".github/workflows/jep-core07-reader.yml", r"25/4/8"),
+          ("interop/jep-core07-reader/PROTOCOL.md", r"25 validation assertions"),
+          ("interop/jep-core07-reader/PROTOCOL.md", r"36 covered files"),
+          ("interop/jep-core07-reader/PROTOCOL.md", r"25/4/8"),
+          ("interop/jep-core07-reader/README.md", r"25 validation"),
+          ("interop/jep-core07-reader/run.py", r"25/4/8"),
+      )),
+
     # These are encoding widths and JSON resource bounds, not corpus tallies.
     # The candidate's tests bind the exact prose to fixed byte answers and
     # exercise both sides of the declared depth and node budgets.
