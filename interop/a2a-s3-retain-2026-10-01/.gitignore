@@ -1,0 +1,8 @@
+.deps/
+.venv/
+_raw/
+__pycache__/
+.pytest_cache/
+.hypothesis/
+pytest-of-root/
+run-report.json

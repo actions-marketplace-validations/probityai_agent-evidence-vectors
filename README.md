@@ -168,6 +168,11 @@ historical key authority, unique action-tuple binding or a formal Pack #3 result
 
 The [live MCP named-tool case](interop/agentavow-live-mcp/README.md) uses author-owned synthetic definitions to compare a prior digest with later served definitions; it does not verify a JWS or a live endpoint.
 
+The [provisional A2A retained-field gate](interop/a2a-s3-retain-2026-10-01/README.md)
+recomputes 13 source-pinned signature cases. It accepts signer-side dual signing
+while rejecting verifier fallback that would leave an altered legacy URL unsigned.
+This optional consumer policy is separate from A2A's pending canonicalization ruling.
+
 `vectors-w3c-report/` is the conformance set for v0.1 of the per-check
 reporting format of the W3C public-agent-conformance community group: every
 rejection row of the frozen table backed by a report that must be rejected
