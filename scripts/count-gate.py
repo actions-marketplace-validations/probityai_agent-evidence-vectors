@@ -1053,6 +1053,27 @@ def declared_claims(src: Sources) -> tuple[Claim, ...]:
 
 
 DELEGATED: tuple[Delegated, ...] = (
+    # These are encoding widths and JSON resource bounds, not corpus tallies.
+    # The candidate's tests bind the exact prose to fixed byte answers and
+    # exercise both sides of the declared depth and node budgets.
+    *(
+        Delegated(
+            "interop/action-tuple-framed-v1/PROFILE.md",
+            "the framed tuple's encoding widths and JSON resource budgets",
+            pattern,
+            "interop/action-tuple-framed-v1/test_reader.py",
+        )
+        for pattern in (
+            r"Unsigned \d+-bit big-endian UTF-8 byte count",
+            r"depth at most \d+ and at most [\d,]+ value nodes",
+        )
+    ),
+    Delegated(
+        "interop/action-tuple-framed-v1/test_reader.py",
+        "the fixed-byte test's exact encoding-width prose check",
+        r"Unsigned \d+-bit big-endian UTF-8 byte count",
+        "interop/action-tuple-framed-v1/test_reader.py",
+    ),
     # The optional AgentID reader bounds a JWKS input, not a vector corpus.
     # Its tests exercise the limit on both sides and read the prose cap back
     # against MAX_KEYS. Match only those bounded technical statements.
