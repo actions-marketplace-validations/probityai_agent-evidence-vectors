@@ -1053,6 +1053,33 @@ def declared_claims(src: Sources) -> tuple[Claim, ...]:
 
 
 DELEGATED: tuple[Delegated, ...] = (
+    # The optional AgentID reader bounds a JWKS input, not a vector corpus.
+    # Its tests exercise the limit on both sides and read the prose cap back
+    # against MAX_KEYS. Match only those bounded technical statements.
+    Delegated(
+        "interop/agentid-offline/README.md",
+        "the AgentID reader's JWKS resource budget",
+        r"Its key count is bounded at \d+",
+        "interop/agentid-offline/test_reader.py",
+    ),
+    Delegated(
+        "interop/agentid-offline/reader.py",
+        "the AgentID key-selection docstring's resource budget",
+        r"Select exactly one public Ed25519 verification key from at most \d+ entries",
+        "interop/agentid-offline/test_reader.py",
+    ),
+    *(
+        Delegated(
+            path,
+            "the AgentID JWKS cardinality diagnostic",
+            r"JWKS must contain between \d+ and \d+ keys",
+            "interop/agentid-offline/test_reader.py",
+        )
+        for path in (
+            "interop/agentid-offline/reader.py",
+            "interop/agentid-offline/test_reader.py",
+        )
+    ),
     # A row of the accepted-complexity table is a gocyclo measurement of one Go
     # function, re-measured and gated by complexity-table-gate.py. Gate0's 36
     # collided with the seen-but-tolerated count when the forcing baseline moved.
