@@ -61,12 +61,30 @@ def _sweep_one(
     broke: list[str] = []
     for entry, raw in members:
         was_verdict, _ = baseline[entry["id"]]
-        now_verdict, _ = cv.verify(raw, observer, cv.BLOBS, disabled=name)
+        now_verdict, _ = cv.verify(
+            raw,
+            observer,
+            cv.BLOBS,
+            disabled=name,
+            expected_code_digest=entry.get("expectedCodeDigest", ""),
+        )
         if was_verdict != "valid" and now_verdict == "valid":
             freed.append(f"{entry['slug']} ({was_verdict} -> valid)")
         if was_verdict == "valid" and now_verdict != "valid":
             broke.append(f"{entry['slug']} (valid -> {now_verdict})")
     return freed, broke
+
+
+def _candidate_members() -> list[tuple[dict[str, Any], bytes]]:
+    """Load extension controls without changing the released corpus manifest."""
+    directory = os.path.join(HERE, "..", "interop", "observed-code-digest-candidate")
+    with open(os.path.join(directory, "MANIFEST.json"), encoding="utf-8") as fh:
+        candidate = json.load(fh)
+    members = []
+    for entry in candidate["vectors"]:
+        with open(os.path.join(directory, entry["file"]), "rb") as fh:
+            members.append(({**entry, "slug": entry["id"]}, fh.read()))
+    return members
 
 
 def main() -> None:
@@ -79,9 +97,16 @@ def main() -> None:
         with open(os.path.join(HERE, entry["file"]), "rb") as fh:
             members.append((entry, fh.read()))
 
+    members.extend(_candidate_members())
+
     baseline: dict[str, tuple[str, list[str]]] = {}
     for entry, raw in members:
-        baseline[entry["id"]] = cv.verify(raw, observer, cv.BLOBS)
+        baseline[entry["id"]] = cv.verify(
+            raw,
+            observer,
+            cv.BLOBS,
+            expected_code_digest=entry.get("expectedCodeDigest", ""),
+        )
 
     inert: list[str] = []
     collateral: list[str] = []
