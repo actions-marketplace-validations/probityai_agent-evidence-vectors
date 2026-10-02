@@ -192,7 +192,8 @@ def _header(event: dict[str, Any]) -> tuple[dict[str, Any], str, bytes]:
 
 def _public_key(header: dict[str, Any], keys: dict[str, Any]) -> Ed25519PublicKey | None:
     """Resolve only the caller's explicit local test trust store."""
-    key = keys.get(header.get("kid"))
+    kid = header.get("kid")
+    key = keys.get(kid) if isinstance(kid, str) else None
     if key is None:
         return None
     _require(

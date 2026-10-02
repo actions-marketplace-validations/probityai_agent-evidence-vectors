@@ -46,6 +46,7 @@ class TestValidator:
             produced = produce(event)
             result, parsed = validate(produced["event_json"], produced["keys"])
             assert result["status"] == "valid"
+            assert parsed is not None
             assert parsed["what"] == event["what"]
             assert (
                 result["event_hash"]
