@@ -222,7 +222,8 @@ include = ["docs/proposals", "docs/site", "interop", "packaging", "scripts", "to
 # import that resolves fine when it runs.
 extraPaths = ["packaging", "vectors", "tools/artifact-binding",
               "vectors-artifact-binding", "vectors-observed-effect",
-              "interop/a2a-s3-retain-2026-10-01"]
+              "interop/a2a-s3-retain-2026-10-01",
+              "interop/agentavow-live-mcp", "interop/agentavow-signed-map-v1"]
 
 # "standard" rather than "strict", chosen rather than defaulted into. Standard
 # carries every rule that describes a script CRASHING -- an undefined name, a
