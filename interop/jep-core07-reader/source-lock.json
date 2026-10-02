@@ -64,5 +64,10 @@
   "specification": {
     "path": "draft-wang-jep-judgment-event-protocol-07.md",
     "sha256": "1d6d04f1003914199b510b0cd51f5ac143af0e4e6bc21d8d82d25376551c1741"
+  },
+  "protocol_publication_commit": "4f344209c8ea65f60bab0f51747ae4f80346181d",
+  "conformance_specification": {
+    "path": "releases/conformance-02/draft-wang-jep-conformance-02.txt",
+    "sha256": "1337d661017ec7d8d1bf86606f98b8a494281693c2ef99d0bd09167b0bb55fd9"
   }
 }
