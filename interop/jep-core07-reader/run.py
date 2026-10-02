@@ -34,16 +34,21 @@ def pinned_inputs(upstream: Path) -> dict[str, Any]:
     manifest = json.loads((upstream / "manifest.json").read_text())
     if manifest["files"] != lock["files"]:
         raise ValueError("JEP file manifest differs from the preregistered pin")
-    for relative, expected in manifest["files"].items():
-        path = upstream / relative
-        if path.is_symlink() or digest(path) != expected.removeprefix("sha256:"):
-            raise ValueError(f"JEP input digest mismatch: {relative}")
+    _pinned_files(upstream, manifest["files"])
     populations = tuple(
         len(manifest[key]) for key in ("assertions", "producer_assertions", "acceptance_assertions")
     )
     if populations != (25, 4, 8):
         raise ValueError("JEP manifest must retain the 25/4/8 assertion populations")
     return manifest
+
+
+def _pinned_files(upstream: Path, files: dict[str, str]) -> None:
+    """Refuse changed suite bytes before executing any adapter request."""
+    for relative, expected in files.items():
+        path = upstream / relative
+        if path.is_symlink() or digest(path) != expected.removeprefix("sha256:"):
+            raise ValueError(f"JEP input digest mismatch: {relative}")
 
 
 def invoke(request: dict[str, Any]) -> dict[str, Any]:
