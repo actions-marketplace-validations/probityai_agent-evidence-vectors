@@ -76,12 +76,23 @@ func agProposalText(t *testing.T, d, body string) {
 	}
 }
 
+func agProposedEdit(pick func(map[string]any) bool, edit func(*testing.T, map[string]any)) func(*testing.T, string) {
+	return agEdit(pick, func(t *testing.T, r map[string]any) {
+		r["kind"] = "proposed"
+		r["expected"] = map[string]any{
+			"asWritten": map[string]any{"verdict": "invalid", "code": "attribution-ranges-overlap"},
+			"proposal":  map[string]any{"verdict": "invalid", "code": "attribution-ranges-overlap"},
+		}
+		edit(t, r)
+	})
+}
+
 func aiGenerationFindings() []findingCase {
 	reject := kindIs("reject")
 	accept := agAll(kindIs("accept"), agFormIs("attestation"))
 	golden := agFormIs("statement")
 	signoffs := declares("distinctSignoffKeys")
-	overlap := agAll(kindIs("proposed"), agCarries("ofg-p-1"))
+	overlap := agAll(kindIs("reject"), agCarries("ofg-c-23"))
 	copied := declaresSource
 	return []findingCase{
 		{"ag/unknown-kind", agDir, agEdit(reject, func(_ *testing.T, r map[string]any) { r["kind"] = "maybe" }),
@@ -98,7 +109,7 @@ func aiGenerationFindings() []findingCase {
 		}), "which is not a member"},
 		{"ag/parent-not-accept", agDir, func(t *testing.T, d string) {
 			editManifest(t, d, func(m map[string]any) {
-				other, _ := firstRowWhere(t, m, kindIs("proposed"))["id"].(string)
+				other, _ := firstRowWhere(t, m, overlap)["id"].(string)
 				firstRowWhere(t, m, reject)["parent"] = other
 			})
 		}, "which is not an accept member"},
@@ -148,7 +159,7 @@ func aiGenerationFindings() []findingCase {
 			"an accept member that the revision refuses"},
 		{"ag/accept-refused-by-proposal", agDir, func(t *testing.T, d string) {
 			editManifest(t, d, func(m map[string]any) {
-				other, _ := firstRowWhere(t, m, agAll(declaresTrailer, kindIs("proposed")))["trailer"].(string)
+				other, _ := firstRowWhere(t, m, agAll(declaresTrailer, kindIs("reject")))["trailer"].(string)
 				firstRowWhere(t, m, agAll(declaresTrailer, kindIs("accept")))["trailer"] = other
 			})
 		}, "an accept member that the proposal refuses"},
@@ -158,16 +169,16 @@ func aiGenerationFindings() []findingCase {
 		{"ag/reject-wrong-code", agDir, agEdit(reject, func(t *testing.T, r map[string]any) {
 			setDeep(t, r, "a-code-no-rule-emits", "expected", "code")
 		}), "under the revision, got"},
-		{"ag/proposed-half-declared", agDir, agEdit(overlap, func(_ *testing.T, r map[string]any) {
+		{"ag/proposed-half-declared", agDir, agProposedEdit(overlap, func(_ *testing.T, r map[string]any) {
 			expected, _ := r["expected"].(map[string]any)
 			delete(expected, "asWritten")
 		}), "does not declare both"},
-		{"ag/proposed-wrong-proposal", agDir, agEdit(overlap, func(t *testing.T, r map[string]any) {
+		{"ag/proposed-wrong-proposal", agDir, agProposedEdit(overlap, func(t *testing.T, r map[string]any) {
 			setDeep(t, r, map[string]any{"verdict": "invalid", "code": "trailer-disagrees"},
 				"expected", "proposal")
 		}), "under the proposal, got"},
-		{"ag/proposed-same-outcomes", agDir, agEdit(overlap, func(t *testing.T, r map[string]any) {
-			setDeep(t, r, map[string]any{"verdict": "valid"}, "expected", "proposal")
+		{"ag/proposed-same-outcomes", agDir, agProposedEdit(overlap, func(t *testing.T, r map[string]any) {
+			setDeep(t, r, map[string]any{"verdict": "invalid", "code": "attribution-ranges-overlap"}, "expected", "proposal")
 		}), "the proposal changes nothing"},
 		{"ag/signoffs-undeclared", agDir, agEdit(signoffs, func(_ *testing.T, r map[string]any) {
 			expected, _ := r["expected"].(map[string]any)
@@ -199,9 +210,17 @@ func aiGenerationFindings() []findingCase {
 		{"ag/refused-never-accepted", agDir, agEdit(agAll(kindIs("accept"), agCarries("ofg-c-6")),
 			func(_ *testing.T, r map[string]any) { r["conditions"] = []any{"ofg-c-7"} }),
 			"conditions refused and never accepted"},
-		{"ag/proposal-refuses-never-accepts", agDir, agEdit(agAll(kindIs("accept"), agCarries("ofg-p-1")),
-			func(_ *testing.T, r map[string]any) { r["conditions"] = []any{"ofg-p-2"} }),
-			"conditions the proposal refuses and never accepts"},
+		{"ag/proposal-refuses-never-accepts", agDir, func(t *testing.T, d string) {
+			editManifest(t, d, func(m map[string]any) {
+				firstRowWhere(t, m, agAll(kindIs("accept"), agCarries("ofg-c-23")))["conditions"] = []any{"ofg-c-24"}
+				r := firstRowWhere(t, m, overlap)
+				r["kind"] = "proposed"
+				r["expected"] = map[string]any{
+					"asWritten": map[string]any{"verdict": "valid"},
+					"proposal":  map[string]any{"verdict": "invalid", "code": "attribution-ranges-overlap"},
+				}
+			})
+		}, "conditions the proposal refuses and never accepts"},
 		{"ag/idle-condition", agDir, func(t *testing.T, d string) {
 			editManifest(t, d, func(m map[string]any) {
 				conditions, _ := m["conditions"].(map[string]any)

@@ -3,19 +3,19 @@
   "predicateType": "https://open-fab.ai/attestation/generation/v0.1",
   "tracksUpstream": "ossf/tac#628",
   "specUpstreamRepo": "Open-fab-ai/openfab",
-  "specUpstreamCommit": "17b964ee24b2cb7b751aebf9ed51524a5a9e1bd8",
-  "specRevision": "0.1.4",
+  "specUpstreamCommit": "13fd0a8b89399e02dbc9a0322b2c34d3466cbf15",
+  "specRevision": "0.1.5",
   "specAuthority": "specDigest",
   "specProvenanceNote": "tracksUpstream names where the predicate is discussed for adoption. The specification text, its JSON Schema and its licence are vendored unchanged from specUpstreamRepo at specUpstreamCommit; the pin a verifier acts on is each file's digest, which aee-verify recomputes on every run.",
-  "specVendored": "spec-vendored/generation-predicate-v0.1-17b964ee.md",
-  "specDigest": "de793f9e4ae47e1ff37ffa9c3649a5ca1f9416aff2cde8e98f30c85e79c8acf5",
-  "schemaVendored": "spec-vendored/generation-predicate-schema-17b964ee.json",
+  "specVendored": "spec-vendored/generation-predicate-v0.1-13fd0a8b.md",
+  "specDigest": "303e6c7c3fe77290941b91e1386c97cae94ecd7dea588855bbc2ddb69c69c240",
+  "schemaVendored": "spec-vendored/generation-predicate-schema-13fd0a8b.json",
   "schemaDigest": "a66870141435585d4e4715c7936ad415b0c882be7d71a18ceab2605c2375169c",
-  "licenseVendored": "spec-vendored/LICENSE-17b964ee",
+  "licenseVendored": "spec-vendored/LICENSE-13fd0a8b",
   "licenseDigest": "cfa7f062b75afdeb88f4a8d8540f6536b98fc4440354e9f32e4f9da90f60870b",
   "goldenSource": {
     "repo": "Open-fab-ai/openfab",
-    "commit": "17b964ee24b2cb7b751aebf9ed51524a5a9e1bd8",
+    "commit": "13fd0a8b89399e02dbc9a0322b2c34d3466cbf15",
     "path": "src/core/provenance.rs",
     "test": "canonical_encoding_golden_vector",
     "canonicalLength": 756,
@@ -118,19 +118,19 @@
       "requires": "An attestation signed by either reference implementation verifies.",
       "clause": "Signed conformance vectors: the reference repository's docs/vectors/ holds four complete signed attestations, one from each reference implementation, with and without sign-offs, cross-verified in its own CI."
     },
-    "ofg-p-1": {
+    "ofg-c-23": {
       "requires": "Attribution ranges for one path do not overlap.",
-      "gap": "The revision permits two ranges to claim different origins for one line."
+      "clause": "Predicate fields: ranges for one path MUST NOT overlap, and verifiers MUST refuse overlapping or malformed ranges (rev 0.1.5)."
     },
-    "ofg-p-2": {
+    "ofg-c-24": {
       "requires": "A supplied Assisted-by trailer matches agent.id and agent.tools.",
-      "gap": "The revision makes the cross-check a MAY, so a disagreeing trailer passes."
+      "clause": "Disclosure trailers: a verifier given Assisted-by trailer lines MUST compare them against the attestation; a disagreement fails verification (rev 0.1.5)."
     }
   },
   "counts": {
     "accept": 18,
-    "reject": 18,
-    "proposed": 2
+    "reject": 20,
+    "proposed": 0
   },
   "vectors": [
     {
@@ -184,7 +184,7 @@
       ],
       "source": {
         "repo": "Open-fab-ai/openfab",
-        "commit": "17b964ee24b2cb7b751aebf9ed51524a5a9e1bd8",
+        "commit": "13fd0a8b89399e02dbc9a0322b2c34d3466cbf15",
         "path": "docs/vectors/browser-signed-with-signoffs.json",
         "sha256": "041297f0f0ed52ca0f52ff6015f969f57ad244548b25e414214ae79045107e30"
       },
@@ -367,11 +367,11 @@
     },
     {
       "id": "v67b343a989ac7a32",
-      "kind": "proposed",
+      "kind": "reject",
       "form": "attestation",
       "file": "statements/v67b343a989ac7a32.json",
       "conditions": [
-        "ofg-p-2"
+        "ofg-c-24"
       ],
       "parent": "ve290fc80af586834",
       "artifacts": [
@@ -386,15 +386,10 @@
       ],
       "trailer": "trailers/e0b0c7214c5ebff3.txt",
       "expected": {
-        "asWritten": {
-          "verdict": "valid"
-        },
-        "proposal": {
-          "verdict": "invalid",
-          "code": "trailer-disagrees"
-        }
+        "verdict": "invalid",
+        "code": "trailer-disagrees"
       },
-      "cites": "the base attestation beside a commit whose Assisted-by trailer names a different model. The revision lets a verifier skip the cross-check."
+      "cites": "the base attestation beside a commit whose Assisted-by trailer names a different model. Revision 0.1.5 makes the supplied-trailer cross-check mandatory."
     },
     {
       "id": "v6898f23bf0d63e43",
@@ -651,7 +646,7 @@
       ],
       "source": {
         "repo": "Open-fab-ai/openfab",
-        "commit": "17b964ee24b2cb7b751aebf9ed51524a5a9e1bd8",
+        "commit": "13fd0a8b89399e02dbc9a0322b2c34d3466cbf15",
         "path": "docs/vectors/rust-signed-with-signoffs.json",
         "sha256": "85612623f15946486b4b8c021014ecebaf1c1a11b1565a94dca6441a8a9d9a8f"
       },
@@ -684,7 +679,7 @@
       ],
       "source": {
         "repo": "Open-fab-ai/openfab",
-        "commit": "17b964ee24b2cb7b751aebf9ed51524a5a9e1bd8",
+        "commit": "13fd0a8b89399e02dbc9a0322b2c34d3466cbf15",
         "path": "docs/vectors/rust-signed.json",
         "sha256": "8ba9dcb28847aac2e87240d9dcba63cf8b12d79223142f64b97bd191f82cbaea"
       },
@@ -850,7 +845,7 @@
       "form": "attestation",
       "file": "statements/vc3f6b78452e8e684.json",
       "conditions": [
-        "ofg-p-1"
+        "ofg-c-23"
       ],
       "artifacts": [
         {
@@ -901,7 +896,7 @@
       "form": "attestation",
       "file": "statements/ve290fc80af586834.json",
       "conditions": [
-        "ofg-p-2"
+        "ofg-c-24"
       ],
       "artifacts": [
         {
@@ -981,7 +976,7 @@
       ],
       "source": {
         "repo": "Open-fab-ai/openfab",
-        "commit": "17b964ee24b2cb7b751aebf9ed51524a5a9e1bd8",
+        "commit": "13fd0a8b89399e02dbc9a0322b2c34d3466cbf15",
         "path": "docs/vectors/browser-signed.json",
         "sha256": "e86dfb45f930fa4413f0e6a65c67e829cc866ed0de6d53a31c9f691e13b9d759"
       },
@@ -1068,11 +1063,11 @@
     },
     {
       "id": "vfddf8453d88a3605",
-      "kind": "proposed",
+      "kind": "reject",
       "form": "attestation",
       "file": "statements/vfddf8453d88a3605.json",
       "conditions": [
-        "ofg-p-1"
+        "ofg-c-23"
       ],
       "parent": "vc3f6b78452e8e684",
       "artifacts": [
@@ -1086,15 +1081,10 @@
         }
       ],
       "expected": {
-        "asWritten": {
-          "verdict": "valid"
-        },
-        "proposal": {
-          "verdict": "invalid",
-          "code": "attribution-ranges-overlap"
-        }
+        "verdict": "invalid",
+        "code": "attribution-ranges-overlap"
       },
-      "cites": "lines 10 to 20 of one file claimed as both AI-generated and human-written. Revision 0.1.4 has no rule against it."
+      "cites": "lines 10 to 20 of one file claimed as both AI-generated and human-written. Revision 0.1.5 requires refusal."
     },
     {
       "id": "vfe6a26f63e566bac",

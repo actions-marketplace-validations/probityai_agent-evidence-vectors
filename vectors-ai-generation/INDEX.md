@@ -2,14 +2,14 @@
 
 Every member of this suite in one table. The subject under test is a verifier
 of the generation predicate `https://open-fab.ai/attestation/generation/v0.1` at specification revision
-0.1.4, in its default attest-only mode.
+0.1.5, in its default attest-only mode.
 
 This corpus is 38 vectors, of which 18 a conformant verifier must not
-fail closed on and 18 it must reject.
+fail closed on and 20 it must reject.
 
-The remaining members are graded `proposed`: each declares what revision
-0.1.4 says about it and what `../docs/proposals/ai-generation-v01-findings.md` proposes, and a
-verifier is never failed on one.
+There are no proposed members. Revision 0.1.5 makes overlapping ranges and
+supplied-trailer disagreement required refusals. The historical findings remain
+in `../docs/proposals/ai-generation-v01-findings.md` with their adopted status.
 
 The specification, its JSON Schema and its licence are vendored under
 `spec-vendored/` and pinned by digest in the manifest. The golden member is
@@ -23,7 +23,7 @@ Self-check: `aee-verify vectors-ai-generation/` from the repository root.
 
 ## Conditions
 
-| id | what it requires | clause of revision 0.1.4, or the gap |
+| id | what it requires | clause of revision 0.1.5, or the gap |
 |---|---|---|
 | `ofg-c-1` | The canonical form of the pinned golden statement is the pinned bytes. | Envelope encoding: the golden conformance vector, whose canonical form the upstream repository pins by length and sha256. |
 | `ofg-c-2` | payload_sha256 is the sha256 of the canonical statement bytes. | Envelope encoding: the bytes the signatures cover, and that payload_sha256 digests, are the UTF-8 encoding of the canonical form of statement. |
@@ -47,8 +47,8 @@ Self-check: `aee-verify vectors-ai-generation/` from the repository root.
 | `ofg-c-20` | Member names are ordered by UTF-16 code units, as RFC 8785 orders them. | Envelope encoding, objects: keys sorted ascending by UTF-16 code units, the RFC 8785 section 3.2.3 order. |
 | `ofg-c-21` | A statement with a duplicate member name is refused. | Verifier input handling: verifiers MUST refuse documents containing duplicate object member names (I-JSON). |
 | `ofg-c-22` | An attestation signed by either reference implementation verifies. | Signed conformance vectors: the reference repository's docs/vectors/ holds four complete signed attestations, one from each reference implementation, with and without sign-offs, cross-verified in its own CI. |
-| `ofg-p-1` | Attribution ranges for one path do not overlap. | gap: The revision permits two ranges to claim different origins for one line. |
-| `ofg-p-2` | A supplied Assisted-by trailer matches agent.id and agent.tools. | gap: The revision makes the cross-check a MAY, so a disagreeing trailer passes. |
+| `ofg-c-23` | Attribution ranges for one path do not overlap. | Predicate fields: ranges for one path MUST NOT overlap, and verifiers MUST refuse overlapping or malformed ranges (rev 0.1.5). |
+| `ofg-c-24` | A supplied Assisted-by trailer matches agent.id and agent.tools. | Disclosure trailers: a verifier given Assisted-by trailer lines MUST compare them against the attestation; a disagreement fails verification (rev 0.1.5). |
 
 ## Vectors
 
@@ -63,7 +63,7 @@ Self-check: `aee-verify vectors-ai-generation/` from the repository root.
 | `v43c29d9aa9dab8e2` | accept | ofg-c-8 | valid |  |
 | `v551d84ac66f33adf` | reject | ofg-c-13 | invalid `author-not-in-enum` | `v813737ad828668c4` |
 | `v57ddc0d49453510f` | accept | ofg-c-9 | valid |  |
-| `v67b343a989ac7a32` | proposed | ofg-p-2 | 0.1.4: valid; proposal: invalid `trailer-disagrees` | `ve290fc80af586834` |
+| `v67b343a989ac7a32` | reject | ofg-c-24 | invalid `trailer-disagrees` | `ve290fc80af586834` |
 | `v6898f23bf0d63e43` | reject | ofg-c-16 | invalid `signoff-signature-invalid` | `vc9321aca5c878ff9` |
 | `v690a27cba702a6a1` | reject | ofg-c-21 | invalid `duplicate-member` | `v813737ad828668c4` |
 | `v6bc1c5c4275d451d` | reject | ofg-c-17 | invalid `signoff-records-and-signatures-disagree` | `vc9321aca5c878ff9` |
@@ -81,14 +81,14 @@ Self-check: `aee-verify vectors-ai-generation/` from the repository root.
 | `va35bcfb26910a2cb` | reject | ofg-c-8 | invalid `empty-array-serialized` | `v43c29d9aa9dab8e2` |
 | `va8e599224ef5a13a` | reject | ofg-c-9 | invalid `null-optional-serialized` | `v57ddc0d49453510f` |
 | `vb6ce4da91879b6b0` | reject | ofg-c-20 | invalid `payload-digest-mismatch` | `v80bef8e6efc805c4` |
-| `vc3f6b78452e8e684` | accept | ofg-p-1 | valid |  |
+| `vc3f6b78452e8e684` | accept | ofg-c-23 | valid |  |
 | `vc9321aca5c878ff9` | accept | ofg-c-15, ofg-c-16, ofg-c-17, ofg-c-18, ofg-c-19 | valid |  |
-| `ve290fc80af586834` | accept | ofg-p-2 | valid |  |
+| `ve290fc80af586834` | accept | ofg-c-24 | valid |  |
 | `ve519b6be46ced66e` | accept | ofg-c-19 | valid | `vc9321aca5c878ff9` |
 | `ve654d0e0e28896ad` | accept | ofg-c-1 | canonical sha256 `7051cb7073a3` |  |
 | `ve86dfb45f930fa44` | accept | ofg-c-2, ofg-c-11, ofg-c-12, ofg-c-22 | valid |  |
 | `vef2bf7309281aaa1` | reject | ofg-c-2 | invalid `payload-digest-mismatch` | `v813737ad828668c4` |
 | `vf1e654cbe3174418` | reject | ofg-c-18 | invalid `signoff-signer-mismatch` | `vc9321aca5c878ff9` |
 | `vf7158c5a325fd632` | reject | ofg-c-12 | invalid `keyid-not-ed25519-did-key` | `v813737ad828668c4` |
-| `vfddf8453d88a3605` | proposed | ofg-p-1 | 0.1.4: valid; proposal: invalid `attribution-ranges-overlap` | `vc3f6b78452e8e684` |
+| `vfddf8453d88a3605` | reject | ofg-c-23 | invalid `attribution-ranges-overlap` | `vc3f6b78452e8e684` |
 | `vfe6a26f63e566bac` | accept | ofg-c-6 | valid |  |
