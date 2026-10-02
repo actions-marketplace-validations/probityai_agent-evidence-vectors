@@ -168,6 +168,12 @@ eight byte, signature and request relationships from a pinned signed fixture and
 saved key. It retains separate claims and refusal controls, without asserting
 historical key authority, unique action-tuple binding or a formal Pack #3 result.
 
+The [framed action tuple candidate](interop/action-tuple-framed-v1/README.md) defines
+a separate unsigned profile with explicit UTF-8 byte lengths and a fixed versioned
+domain. Its accept/refuse corpus distinguishes the native concatenation ambiguity
+without changing the historical AgentID fixture or interpreting its signature under
+the candidate construction.
+
 The [live MCP named-tool case](interop/agentavow-live-mcp/README.md) uses author-owned synthetic definitions to compare a prior digest with later served definitions; it does not verify a JWS or a live endpoint.
 
 The [provisional A2A retained-field gate](interop/a2a-s3-retain-2026-10-01/README.md)
