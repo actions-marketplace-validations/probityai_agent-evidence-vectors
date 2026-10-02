@@ -14,8 +14,8 @@ anything.
 
 ## What it certifies against
 
-Specification revision 0.1.4, vendored unchanged from `Open-fab-ai/openfab` at
-commit `17b964ee24b2cb7b751aebf9ed51524a5a9e1bd8`, with the JSON Schema and the
+Specification revision 0.1.5, vendored unchanged from `Open-fab-ai/openfab` at
+commit `13fd0a8b89399e02dbc9a0322b2c34d3466cbf15`, with the JSON Schema and the
 licence from the same commit, under `spec-vendored/`. `MANIFEST.json` pins each
 file by sha256 and `aee-verify` refuses a copy whose bytes moved.
 
@@ -37,25 +37,18 @@ it was changed from in its `parent` field.
 Four accept members were built by someone else: the signed attestations the
 upstream repository publishes under `docs/vectors/`, one from its Rust
 implementation and one from its browser implementation, each with and without
-two sign-offs. They are copied byte for byte into `upstream-vectors/17b964ee/`,
+two sign-offs. They are copied byte for byte into `upstream-vectors/13fd0a8b/`,
 their manifest rows carry the upstream path and sha256 under `source`, and the
 generator refuses a copy whose bytes moved. Their subject is the digest of the
 four bytes `test` and their one generated range is the line `hello`, both under
 `artifacts/`.
 
-## Three kinds of member
+## Required outcomes
 
-- **accept** and **reject** are required by revision 0.1.4 as written. A reject
-  member cites the clause it breaks and names the code a verifier refuses it
-  with. An accept member is valid under the revision and under the proposal
-  below.
-- **proposed** members depend on text the revision does not yet carry. Each
-  declares two outcomes: what revision 0.1.4 as written says of it, and what
-  the proposal in `../docs/proposals/ai-generation-v01-findings.md` says. A
-  verifier is never failed on a proposed member; the pair of outcomes is what
-  the member shows. Two rules remain proposed: attribution ranges for one path
-  do not overlap, and a supplied `Assisted-by:` trailer matches `agent.id` and
-  `agent.tools`.
+Accept and reject members are graded against revision 0.1.5. Overlapping ranges
+for one path and disagreement with supplied Assisted-by trailers are required
+rejects. No proposed members remain. The historical findings document preserves
+the earlier proposals and records their adoption.
 
 Counts are in `INDEX.md` and `MANIFEST.json`, both written by the generator.
 
@@ -96,4 +89,4 @@ library, so a reader who installed nothing can recompute it.
 
 The files under `spec-vendored/` and `upstream-vectors/` are the upstream
 project's, under the Apache License 2.0 carried as
-`spec-vendored/LICENSE-17b964ee`.
+`spec-vendored/LICENSE-13fd0a8b`.
