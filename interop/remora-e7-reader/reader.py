@@ -181,6 +181,7 @@ def surface_result(case: dict[str, Any]) -> dict[str, Any]:
         for tool in case["tools"]
         if tool["offered_to_agent"] or tool["callable_at_dispatch"]
     }
+    assert isinstance(governed, dict)
     return _surface_comparison(observed, governed)
 
 
