@@ -242,7 +242,7 @@ jobs:
       - name: type-check every python file
         run: uv run python scripts/typecheck-gate.py
       - name: ruff
-        run: uv run ruff check packaging vectors vectors-observed-effect vectors-agent-audit-record vectors-ai-generation vectors-receipt-signature vectors-source-coverage vectors-self-reported-record scripts interop/gemara-method-link interop/ws4-prior-witness-candidate interop/agentavow-live-mcp interop/a2a-s3-retain-2026-10-01 interop/action-tuple-framed-v1
+        run: uv run ruff check packaging vectors vectors-observed-effect vectors-agent-audit-record vectors-ai-generation vectors-receipt-signature vectors-source-coverage vectors-self-reported-record scripts interop/gemara-method-link interop/ws4-prior-witness-candidate interop/agentavow-live-mcp interop/a2a-s3-retain-2026-10-01 interop/a2a-s4-dual-name-2026-10-02 interop/action-tuple-framed-v1
       - name: E2 compatibility tests in the shared development environment
         run: uv run python -m pytest -q interop/aps-priorseal-e2-2026-09-30/test_reproduction.py
       - name: WS4 prior witness candidate cases

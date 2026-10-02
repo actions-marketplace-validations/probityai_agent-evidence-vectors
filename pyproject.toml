@@ -221,7 +221,8 @@ include = ["docs/proposals", "docs/site", "interop", "packaging", "scripts", "to
 # a checker that cannot see the same path reports a configuration error for an
 # import that resolves fine when it runs.
 extraPaths = ["packaging", "vectors", "tools/artifact-binding",
-              "vectors-artifact-binding", "vectors-observed-effect"]
+              "vectors-artifact-binding", "vectors-observed-effect",
+              "interop/a2a-s3-retain-2026-10-01"]
 
 # "standard" rather than "strict", chosen rather than defaulted into. Standard
 # carries every rule that describes a script CRASHING -- an undefined name, a
