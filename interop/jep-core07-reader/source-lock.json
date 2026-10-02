@@ -59,5 +59,10 @@
     "producer": 4,
     "acceptance": 8
   },
-  "scope": "Exposed-answer fixtures; no truth, authority, external execution, host adoption or independent effect custody."
+  "scope": "Exposed-answer fixtures; no truth, authority, external execution, host adoption or independent effect custody.",
+  "manifest_sha256": "b05b6284f591f74e35065d24ef44466e610304134ca42416dbf2a6b8e4232565",
+  "specification": {
+    "path": "draft-wang-jep-judgment-event-protocol-07.md",
+    "sha256": "1d6d04f1003914199b510b0cd51f5ac143af0e4e6bc21d8d82d25376551c1741"
+  }
 }
