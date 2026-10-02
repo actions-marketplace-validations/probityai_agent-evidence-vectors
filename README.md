@@ -161,6 +161,11 @@ exercises provenance for the proposed CoSAI WS4 Section 7.4 integration draft.
 Its fixtures use an author-held test key and consumer-stipulated pins; they
 establish no outside witness custody or WS4 conformance.
 
+The [optional AgentID offline reader](interop/agentid-offline/README.md) recomputes
+eight byte, signature and request relationships from a pinned signed fixture and
+saved key. It retains separate claims and refusal controls, without asserting
+historical key authority, unique action-tuple binding or a formal Pack #3 result.
+
 The [live MCP named-tool case](interop/agentavow-live-mcp/README.md) uses author-owned synthetic definitions to compare a prior digest with later served definitions; it does not verify a JWS or a live endpoint.
 
 The [provisional A2A retained-field gate](interop/a2a-s3-retain-2026-10-01/README.md)
