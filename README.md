@@ -36,6 +36,7 @@ Use the [GitHub Action](action.yml) to run the same check in your build and reta
 | Pick a format and corpus | [Corpus guide](docs/guides/corpora.md) |
 | Implement the verifier interface | [Verifier contract](docs/reference/verifier-contract.md) |
 | Understand what the fixtures test | [Corpus measurements](docs/research/corpus-measurements.md) |
+| Compare descriptor and decision IDs | [GovOps ID profile](interop/govops-capability-id/README.md) |
 | Find outside implementation results | [Run ledger](RUNS.md) and [independence record](docs/research/independence.md) |
 | Check release bytes and signatures | [Release verification](docs/reference/release-verification.md) |
 | Report a run or disagreement | [Run reporting](docs/guides/report-run.md) |
