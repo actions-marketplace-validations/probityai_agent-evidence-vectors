@@ -78,6 +78,10 @@ jobs:
             --aps source/aps --jcs source/jcs-admit \
             --rust-bin interop/aps-jcs/runner/target/debug/probity-aps-jcs-probe \
             --output retained/comparison.json 2>&1 | tee retained/comparison.log
+          node --import ./source/aps/node_modules/tsx/dist/loader.mjs interop/aps-jcs/check.mjs \
+            --aps source/aps --jcs source/jcs-admit --candidate true \
+            --rust-bin interop/aps-jcs/runner/target/debug/probity-aps-jcs-probe \
+            --output retained/candidate-comparison.json 2>&1 | tee retained/candidate-comparison.log
           sha256sum retained/* > retained/SHA256SUMS
 
       - name: Retain reports and native logs

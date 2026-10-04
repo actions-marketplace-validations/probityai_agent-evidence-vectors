@@ -10,7 +10,7 @@ import { spawnSync } from 'node:child_process';
 const here = dirname(fileURLToPath(import.meta.url));
 const args = new Map();
 for (let index = 2; index < process.argv.length; index += 2) {
-  assert.match(process.argv[index], /^--(aps|jcs|output|rust-bin|aps-only)$/);
+  assert.match(process.argv[index], /^--(aps|jcs|output|rust-bin|aps-only|candidate)$/);
   args.set(process.argv[index].slice(2), process.argv[index + 1]);
 }
 const aps = resolve(args.get('aps') ?? 'aps');
@@ -22,13 +22,24 @@ const git = (root, ...arguments_) => {
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim();
 };
+const actualApsCommit = git(aps, 'rev-parse', 'HEAD');
+const candidateFiles = [];
 for (const [root, pin] of [[aps, source.aps], [jcs, source.jcs_admit]]) {
-  assert.equal(git(root, 'rev-parse', 'HEAD'), pin.commit, 'source revision drift');
+  const candidate = root === aps && args.has('candidate');
+  git(root, 'diff', '--exit-code', 'HEAD', '--', 'src', 'tests', 'package.json', 'package-lock.json');
+  if (!candidate) assert.equal(git(root, 'rev-parse', 'HEAD'), pin.commit, 'source revision drift');
   for (const entry of pin.files) {
     const bytes = readFileSync(resolve(root, entry.path));
-    assert.equal(bytes.length, entry.bytes, entry.path);
-    assert.equal(sha256(bytes), entry.sha256, entry.path);
-    assert.equal(git(root, 'rev-parse', `HEAD:${entry.path}`), entry.git_blob_sha, entry.path);
+    if (candidate) {
+      assert.equal(git(root, 'hash-object', entry.path), git(root, 'rev-parse', `HEAD:${entry.path}`),
+        `uncommitted candidate bytes: ${entry.path}`);
+      candidateFiles.push({ path: entry.path, bytes: bytes.length, sha256: sha256(bytes),
+        git_blob_sha: git(root, 'rev-parse', `HEAD:${entry.path}`) });
+    } else {
+      assert.equal(bytes.length, entry.bytes, entry.path);
+      assert.equal(sha256(bytes), entry.sha256, entry.path);
+      assert.equal(git(root, 'rev-parse', `HEAD:${entry.path}`), entry.git_blob_sha, entry.path);
+    }
   }
 }
 const { canonicalizeJCS } = await import(pathToFileURL(resolve(aps, 'src/core/canonical-jcs.ts')));
@@ -167,7 +178,10 @@ const report = {
   ...(process.env.GITHUB_RUN_ID ? { workflow_run_id: process.env.GITHUB_RUN_ID,
     workflow_run_attempt: process.env.GITHUB_RUN_ATTEMPT, executed_head: process.env.GITHUB_SHA } : {}),
   scope: 'pinned raw JSON admission, serializer bytes and finite signed receipt controls',
-  aps_commit: source.aps.commit, corpus_commit: source.jcs_admit.commit,
+  aps_commit: actualApsCommit, aps_baseline_commit: source.aps.commit,
+  aps_source_mode: args.has('candidate') ? 'current-host-candidate' : 'pinned-baseline',
+  ...(candidateFiles.length ? { aps_candidate_files: candidateFiles } : {}),
+  corpus_commit: source.jcs_admit.commit,
   source_lock_sha256: sha256(readFileSync(resolve(here, 'source-lock.json'))),
   node_version: process.version, native_admission_executed: !args.has('aps-only'),
   admission_dependency: { repository: 'probityai/jcs-admit', commit: source.jcs_admit.commit },

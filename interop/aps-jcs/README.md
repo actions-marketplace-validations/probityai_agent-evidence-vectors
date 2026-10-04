@@ -40,3 +40,8 @@ tests and this comparison on Node 20 and 22. Each run retains the raw native
 probe output, per-case comparison, logs, tool versions and SHA-256 manifest.
 The upstream integration target is a pinned test dependency and required
 checks for APS receipt and JCS changes; maintainer acceptance remains open.
+
+For a host CI job, pass `--candidate true` with the APS checkout under test.
+The corpus stays pinned; the report retains the actual candidate commit and
+source-file hashes beside the baseline revision. This lets a receipt or JCS
+change prove its own behavior against the dependency.
