@@ -269,6 +269,15 @@ REQUIREMENTS: tuple[dict, ...] = (
         "file": "specification",
         "sentence": "canonical input is REQUIRED in ACS-Core",
     },
+    {
+        "id": "ACS-R-021",
+        "role": "verifier",
+        "file": "specification",
+        "sentence": (
+            "Non-repudiation, proving to a third party that a specific Guardian "
+            "issued a specific head, requires the asymmetric ACS-Crypto profile"
+        ),
+    },
 )
 
 
@@ -867,6 +876,94 @@ def build() -> list[dict]:
             "receives. Observability that can alter enforcement is a second "
             "control point nobody declared."
         ),
+    )
+
+    # The sealed total a decision-failure count is derived from, as a witness
+    # pair. One truncation, once under the HMAC baseline and once under
+    # ACS-Crypto: the verdict and the code are the same, and the witness scope is
+    # what the profile decides. A Core member declaring a third-party witness
+    # would score a property the Core profile cannot give.
+    witnessed_heads = [
+        {"step_id": "st-0001", "chain_hash": "1" * 64},
+        {"step_id": "st-0002", "chain_hash": "2" * 64},
+        {"step_id": "st-0003", "chain_hash": "3" * 64},
+    ]
+
+    def sealed_session(profile: str, algorithm: str, sealed_after: str) -> dict:
+        return {
+            "profile": profile,
+            "response_signature": {"algorithm": algorithm, "covers": ["decision", "chain_hash"]},
+            "witnessed_heads": witnessed_heads,
+            "context_entry": {
+                "step_id": "st-0004",
+                "step_type": "hooks/sessionEnd",
+                "previous_hash": sealed_after,
+            },
+        }
+
+    add(
+        kind="reject",
+        family="acs-f-6",
+        requirements=["ACS-R-006", "ACS-R-021"],
+        payload=sealed_session("ACS-Core", "HMAC-SHA256", "2" * 64),
+        verdict="deny",
+        code="CHAIN_MISMATCH",
+        evidence_basis="artifact",
+        witness_scope="SELF",
+        coverage="effective",
+        cites=(
+            "a session sealed off the second head after the Guardian's signed "
+            "response had published a third. The seal drops a witnessed step, and "
+            "a decision-failure count derived from the sealed total then misses "
+            "it. Under the HMAC baseline the Guardian holds the key and can "
+            "re-sign the shorter chain, so only a key-holder can check this "
+            "member, and its witness scope is SELF."
+        ),
+    )
+    add(
+        kind="accept",
+        family="acs-f-6",
+        requirements=["ACS-R-006", "ACS-R-021"],
+        payload=sealed_session("ACS-Core", "HMAC-SHA256", "3" * 64),
+        verdict="allow",
+        code=None,
+        evidence_basis="artifact",
+        witness_scope="SELF",
+        coverage="effective",
+        cites=(
+            "the same session sealed off the last witnessed head, so a verifier "
+            "that refuses every sealed chain scores zero on the pair."
+        ),
+    )
+    add(
+        kind="reject",
+        family="acs-f-6",
+        requirements=["ACS-R-006", "ACS-R-021"],
+        payload=sealed_session("ACS-Crypto", "ML-DSA-65", "2" * 64),
+        verdict="deny",
+        code="CHAIN_MISMATCH",
+        evidence_basis="artifact",
+        witness_scope="EXTERNAL",
+        coverage="effective",
+        cites=(
+            "the same truncated seal with every response signed under ML-DSA-65. "
+            "A party holding only the Guardian's public key can show that the "
+            "Guardian signed a head its own seal omits, which is the "
+            "non-repudiation the symmetric baseline cannot give, so this half of "
+            "the pair is EXTERNAL."
+        ),
+    )
+    add(
+        kind="accept",
+        family="acs-f-6",
+        requirements=["ACS-R-006", "ACS-R-021"],
+        payload=sealed_session("ACS-Crypto", "ML-DSA-65", "3" * 64),
+        verdict="allow",
+        code=None,
+        evidence_basis="artifact",
+        witness_scope="EXTERNAL",
+        coverage="effective",
+        cites="the same session under ACS-Crypto sealed off the last witnessed head.",
     )
 
     # acs-f-7 ---------------------------------------------------------------
