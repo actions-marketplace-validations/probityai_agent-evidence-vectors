@@ -78,6 +78,31 @@ OUT_OF_SCOPE = {
     ),
 }
 
+#: Cases proposed on the specification's own tracker that no sentence at the
+#: pinned commit says. A member written now would cite a requirement that does
+#: not say what it tests, so none is written; each waits for its sentence, and
+#: the identifier is minted from that sentence once it lands. Recorded for the
+#: same reason as the scope-away list: a reader cannot see an absence.
+AWAITING_TEXT = {
+    "a session that began and was never sealed": (
+        "the pinned text has no sentence requiring a party other than the "
+        "Observed Agent to record that a session began, so a begun session with "
+        "no seal leaves nothing a member could cite. Wording is proposed on "
+        "GenAI-Security-Project/agent-control-standard#37. Once it lands, the "
+        "member expects a counted decision failure, never unmeasurable, because "
+        "a begun and unsealed session is countable"
+    ),
+    "an argument textually inside a scoped mandate that resolves outside it": (
+        "a dot-dot segment, a symlink, an encoded traversal or an unnormalised "
+        "egress hostname passes a raw prefix check and resolves out of scope. "
+        "The pinned text fixes the URI form of a resource identifier and says "
+        "nothing about checking its resolved form against a mandate. Raised on "
+        "GenAI-Security-Project/agent-control-standard#29, where a Guardian "
+        "unable to resolve the argument is proposed as unmeasurable rather "
+        "than allow"
+    ),
+}
+
 #: The vector families. The first six come from the enforcement-layer proposal
 #: the maintainers accepted as the shape of a negative suite; the seventh is the
 #: aggregate-budget class added to it, which is the only family that needs more
@@ -1351,6 +1376,7 @@ def render_index(manifest: dict) -> str:
     )
     families = "\n".join(f"| `{key}` | {value} |" for key, value in sorted(FAMILIES.items()))
     scoped = "\n".join(f"| {key} | {value} |" for key, value in sorted(OUT_OF_SCOPE.items()))
+    awaiting = "\n".join(f"| {key} | {value} |" for key, value in sorted(AWAITING_TEXT.items()))
     accept = manifest["counts"]["accept"]
     reject = manifest["counts"]["reject"]
     total = len(manifest["vectors"])
@@ -1414,6 +1440,16 @@ now is a vector rewritten when it lands.
 | surface | why |
 |---|---|
 {scoped}
+
+## Waiting for a sentence
+
+Cases raised on the specification's tracker that no sentence at the pinned
+commit says. A member written now would cite a requirement that does not say
+what it tests, so each waits for its sentence and is minted from it.
+
+| case | why it waits |
+|---|---|
+{awaiting}
 
 ## Vectors
 
@@ -1508,6 +1544,7 @@ def build_manifest() -> tuple[dict, dict[str, bytes]]:
         "codeRegistry": CODES,
         "families": FAMILIES,
         "outOfScope": OUT_OF_SCOPE,
+        "awaitingText": AWAITING_TEXT,
         "observedRuns": [],
         "observedRunsNote": (
             "Empty, and stated rather than left to be inferred. No reference "

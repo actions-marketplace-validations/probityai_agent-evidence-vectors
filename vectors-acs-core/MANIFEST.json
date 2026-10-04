@@ -51,6 +51,10 @@
     "the wrapped tool-protocol methods": "the same pull request has moved these twice and they currently sit back at mandatory for sessions that use them, so their status is unsettled rather than relaxed",
     "the second half of the subagent hook pair": "split out of the mandatory set by a later push on the same pull request"
   },
+  "awaitingText": {
+    "a session that began and was never sealed": "the pinned text has no sentence requiring a party other than the Observed Agent to record that a session began, so a begun session with no seal leaves nothing a member could cite. Wording is proposed on GenAI-Security-Project/agent-control-standard#37. Once it lands, the member expects a counted decision failure, never unmeasurable, because a begun and unsealed session is countable",
+    "an argument textually inside a scoped mandate that resolves outside it": "a dot-dot segment, a symlink, an encoded traversal or an unnormalised egress hostname passes a raw prefix check and resolves out of scope. The pinned text fixes the URI form of a resource identifier and says nothing about checking its resolved form against a mandate. Raised on GenAI-Security-Project/agent-control-standard#29, where a Guardian unable to resolve the argument is proposed as unmeasurable rather than allow"
+  },
   "observedRuns": [],
   "observedRunsNote": "Empty, and stated rather than left to be inferred. No reference adapter exists in the specification's repository at the pinned commit, so nothing has been run against this corpus and its counts describe inputs rather than results.",
   "requirements": [

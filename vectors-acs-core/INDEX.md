@@ -89,6 +89,17 @@ now is a vector rewritten when it lands.
 | the second half of the subagent hook pair | split out of the mandatory set by a later push on the same pull request |
 | the wrapped tool-protocol methods | the same pull request has moved these twice and they currently sit back at mandatory for sessions that use them, so their status is unsettled rather than relaxed |
 
+## Waiting for a sentence
+
+Cases raised on the specification's tracker that no sentence at the pinned
+commit says. A member written now would cite a requirement that does not say
+what it tests, so each waits for its sentence and is minted from it.
+
+| case | why it waits |
+|---|---|
+| a session that began and was never sealed | the pinned text has no sentence requiring a party other than the Observed Agent to record that a session began, so a begun session with no seal leaves nothing a member could cite. Wording is proposed on GenAI-Security-Project/agent-control-standard#37. Once it lands, the member expects a counted decision failure, never unmeasurable, because a begun and unsealed session is countable |
+| an argument textually inside a scoped mandate that resolves outside it | a dot-dot segment, a symlink, an encoded traversal or an unnormalised egress hostname passes a raw prefix check and resolves out of scope. The pinned text fixes the URI form of a resource identifier and says nothing about checking its resolved form against a mandate. Raised on GenAI-Security-Project/agent-control-standard#29, where a Guardian unable to resolve the argument is proposed as unmeasurable rather than allow |
+
 ## Vectors
 
 | id | kind | family | requirements | verdict | code | basis | witness scope |
