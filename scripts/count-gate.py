@@ -1004,6 +1004,12 @@ def declared_claims(src: Sources) -> tuple[Claim, ...]:
 
 
 DELEGATED: tuple[Delegated, ...] = (
+    Delegated(
+        "interop/govops-capability-id/source/jcs-admit/README.md",
+        "numeric example in the exact pinned admission source",
+        r"1e\+?30",
+        "interop/govops-capability-id/qualify.py",
+    ),
     # The pinned JEP manifest and run.py validate these separate populations.
     *(Delegated(path, "pinned JEP pilot populations", pattern,
                 "interop/jep-core07-reader/run.py")
