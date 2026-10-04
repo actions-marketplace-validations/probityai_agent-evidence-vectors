@@ -76,7 +76,8 @@ def invoke(path: Path, capability: dict, observation: dict, expected: str | None
     (path / "stdout.json").write_bytes(completed.stdout)
     (path / "stderr.txt").write_bytes(completed.stderr)
     decision = json.loads(completed.stdout) if completed.returncode == 0 else None
-    okay = (completed.returncode == 0 and decision["decision"] == expected) if expected else (
+    okay = (completed.returncode == 0 and isinstance(decision, dict)
+            and decision.get("decision") == expected) if expected else (
         completed.returncode == 2 and not completed.stdout and not (path / "decision.txt").exists()
     )
     result = {"path": path.name, "expected": expected, "exit_status": completed.returncode,
