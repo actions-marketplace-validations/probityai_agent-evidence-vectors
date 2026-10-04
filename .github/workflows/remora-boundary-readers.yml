@@ -1,0 +1,80 @@
+name: REMORA execution-boundary readers
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - "interop/remora-boundary-readers/**"
+      - ".github/workflows/remora-boundary-readers.yml"
+  push:
+    branches: [main, interop/remora-boundary-readers-2026-10-04]
+    paths:
+      - "interop/remora-boundary-readers/**"
+      - ".github/workflows/remora-boundary-readers.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.13.15", "3.14.7"]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: probityai/probity-verify
+          ref: e835ce2bd6a960e7a1cc2fa6522f16d55dce728a
+          path: .build/remora-verify-source
+          persist-credentials: false
+      - name: Install the native readers and pinned checks
+        run: |
+          python -m venv "$RUNNER_TEMP/remora-installed"
+          "$RUNNER_TEMP/remora-installed/bin/python" -m pip install \
+            -r interop/remora-boundary-readers/requirements-check.txt
+          "$RUNNER_TEMP/remora-installed/bin/python" -m pip install --no-deps \
+            --no-build-isolation ./interop/remora-boundary-readers ./.build/remora-verify-source
+      - name: Lint reader and qualification code
+        run: |
+          "$RUNNER_TEMP/remora-installed/bin/python" -m ruff check \
+            --config interop/remora-boundary-readers/pyproject.toml \
+            interop/remora-boundary-readers/remora_boundary \
+            interop/remora-boundary-readers/qualify.py \
+            interop/remora-boundary-readers/controls.py \
+            interop/remora-boundary-readers/verify_bridge.py
+      - name: Qualify frozen cases, mutations and installed Verify decisions
+        run: |
+          mkdir -p .build/remora-boundary-records
+          "$RUNNER_TEMP/remora-installed/bin/python" -m pip freeze \
+            > .build/remora-boundary-records/installed-packages.txt
+          set -o pipefail
+          "$RUNNER_TEMP/remora-installed/bin/python" interop/remora-boundary-readers/qualify.py \
+            --profile interop/remora-boundary-readers \
+            --output .build/remora-boundary-records/qualification \
+            --revision "${{ github.sha }}" \
+            --verify-source .build/remora-verify-source \
+            --verify-executable "$RUNNER_TEMP/remora-installed/bin/probity-verify" \
+            --run-ref "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            2>&1 | tee .build/remora-boundary-records/qualification.log
+      - name: Retain native responses, original sources and environments
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: remora-boundary-${{ matrix.python }}-${{ github.sha }}
+          include-hidden-files: true
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            .build/remora-boundary-records
+            interop/remora-boundary-readers
+            .github/workflows/remora-boundary-readers.yml
