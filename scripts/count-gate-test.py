@@ -161,6 +161,8 @@ def forcing_figure(root: Path, key: str) -> int:
     equal to nothing is exactly the case they were meant to distinguish.
     """
     loaded = json.loads((root / "docs" / "FORCING-BASELINE.json").read_text(encoding="utf-8"))
+    if key == "annotations":
+        return len(loaded["annotations"])
     return len(loaded["sites"]) if key == "sites" else int(loaded["counts"][key])
 
 
@@ -331,7 +333,9 @@ CLAIM_CASES: list[Case] = [
     (
         "the Gemara live case count is retyped",
         lambda root: retype(
-            root, "interop/gemara-method-link/README.md", r"The (\d+) cases use complete"
+            root,
+            "interop/gemara-method-link/README.md",
+            r"The (\d+) cases use complete",
         ),
         ("the Gemara profile case count says",),
     ),
@@ -365,16 +369,21 @@ CLAIM_CASES: list[Case] = [
     ),
     (
         "a published count drifts from the corpus",
-        lambda root: retype(root, "README.md", r"AEE%20vectors-(\d+)-e8951c"),
-        (f"says '{TOTAL + 1}' where the sources say '{TOTAL}'",),
+        lambda root: retype(
+            root,
+            "docs/research/corpus-measurements.md",
+            r"the suite still reports (\d+) of \d+",
+        ),
+        (f"says '{TOTAL + 1} of {TOTAL}' where the sources say '{TOTAL} of {TOTAL}'",),
     ),
     (
-        # The second corpus arrived with release v0.8.0 and this suite modelled
-        # one, so a badge could understate a repository that ships two while
-        # every case passed. The count was never wrong; the SCOPE was.
-        "the second corpus's count drifts from its manifest",
-        lambda root: retype(root, "README.md", r"AI%20Agent%20Action%20vectors-(\d+)-e8951c"),
-        (f"says '{AGENT_ACTION_TOTAL + 1}' where the sources say '{AGENT_ACTION_TOTAL}'",),
+        "an unregistered count for the second corpus appears in the corpus guide",
+        lambda root: append(
+            root,
+            "docs/guides/corpora.md",
+            f"\nThe AI Agent Action corpus holds {AGENT_ACTION_TOTAL} vectors.\n",
+        ),
+        ("docs/guides/corpora.md:", "an integer counting vectors"),
     ),
     (
         # A predicate version rots exactly like a count: written into prose, the
@@ -392,20 +401,24 @@ CLAIM_CASES: list[Case] = [
             ),
         ),
         (
-            f"the AEE predicate version, in the badge says "
+            f"the AEE predicate version, in the opening sentence says "
             f"'{PREDICATE_VERSION}' where the sources say '99.0'",
         ),
     ),
     (
         "a forcing count drifts from the baseline",
-        lambda root: retype(root, "README.md", r"ratchet: \*\*(\d+) rules forced"),
+        lambda root: retype(
+            root,
+            "docs/research/corpus-measurements.md",
+            r"ratchet: \*\*(\d+) rules forced",
+        ),
         ("the four forcing outcomes says",),
     ),
     (
         "a claim is reworded, so the check would silently stop running",
         # No number here on purpose: this case is about the WORDING the claim is
         # anchored on, and naming the figure beside it is what made the case rot.
-        lambda root: edit(root, "README.md", "sweeps all ", "covers "),
+        lambda root: edit(root, "docs/research/corpus-measurements.md", "sweeps all ", "covers "),
         ("the nightly sweep's size was found 0 time(s), expected 1",),
     ),
     (
@@ -436,11 +449,82 @@ CLAIM_CASES: list[Case] = [
     ),
     (
         "a frozen incident figure is quietly made to track the corpus",
-        lambda root: edit(root, "README.md", "it scored\n0 of 186.", "it scored\n0 of 190."),
+        lambda root: edit(
+            root,
+            "docs/reference/verifier-contract.md",
+            "it scored 0 of 186.",
+            "it scored 0 of 190.",
+        ),
         (
             "the frozen figure \"the external-rail contract, the shipped CLI's "
             'score" was found 0 time(s)',
         ),
+    ),
+    (
+        "a moved predicate version drifts in the corpus guide",
+        lambda root: retype(
+            root,
+            "docs/guides/corpora.md",
+            r"\*\*Adversarial Execution Evidence\*\*, predicate version (\d+)\.\d+",
+        ),
+        (
+            "docs/guides/corpora.md:",
+            "the AEE predicate version, in the opening sentence says",
+        ),
+    ),
+    (
+        "a moved independent run figure changes",
+        lambda root: retype(
+            root,
+            "docs/research/external-records.md",
+            r"scores (\d+)/\d+ on suiteRevision",
+        ),
+        (
+            'the frozen figure "the independent Rust verifier\'s score, as posted" '
+            "was found 0 time(s)",
+        ),
+    ),
+    (
+        "a moved historic condition figure changes",
+        lambda root: retype(
+            root,
+            "docs/research/corpus-measurements.md",
+            r"so (\d+) ids cited by accept vectors",
+        ),
+        (
+            'the frozen figure "the condition-registry section\'s account of the unresolvable ids" '
+            "was found 0 time(s)",
+        ),
+    ),
+    (
+        "a moved word-spelled annotation count is rewritten",
+        lambda root: reword(
+            root,
+            "docs/research/corpus-measurements.md",
+            r"The baseline annotates \w+ sites as",
+            f"The baseline annotates {forcing_figure(root, 'annotations') + 1} sites as",
+        ),
+        ("how many forcing sites carry an annotation says",),
+    ),
+    (
+        "a moved independence delegation disappears",
+        lambda root: reword(
+            root,
+            "docs/research/independence.md",
+            r"It\s+has\s+not\s+been\s+run\s+against\s+suiteRevision\s+[\d,\s]*(?:and|or)\s+\d+,",
+            "Its later-revision run status is omitted,",
+        ),
+        ("the independence section's scoping sentence", "no longer appears"),
+    ),
+    (
+        "a moved action-retention declaration disappears",
+        lambda root: reword(
+            root,
+            "docs/guides/runner.md",
+            r"uploaded report \(default: `\d+`\)",
+            "uploaded report (default omitted)",
+        ),
+        ("the action's report retention default in days", "no longer appears"),
     ),
 ]
 
@@ -500,7 +584,9 @@ CENSUS_CASES: list[Case] = [
     (
         "a count appears in a Go comment",
         lambda root: append(
-            root, "cmd/mutgen/main.go", "\n// The corpus this walks holds 231 vectors.\n"
+            root,
+            "cmd/mutgen/main.go",
+            "\n// The corpus this walks holds 231 vectors.\n",
         ),
         ("cmd/mutgen/main.go:", "'231' is an integer counting vectors"),
     ),
@@ -610,10 +696,7 @@ SOURCE_CASES: list[Case] = [
             "| `v03547f8918e0d7dc` |",
             "| skipped-v03547f8918e0d7dc |",
         ),
-        (
-            "the corpus carries ['v03547f8918e0d7dc'] and this table "
-            "has no row for them",
-        ),
+        ("the corpus carries ['v03547f8918e0d7dc'] and this table has no row for them",),
     ),
     (
         # The extra row names a WELL-FORMED identifier the corpus does not carry.
@@ -652,8 +735,7 @@ SOURCE_CASES: list[Case] = [
             root,
             "vectors/accept/INDEX.md",
             "| v18bdbadef67b38f4 |",
-            "| v18bdbadef67b38f4 | fail | aee-c-1 | a second row |\n"
-            "| v18bdbadef67b38f4 |",
+            "| v18bdbadef67b38f4 | fail | aee-c-1 | a second row |\n| v18bdbadef67b38f4 |",
         ),
         ("['v18bdbadef67b38f4'] each carry more than one row",),
     ),

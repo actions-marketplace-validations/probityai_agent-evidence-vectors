@@ -138,6 +138,10 @@ only-include = [
     "vectors-source-coverage",
     "vectors-w3c-report",
     "README.md",
+    "docs/guides",
+    "docs/reference",
+    "docs/research",
+    "DISTRIBUTION.md",
     "LICENSE",
     "CITATION.cff",
 ]

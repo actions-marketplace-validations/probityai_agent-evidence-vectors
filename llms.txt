@@ -1,69 +1,32 @@
-# agent-evidence-vectors
+# Probity Vectors
 
-> A recomputable execution attestation toolkit: a reference verifier and
-> conformance vector corpora for the in-toto Adversarial Execution Evidence
-> predicate (version 0.7, tracked at in-toto/attestation#570) and the AI Agent
-> Action predicate (version 0.1, proposed at in-toto/attestation#588), with
-> further corpora for carriage over SCITT and COSE receipts, artifact binding,
-> the agent capability interface, the agent control standard, anchor-stream
-> verification, and cross-implementation run records.
+> Test an agent-evidence verifier against saved records with known outcomes.
 
-The model is execute-and-attest, not match-and-assert: a consumer recomputes
-the outcome from carried bytes instead of trusting a producer-asserted verdict.
-Each corpus directory carries a `MANIFEST.json` naming its suite and its
-`corpusDigest`, and each member declares the verdict and the codes a conforming
-verifier must produce. A verifier that answers with an exit status alone fails
-every vector, and each corpus pairs its reject members with accepting twins so
-that one refusing everything scores zero rather than full marks. Every count published in the
-repository is derived from a manifest by a gate, never typed, and this file
-carries none for the same reason: read them from the manifests or from the
-signed `release/CORPUS-DIGESTS.txt`.
+Each corpus has a manifest naming its source revision, digest and expected outcomes. The harness records conformance separately from reason-code agreement. Use the report's external-rail and execution fields to check that the named verifier ran.
 
-## Entry points
+## Start
 
-- [PyPI package](https://pypi.org/project/agent-evidence-vectors/): `agent-evidence-vectors`, stdlib-only, carrying the harness as the console script of the same name and every corpus as package data; `uvx agent-evidence-vectors --verifier '<cmd>'` replays the AEE corpus against a verifier with nothing cloned, `--corpus <name>` selects another, `--list-corpora` prints the names and `--self-test` runs the reference rail against its own oracle.
-- [GitHub Action](https://github.com/probityai/agent-evidence-vectors/blob/main/action.yml): `uses: probityai/agent-evidence-vectors@v0.12.0` with a `verifier` input replays the corpus in a consumer's CI, writes a job summary, uploads the report as the artifact `agent-evidence-vectors-results`, and fails the job when any vector disagreed.
-- [README](https://github.com/probityai/agent-evidence-vectors/blob/main/README.md): The predicates, the corpora, the external verifier contract the harness speaks, the failure-code registry, and how to verify a release without trusting the maintainer.
-- [Distribution](https://github.com/probityai/agent-evidence-vectors/blob/main/DISTRIBUTION.md): The tag to cite, the one-command run, the corpus table, how to cite a run, and how to add a corpus.
-- [Independent runs](https://github.com/probityai/agent-evidence-vectors/blob/main/RUNS.md): Every run of a corpus by an implementation this repository did not write, in its author's words, labelled blind or directed as the author labelled it.
-- [Reference verifier](https://github.com/probityai/agent-evidence-vectors/tree/main/cmd/aee-verify): The Go command-line verifier; install with `go install github.com/probityai/agent-evidence-vectors/cmd/aee-verify@<tag>`. The core package is `aee/`, standard library only.
-- [Harness](https://github.com/probityai/agent-evidence-vectors/blob/main/packaging/run_vectors.py): Drives any verifier over a corpus as `<cmd> <vector-file>` and compares codes and recomputed results against the manifest.
-- [Failure codes](https://github.com/probityai/agent-evidence-vectors/blob/main/aee/codes.go): The closed code set, compared as a set by the harness; message text carries nothing.
-- [Vendored specification](https://github.com/probityai/agent-evidence-vectors/blob/main/spec/predicates/adversarial-execution-evidence.md): The predicate text the suite implements, pinned by `spec/VENDOR-PIN.json`.
-- [Governance](https://github.com/probityai/agent-evidence-vectors/blob/main/GOVERNANCE.md), [Contributing](https://github.com/probityai/agent-evidence-vectors/blob/main/CONTRIBUTING.md), [Dispositions](https://github.com/probityai/agent-evidence-vectors/blob/main/DISPOSITIONS.md): Who decides, what a proposal goes through, and every outside objection with its resolution.
+- [Quickstart](https://github.com/probityai/agent-evidence-vectors/blob/main/README.md): Install the released verifier and replay a corpus.
+- [Install and cite](https://github.com/probityai/agent-evidence-vectors/blob/main/DISTRIBUTION.md): Package routes, release tag and corpus identifiers.
+- [Corpus guide](https://github.com/probityai/agent-evidence-vectors/blob/main/docs/guides/corpora.md): Choose a format and check which readers support it.
 
-## Corpora
+## Run your verifier
 
-One directory each, each with its own `MANIFEST.json`, `corpusDigest` and generator.
+- [Verifier contract](https://github.com/probityai/agent-evidence-vectors/blob/main/docs/reference/verifier-contract.md): Invocation, exit status, JSON output, key policy and comparison rules.
+- [Runner guide](https://github.com/probityai/agent-evidence-vectors/blob/main/docs/guides/runner.md): GitHub Action inputs, reports and supported corpora.
+- [Run reporting](https://github.com/probityai/agent-evidence-vectors/blob/main/docs/guides/report-run.md): Share a report or investigate a disagreement.
 
-- [vectors/](https://github.com/probityai/agent-evidence-vectors/tree/main/vectors): `adversarial-execution-evidence-conformance`, the AEE predicate; the per-revision ledger is `vectors/CHANGES.md`.
-- [vectors-ai-agent-action/](https://github.com/probityai/agent-evidence-vectors/tree/main/vectors-ai-agent-action): `ai-agent-action-conformance`, the AI Agent Action predicate plus the canonicalization text this repository proposes for it.
-- [vectors-ai-generation/](https://github.com/probityai/agent-evidence-vectors/tree/main/vectors-ai-generation): `ai-generation-v01-conformance`, the generation predicate for AI-authored code at specification revision 0.1.4, attest-only verification, including signed attestations from both upstream implementations, plus proposed text for the two rules the revision leaves open.
-- [vectors-scitt-cose/](https://github.com/probityai/agent-evidence-vectors/tree/main/vectors-scitt-cose): `scitt-cose-carriage-conformance`, carriage of the AEE predicate as a SCITT Transparent Statement under `profiles/scitt-cose.md`.
-- [vectors-artifact-binding/](https://github.com/probityai/agent-evidence-vectors/tree/main/vectors-artifact-binding): `artifact-binding-conformance`, the contract in `spec/artifact-binding/v1.md`, over three verdicts.
-- [vectors-aci/](https://github.com/probityai/agent-evidence-vectors/tree/main/vectors-aci): `aci`, the agent capability interface levels and their serialization.
-- [vectors-acs-core/](https://github.com/probityai/agent-evidence-vectors/tree/main/vectors-acs-core): `acs-core-negative-conformance`, the mandatory profile of the agent control standard, by negative members against vendored text.
-- [vectors-anchor-stream/](https://github.com/probityai/agent-evidence-vectors/tree/main/vectors-anchor-stream): `anchor-stream-conformance`, the anchor-stream verification contract published by aos-standard/catalog.
-- [vectors-mcp-record-contract/](https://github.com/probityai/agent-evidence-vectors/tree/main/vectors-mcp-record-contract): `cross-run-record-contract`, what a cross-implementation run record has to carry.
-- [vectors-mcp-response-phase/](https://github.com/probityai/agent-evidence-vectors/tree/main/vectors-mcp-response-phase): `mcp-response-phase-interception`, whether a response-phase MCP interceptor is invoked on JSON-RPC error frames.
-- [vectors-observed-effect/](https://github.com/probityai/agent-evidence-vectors/tree/main/vectors-observed-effect): `observed-effect-conformance`, the Observed Effect predicate defined in `spec/predicates/observed-effect.md`, whose type URI is `https://probityai.github.io/agent-evidence-vectors/predicate/v1/observed-effect`.
-- [vectors-receipt-signature/](https://github.com/probityai/agent-evidence-vectors/tree/main/vectors-receipt-signature): `receipt-signature-conformance`, signed decision receipts under draft-farley-acta-signed-receipts-03, with a verifier contract of its own.
-- [vectors-w3c-report/](https://github.com/probityai/agent-evidence-vectors/tree/main/vectors-w3c-report): `w3c-report-v01-conformance`, the v0.1 per-check report of the W3C public-agent-conformance group as whole reports, with the emitter that writes one from the AEE harness report.
+## Check evidence
 
-## Identifiers
+- [Release verification](https://github.com/probityai/agent-evidence-vectors/blob/main/docs/reference/release-verification.md): Recompute digests and check signatures and timestamp proofs.
+- [Corpus measurements](https://github.com/probityai/agent-evidence-vectors/blob/main/docs/research/corpus-measurements.md): What the fixtures force and how CI measures it.
+- [Outside results](https://github.com/probityai/agent-evidence-vectors/blob/main/RUNS.md): The outside implementation run ledger.
+- [Independence record](https://github.com/probityai/agent-evidence-vectors/blob/main/docs/research/independence.md): Blind and directed runs, source pins and reproduction records.
 
-- Release tag: `v0.12.0`, as `CITATION.cff` and `DISTRIBUTION.md` carry it; a git tag with a GitHub Release per tag, and a PyPI release of the same version cut from that tag.
-- Go module: `github.com/probityai/agent-evidence-vectors`.
-- Signed corpus digests: [release/CORPUS-DIGESTS.txt](https://github.com/probityai/agent-evidence-vectors/blob/main/release/CORPUS-DIGESTS.txt), one line per corpus, with a detached signature, an RFC 3161 token and an OpenTimestamps proof beside it.
-- Archival DOI: concept DOI [10.5281/zenodo.22758687](https://doi.org/10.5281/zenodo.22758687), which resolves to the newest archived release; each release also has its own version DOI, listed on that record. `CITATION.cff` carries the concept DOI so a citation stays stable across releases.
-- [Citation](https://github.com/probityai/agent-evidence-vectors/blob/main/CITATION.cff): Cite the repository, the suiteRevision or tag you ran, and the corpusDigest of the corpus you ran.
+## Source and contributions
 
-## Consumers
-
-- [probityai/agent-evidence-admission](https://github.com/probityai/agent-evidence-admission): Reference admission rails on four policy engines, measured against this corpus at a pinned tag.
-- [probityai/agent-evidence-vocabulary](https://github.com/probityai/agent-evidence-vocabulary): The closed vocabulary for the claim terms the predicate carries.
-
-## Optional
-
-- [Security](https://github.com/probityai/agent-evidence-vectors/blob/main/SECURITY.md)
-- [License](https://github.com/probityai/agent-evidence-vectors/blob/main/LICENSE): Apache-2.0.
+- [Repository layout](https://github.com/probityai/agent-evidence-vectors/blob/main/docs/reference/layout.md): Verifier, harness, generators and records.
+- [Contributing](https://github.com/probityai/agent-evidence-vectors/blob/main/CONTRIBUTING.md): Add vectors, readers or corpora.
+- [Citation metadata](https://github.com/probityai/agent-evidence-vectors/blob/main/CITATION.cff): Current release and archive identifier.
+- [Security](https://github.com/probityai/agent-evidence-vectors/blob/main/SECURITY.md): Report a vulnerability.
+- [Probity projects](https://github.com/probityai): Vocabulary, records, verification, admission and the evidence atlas.

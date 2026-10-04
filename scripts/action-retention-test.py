@@ -30,7 +30,9 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ACTION = Path(os.environ.get("AEV_ACTION_UNDER_TEST", REPO_ROOT / "action.yml"))
-README = REPO_ROOT / "README.md"
+RUNNER_DOC = Path(
+    os.environ.get("AEV_RUNNER_DOC_UNDER_TEST", REPO_ROOT / "docs" / "guides" / "runner.md")
+)
 EXPRESSION = "${{ inputs.retention-days }}"
 UPLOAD = "actions/upload-artifact@"
 # The fixed period every release before the input used.
@@ -64,15 +66,15 @@ def case_upload_reads_the_input(work: Path) -> None:
     assert got == EXPRESSION, f"upload step retention-days is {got!r}, not {EXPRESSION}"
 
 
-def case_readme_documents_it(work: Path) -> None:
+def case_runner_documents_it(work: Path) -> None:
     del work
-    text = README.read_text(encoding="utf-8")
-    assert "| `retention-days` |" in text, "README's input table has no retention-days row"
+    text = RUNNER_DOC.read_text(encoding="utf-8")
+    assert "| `retention-days` |" in text, "runner guide's input table has no retention-days row"
 
 
 def case_mutation_goes_red(work: Path) -> None:
     """With the fixed number restored, this file must fail."""
-    if os.environ.get("AEV_ACTION_UNDER_TEST"):
+    if os.environ.get("AEV_ACTION_UNDER_TEST") or os.environ.get("AEV_RUNNER_DOC_UNDER_TEST"):
         return
     text = ACTION.read_text(encoding="utf-8")
     anchor = f"        retention-days: {EXPRESSION}\n"
@@ -88,13 +90,35 @@ def case_mutation_goes_red(work: Path) -> None:
         check=False,
     )
     assert proc.returncode != 0, "this test stayed green against a fixed retention period"
+    assert "upload step retention-days" in proc.stdout, "mutation failed for a different reason"
+
+
+def case_documentation_mutation_goes_red(work: Path) -> None:
+    """Removing the input row from the runner guide must fail."""
+    if os.environ.get("AEV_ACTION_UNDER_TEST") or os.environ.get("AEV_RUNNER_DOC_UNDER_TEST"):
+        return
+    text = RUNNER_DOC.read_text(encoding="utf-8")
+    anchor = "| `retention-days` |"
+    assert text.count(anchor) == 1, "documentation mutation anchor moved; update this test"
+    copy = work / "runner.md"
+    copy.write_text(text.replace(anchor, "| `report-retention` |"), encoding="utf-8")
+    proc = subprocess.run(
+        [sys.executable, __file__],
+        env={**os.environ, "AEV_RUNNER_DOC_UNDER_TEST": str(copy)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode != 0, "this test stayed green with the input row removed"
+    assert "runner guide's input table has no retention-days row" in proc.stdout
 
 
 CASES: list[Callable[[Path], None]] = [
     case_input_declared_with_old_default,
     case_upload_reads_the_input,
-    case_readme_documents_it,
+    case_runner_documents_it,
     case_mutation_goes_red,
+    case_documentation_mutation_goes_red,
 ]
 
 
