@@ -38,8 +38,8 @@
           "anchor": "the reference rails chose 128 and the independent from-spec checker chose 256"
         },
         {
-          "file": "README.md",
-          "anchor": "the independent checker read the same text and chose 256"
+          "file": "docs/research/independence.md",
+          "anchor": "Five first-party rails selected depth 128; the independent checker selected 256 under the same text."
         }
       ]
     },
@@ -68,8 +68,8 @@
           "anchor": "The independent checker named this precisely."
         },
         {
-          "file": "README.md",
-          "anchor": "Reading it back a second time surfaced a split the five rails had hidden from"
+          "file": "docs/research/independence.md",
+          "anchor": "Go counted depth per parsed child, admitting an empty-container leaf one level beyond the bound accepted by Python."
         }
       ]
     },
