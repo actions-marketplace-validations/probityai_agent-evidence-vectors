@@ -187,6 +187,7 @@ func rules() []rule {
 		{"prior-commitment-present", rulePriorCommitmentPresent},
 		{"commitment-digest", ruleCommitmentDigest},
 		{"keyid-form", ruleKeyidForm},
+		{"commitment-signature-form", ruleCommitmentSignatureForm},
 		{"agreement-derivable", ruleAgreementDerivable},
 		{"dual-value-recomputes", ruleDualValueRecomputes},
 		{"commitment-signature", ruleCommitmentSignature},

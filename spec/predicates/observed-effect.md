@@ -2,7 +2,7 @@
 
 Type URI: https://probityai.github.io/agent-evidence-vectors/predicate/v1/observed-effect
 
-Version: 0.5.0
+Version: 0.6.0
 
 Predicate Name: Observed Effect
 
@@ -199,7 +199,7 @@ Verdicts are out of scope. They belong downstream, computed over this evidence.
         "witnessNonce": "<64-hex chosen by the observer>",
         "commitmentDigest": "<64-hex over authorityDigest, beforeRoot, intervalId, witnessNonce>",
         "keyid": "<hex, observer's key>",
-        "sig": "<base64 over the JCS commitment bytes>",
+        "sig": "<128 lowercase hex: Ed25519 signature over the JCS commitment bytes>",
         "externalAnchor": {
           "kind": "rfc3161",
           "digest": "<64-hex of the token>"
@@ -639,6 +639,12 @@ observer chose:
     interval opens, so binding them costs nothing and removes two forgeries that
     needed no second key.
 -   `keyid` and `sig` — the observer's signature over those canonical bytes.
+    `sig` is the 64-byte Ed25519 signature written as exactly 128 lowercase
+    hexadecimal characters, the spelling every digest and key identifier in this
+    predicate already uses. It is not base64: base64 is the spelling of the DSSE
+    envelope's own signature, which is a different signature over different bytes.
+    A `sig` in any other spelling, including uppercase hexadecimal, hexadecimal
+    with whitespace, or a different length, is malformed in stage one.
     **A verifier MUST verify `sig`**, against the observer key it anchored out of
     band, over the [RFC 8785] canonical bytes of the commitment preimage. While
     that gate was named in [Parsing Rules] and implemented nowhere, sixty-four
@@ -978,6 +984,16 @@ which is a different failure from a forged value and is not fixable by any rule
 over the members that existed. Closed by the required `origin` member and the
 rule binding `below-observed` to `first-hand`.
 
+**A32. One commitment signature, two readings. CLOSED.** A correct
+`priorCommitment.sig` with a space between its two halves. Python's `bytes.fromhex`
+skips the space and the signature verifies; Go's `hex.DecodeString` refuses it.
+The two verifiers this repository ships returned `valid` and `malformed` for the
+same signed bytes, and the same signature in uppercase verified on both, which
+gave one commitment two spellings. The spelling was never stated: the Schema
+block gave `sig` as base64 while every producer and verifier used hexadecimal.
+Closed by fixing the spelling as 128 lowercase hexadecimal characters and
+refusing any other in stage one, so the bytes decide rather than the decoder.
+
 Closing it moved the sibling [agent-evidence-vocabulary] registry too, and that
 is worth recording because the two artifacts were incompatible at the seam. That
 registry's `origin_kind` borrowed a three-value enum from [TRACE] Section 3.1.1,
@@ -1023,6 +1039,15 @@ A consumer implementing this predicate MUST, at minimum:
     observed, per the prohibition under [`tier`].
 
 ## Changelog and Migrations
+
+0.6.0 fixes the spelling of `priorCommitment.sig` as 128 lowercase
+hexadecimal characters and adds the stage-one rule that refuses any other
+spelling (A32). The Schema block had given the member as base64, while the
+generator wrote hexadecimal and every verifier decoded it, so every record the
+corpus carried already used the spelling this version requires and keeps its
+verdict. What moves is a record whose `sig` is uppercase, carries whitespace, or
+has another length: at 0.5.0 its verdict depended on which decoder read it, and
+at 0.6.0 it is malformed everywhere.
 
 0.5.0 adds the optional signed `codeDigest` field and a consumer-pinned exact
 SHA-256 join. The one-subject after-state rule and prior-commitment preimage are
