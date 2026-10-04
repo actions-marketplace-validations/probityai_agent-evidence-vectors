@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""Build the static site the Pages workflow publishes.
-
-Every figure on the page is read from the repository at build time and none is
-typed here: the per-corpus size comes from each corpus's MANIFEST.json, the
-release tag from CITATION.cff, the failure-code union from aee/codes.go, and the
-independent-runs and distribution pages are the tracked RUNS.md and
-DISTRIBUTION.md rendered as they stand. The page carries no script and loads
-nothing from anywhere else, so what a reader sees is what this build wrote.
+"""Publish the repository's guides, reference pages and tracked corpus data.
 
 Usage:
     python3 docs/site/build.py --out _site
@@ -17,18 +10,23 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import posixpath
 import re
 import sys
+from collections.abc import Iterable, Mapping
 from pathlib import Path
+from urllib.parse import quote, unquote, urlsplit, urlunsplit
+from xml.etree.ElementTree import Element, SubElement, tostring
 
 import markdown
+from markdown.extensions import Extension
+from markdown.treeprocessors import Treeprocessor
 
 SUMMARY = "Build the static site the Pages workflow publishes."
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-# The CURRENT owner path. The former one 301-redirects, so a link written to it
-# still resolves and is still wrong: it publishes a spelling that is no longer
-# this repository's, on every page of the site, and a redirect is not a name.
 REPO_URL = "https://github.com/probityai/agent-evidence-vectors"
+SITE_URL = "https://probityai.github.io/agent-evidence-vectors"
+DOC_SECTIONS = ("guides", "reference", "research")
 MANIFEST_NAME = "MANIFEST.json"
 CODES_GO = REPO_ROOT / "aee" / "codes.go"
 CITATION = REPO_ROOT / "CITATION.cff"
@@ -98,24 +96,242 @@ def first_sentence(text: str) -> str:
     return (text[: match.start()] if match else text).strip()
 
 
-def render_markdown(path: Path) -> str:
-    text = path.read_text(encoding="utf-8")
-    text = re.sub(
-        r"\]\((?!https?://|#)([^)]+)\)",
-        lambda m: f"]({REPO_URL}/blob/main/{m.group(1)})",
-        text,
+def published_routes() -> dict[Path, Path]:
+    """Map tracked Markdown sources to their published HTML routes.
+
+    Returns
+    -------
+    dict of pathlib.Path to pathlib.Path
+        Repository-relative source paths and site-relative output paths.
+        New pages in ``DOC_SECTIONS`` join the site without another route list.
+        Predicate aliases are added separately by :func:`predicate_pages`.
+    """
+    routes = {
+        Path("README.md"): Path("start.html"),
+        Path("RUNS.md"): Path("runs.html"),
+        Path("DISTRIBUTION.md"): Path("distribution.html"),
+        Path("spec/predicates/REGISTRY.md"): Path("predicate/index.html"),
+        Path("spec/predicates/observed-effect.md"): Path("predicate/v1/observed-effect.html"),
+    }
+    for section in DOC_SECTIONS:
+        for source in sorted((REPO_ROOT / "docs" / section).rglob("*.md")):
+            relative = source.relative_to(REPO_ROOT)
+            routes[relative] = relative.relative_to("docs").with_suffix(".html")
+    return routes
+
+
+def relative_route(target: Path, current: Path) -> str:
+    """Locate a published page from another page's output directory.
+
+    Parameters
+    ----------
+    target, current : pathlib.Path
+        Site-relative output paths, including their HTML filenames.
+
+    Returns
+    -------
+    str
+        A POSIX URL path that works at either predicate alias depth.
+    """
+    return posixpath.relpath(target.as_posix(), current.parent.as_posix())
+
+
+def repository_target(value: str, source: Path) -> Path:
+    """Resolve a link against its Markdown source and keep it inside the repo.
+
+    Parameters
+    ----------
+    value : str
+        The URL path, without a query or fragment. Percent escapes are decoded
+        before checking parent traversal and symlink destinations.
+    source : pathlib.Path
+        The Markdown file containing the link.
+
+    Returns
+    -------
+    pathlib.Path
+        The resolved repository-relative target.
+
+    Raises
+    ------
+    ValueError
+        If the link escapes ``REPO_ROOT`` or its target does not exist.
+    """
+    decoded = unquote(value)
+    parent = REPO_ROOT if decoded.startswith("/") else source.parent
+    target = (parent / decoded.lstrip("/")).resolve()
+    root = REPO_ROOT.resolve()
+    if not target.is_relative_to(root):
+        raise ValueError(f"Markdown link escapes repository: {value!r}")
+    relative = target.relative_to(root)
+    if not target.exists():
+        raise ValueError(f"Markdown link target is missing: {relative.as_posix()!r}")
+    return relative
+
+
+def repository_url(target: Path) -> str:
+    """Return the GitHub file or directory URL for an unpublished repo asset.
+
+    Parameters
+    ----------
+    target : pathlib.Path
+        A validated repository-relative path from :func:`repository_target`.
+
+    Returns
+    -------
+    str
+        The current repository URL, with spaces and URL punctuation escaped.
+
+    Raises
+    ------
+    ValueError
+        If a guide, reference or research Markdown target has no site route.
+    """
+    if target.suffix == ".md" and target.parts[:2] in {
+        ("docs", section) for section in DOC_SECTIONS
+    }:
+        raise ValueError(f"Published document has no route: {target.as_posix()!r}")
+    kind = "tree" if (REPO_ROOT / target).is_dir() else "blob"
+    return f"{REPO_URL}/{kind}/main/{quote(target.as_posix(), safe='/')}"
+
+
+def resolve_link(value: str, source: Path, output: Path, routes: Mapping[Path, Path]) -> str:
+    """Rewrite a Markdown link while retaining its query and fragment.
+
+    Parameters
+    ----------
+    value : str
+        The parsed Markdown link destination.
+    source : pathlib.Path
+        The source Markdown file, used for relative path resolution.
+    output : pathlib.Path
+        The site-relative HTML page receiving the rendered link.
+    routes : mapping of pathlib.Path to pathlib.Path
+        Published source-to-output routes from :func:`published_routes`.
+
+    Returns
+    -------
+    str
+        A relative site route, a GitHub fallback, or the unchanged external or
+        fragment-only URL. Code examples are not processed as links.
+
+    Raises
+    ------
+    ValueError
+        If the source-relative target escapes the repo or a published document
+        is absent from ``routes``.
+    """
+    parts = urlsplit(value)
+    if parts.scheme or parts.netloc or not parts.path:
+        return value
+    target = repository_target(parts.path, source)
+    destination = routes.get(target)
+    resolved = (
+        quote(relative_route(destination, output), safe="/")
+        if destination is not None
+        else repository_url(target)
     )
-    return markdown.markdown(text, extensions=["tables", "fenced_code"])
+    return urlunsplit(("", "", resolved, parts.query, parts.fragment))
 
 
-def page(title: str, body: str, tag: str) -> str:
+class SourceLinks(Treeprocessor):
+    """Resolve parsed links without rewriting code blocks or raw HTML anchors."""
+
+    def __init__(
+        self, md: markdown.Markdown, source: Path, output: Path, routes: Mapping[Path, Path]
+    ) -> None:
+        super().__init__(md)
+        self.source = source
+        self.output = output
+        self.routes = routes
+
+    def run(self, root: Element) -> Element:
+        """Rewrite anchor destinations after Markdown has parsed inline text.
+
+        Parameters
+        ----------
+        root : xml.etree.ElementTree.Element
+            The parsed Markdown tree.
+
+        Returns
+        -------
+        xml.etree.ElementTree.Element
+            The tree with site-aware links and unchanged heading identifiers.
+        """
+        for anchor in root.iter("a"):
+            href = anchor.get("href")
+            if href is not None:
+                anchor.set("href", resolve_link(href, self.source, self.output, self.routes))
+        for image in root.iter("img"):
+            value = image.get("src")
+            if value is not None:
+                resolved = resolve_link(value, self.source, self.output, self.routes)
+                image.set(
+                    "src", resolved.replace(f"{REPO_URL}/blob/main/", f"{REPO_URL}/raw/main/")
+                )
+        return root
+
+
+class SourceLinkExtension(Extension):
+    """Attach source and output routes to the Markdown renderer."""
+
+    def __init__(self, source: Path, output: Path, routes: Mapping[Path, Path]) -> None:
+        super().__init__()
+        self.source = source
+        self.output = output
+        self.routes = routes
+
+    def extendMarkdown(self, md: markdown.Markdown) -> None:
+        """Register :class:`SourceLinks` after inline links and headings exist.
+
+        Parameters
+        ----------
+        md : markdown.Markdown
+            The renderer building one published page.
+        """
+        processor = SourceLinks(md, self.source, self.output, self.routes)
+        md.treeprocessors.register(processor, "repository-links", 1)
+
+
+def render_markdown(
+    path: Path, output: Path | None = None, routes: Mapping[Path, Path] | None = None
+) -> str:
+    """Render a source page with heading IDs and source-relative links.
+
+    Parameters
+    ----------
+    path : pathlib.Path
+        The Markdown source file.
+    output : pathlib.Path, optional
+        The site's output route. By default, use the route registered for the
+        source, or ``index.html`` when rendering an unpublished document.
+    routes : mapping of pathlib.Path to pathlib.Path, optional
+        The publication map. Defaults to :func:`published_routes`.
+
+    Returns
+    -------
+    str
+        HTML containing the source's text, heading IDs and resolved links.
+    """
+    selected = published_routes() if routes is None else routes
+    relative = path.resolve().relative_to(REPO_ROOT.resolve())
+    destination = output if output is not None else selected.get(relative, Path("index.html"))
+    extension = SourceLinkExtension(path.resolve(), destination, selected)
+    return markdown.markdown(
+        path.read_text(encoding="utf-8"),
+        extensions=["tables", "fenced_code", "toc", extension],
+    )
+
+
+def page(title: str, body: str, tag: str, output: Path = Path("index.html")) -> str:
     nav = " | ".join(
-        f'<a href="{href}">{label}</a>'
+        f'<a href="{html.escape(href)}">{label}</a>'
         for href, label in (
-            ("index.html", "Corpora"),
-            ("runs.html", "Independent runs"),
-            ("distribution.html", "Distribution"),
-            ("codes.html", "Failure codes"),
+            (relative_route(Path("start.html"), output), "Start"),
+            (relative_route(Path("index.html"), output), "Corpora"),
+            (relative_route(Path("runs.html"), output), "Runs"),
+            (relative_route(Path("distribution.html"), output), "Releases"),
+            (relative_route(Path("codes.html"), output), "Codes"),
             (REPO_URL, "Repository"),
         )
     )
@@ -126,8 +342,7 @@ def page(title: str, body: str, tag: str) -> str:
         '<header><p class="site">agent-evidence-vectors '
         f'<span class="tag">{html.escape(tag)}</span></p>'
         f"<nav>{nav}</nav></header>\n<main>\n{body}\n</main>\n"
-        "<footer><p>Built from the repository at publish time. Every figure on these pages is "
-        "read from a tracked file, never typed into the site.</p></footer>\n</body>\n</html>\n"
+        "<footer><p>Built from tracked repository files.</p></footer>\n</body>\n</html>\n"
     )
 
 
@@ -203,33 +418,130 @@ def predicate_uris() -> list[tuple[str, str]]:
     return [(version, name) for version, name in found]
 
 
-def predicate_pages(tag: str) -> dict[Path, str]:
+def predicate_pages(tag: str, routes: Mapping[Path, Path] | None = None) -> dict[Path, str]:
     """One page per registered type URI, plus the registry at the prefix itself.
 
     A type URI has no file extension, and the two ways a static host can resolve
-    one are a sibling `<name>.html` and a child `<name>/index.html`. Which of
-    them a host prefers is the host's business, so BOTH are written with the same
-    bytes: the URI then cannot 404 under either routing, and a 404 on a type URI
-    is indistinguishable to a verifier from a type that was withdrawn.
+    one are a sibling `<name>.html` and a child `<name>/index.html`. Both serve
+    the same source document with navigation relative to their own directory.
 
     The page a type URI serves is its normative document where this repository
     has one, and the registry entry where it does not. The registry says which is
     which, and it says so on the page, so nobody reads a registration as a field
     definition.
     """
-    registry = render_markdown(PREDICATE_REGISTRY)
-    pages: dict[Path, str] = {Path("predicate/index.html"): page("Predicate types", registry, tag)}
+    selected = published_routes() if routes is None else routes
+    prefix = Path("predicate/index.html")
+    registry = render_markdown(PREDICATE_REGISTRY, prefix, selected)
+    pages: dict[Path, str] = {prefix: page("Predicate types", registry, tag, prefix)}
     for version, name in predicate_uris():
         if name == "observed-effect":
-            body = render_markdown(PREDICATE_DOC)
+            source = PREDICATE_DOC
             title = "Observed Effect predicate"
         else:
-            body = registry
+            source = PREDICATE_REGISTRY
             title = f"{name} ({version}), registered"
-        rendered = page(title, body, tag)
-        pages[Path("predicate") / version / f"{name}.html"] = rendered
-        pages[Path("predicate") / version / name / "index.html"] = rendered
+        for relative in (
+            Path("predicate") / version / f"{name}.html",
+            Path("predicate") / version / name / "index.html",
+        ):
+            body = render_markdown(source, relative, selected)
+            pages[relative] = page(title, body, tag, relative)
     return pages
+
+
+def markdown_pages(tag: str, routes: Mapping[Path, Path]) -> dict[Path, str]:
+    """Render every published Markdown source except predicate aliases.
+
+    Parameters
+    ----------
+    tag : str
+        The release tag displayed in the site header.
+    routes : mapping of pathlib.Path to pathlib.Path
+        The source-to-output map from :func:`published_routes`.
+
+    Returns
+    -------
+    dict of pathlib.Path to str
+        Complete pages for the start, runs, distribution and companion routes.
+    """
+    pages = {}
+    for relative, output in routes.items():
+        if relative.parts[:2] == ("spec", "predicates"):
+            continue
+        source = REPO_ROOT / relative
+        heading = re.search(r"^# (.+)$", source.read_text(encoding="utf-8"), re.MULTILINE)
+        title = heading.group(1) if heading is not None else source.stem
+        body = render_markdown(source, output, routes)
+        pages[output] = page(title, body, tag, output)
+    return pages
+
+
+def canonical_route(path: Path) -> str | None:
+    """Choose one discovery URL for each published document.
+
+    Parameters
+    ----------
+    path : pathlib.Path
+        A site-relative HTML output path.
+
+    Returns
+    -------
+    str or None
+        An HTML route, the predicate prefix, or the registered extensionless
+        predicate URI. A predicate's directory alias returns ``None``.
+    """
+    if path.parts[0] != "predicate":
+        return path.as_posix()
+    if path.name != "index.html":
+        return path.with_suffix("").as_posix()
+    return "predicate/" if len(path.parts) == 2 else None
+
+
+def sitemap(paths: Iterable[Path]) -> bytes:
+    """Build a deterministic sitemap without duplicate predicate aliases.
+
+    Parameters
+    ----------
+    paths : iterable of pathlib.Path
+        All HTML output routes produced by the site build.
+
+    Returns
+    -------
+    bytes
+        UTF-8 XML containing sorted canonical URLs. No build clock or derived
+        modification date is added.
+    """
+    routes = {canonical_route(path) for path in paths} - {None}
+    root = Element("urlset", xmlns="http://www.sitemaps.org/schemas/sitemap/0.9")
+    for route in sorted(str(route) for route in routes):
+        entry = SubElement(root, "url")
+        SubElement(entry, "loc").text = f"{SITE_URL}/{quote(route, safe='/')}"
+    return bytes(tostring(root, encoding="utf-8", xml_declaration=True))
+
+
+def write_discovery(out: Path, paths: Iterable[Path]) -> None:
+    """Serve the reviewed agent guide unchanged and list canonical pages.
+
+    Parameters
+    ----------
+    out : pathlib.Path
+        The site output directory.
+    paths : iterable of pathlib.Path
+        Published HTML routes passed to :func:`sitemap`.
+
+    Raises
+    ------
+    ValueError
+        If the tracked ``llms.txt`` contains non-ASCII text.
+    """
+    guide = (REPO_ROOT / "llms.txt").read_bytes()
+    try:
+        guide.decode("ascii")
+    except UnicodeDecodeError as error:
+        raise ValueError("llms.txt must contain ASCII text") from error
+    (out / "llms.txt").write_bytes(guide)
+    (out / "sitemap.xml").write_bytes(sitemap(paths))
 
 
 def main(argv: list[str]) -> int:
@@ -239,21 +551,20 @@ def main(argv: list[str]) -> int:
     tag = release_tag()
     out: Path = args.out
     out.mkdir(parents=True, exist_ok=True)
+    routes = published_routes()
     pages = {
-        "index.html": ("agent-evidence-vectors", index_body(tag)),
-        "runs.html": ("Independent runs", render_markdown(REPO_ROOT / "RUNS.md")),
-        "distribution.html": ("Distribution", render_markdown(REPO_ROOT / "DISTRIBUTION.md")),
-        "codes.html": ("Failure codes", codes_body()),
+        Path("index.html"): page("agent-evidence-vectors", index_body(tag), tag),
+        Path("codes.html"): page("Failure codes", codes_body(), tag),
     }
-    for name, (title, body) in pages.items():
-        (out / name).write_text(page(title, body, tag), encoding="utf-8")
-    for relative, rendered in predicate_pages(tag).items():
+    pages.update(markdown_pages(tag, routes))
+    pages.update(predicate_pages(tag, routes))
+    for relative, rendered in pages.items():
         target = out / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(rendered, encoding="utf-8")
+    write_discovery(out, pages)
     (out / ".nojekyll").write_text("", encoding="utf-8")
-    written = len(pages) + len(predicate_pages(tag))
-    print(f"wrote {written} pages to {out}")
+    print(f"wrote {len(pages)} pages to {out}")
     return 0
 
 

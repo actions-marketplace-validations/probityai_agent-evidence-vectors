@@ -19,20 +19,12 @@ import (
 func init() { register(aiGeneration{}) }
 
 // aiGeneration judges vectors-ai-generation/, the conformance corpus for the
-// generation predicate at specification revision 0.1.4 in its default
+// generation predicate at specification revision 0.1.5 in its default
 // attest-only mode.
 //
-// It is two verifiers, not one. The first reads revision 0.1.4 as written:
-// RFC 8785 member order, I-JSON integers, duplicate names refused, the fab
-// signature and payload_sha256 over the statement without sign-offs, and the
-// n-th sign-off over the first n records, each record bound to its signer. The
-// second adds the two rules the corpus still proposes: attribution ranges that
-// do not overlap, and a supplied Assisted-by trailer that matches the agent.
-// Every member is run through both, and what each returns is compared with
-// what the member declares. An accept member must be valid under both; a
-// reject member must fail the revision with the code it names; a proposed
-// member must produce exactly the two outcomes it declares, and they must
-// differ, or it is an accept or a reject wearing the wrong label.
+// Revision 0.1.5 requires non-overlapping attribution ranges and agreement
+// with every supplied Assisted-by trailer. Both grading modes enforce these
+// rules; the proposal grading vocabulary remains for historical controls.
 type aiGeneration struct{}
 
 func (aiGeneration) Suite() string { return "ai-generation-v01-conformance" }
@@ -716,21 +708,30 @@ func (s *agSubject) artifactCode(name, lines, want string) string {
 	return ""
 }
 
+var agLineRange = regexp.MustCompile(`^[0-9]+(?:-[0-9]+)?$`)
+
 func agRange(lines string) (int, int, bool) {
+	if !agLineRange.MatchString(lines) {
+		return 0, 0, false
+	}
 	first, last, found := strings.Cut(lines, "-")
+	if !found {
+		last = first
+	}
 	start, err1 := strconv.Atoi(first)
 	end, err2 := strconv.Atoi(last)
-	if !found || err1 != nil || err2 != nil || start < 1 || end < start {
+	if !agBoundsValid(start, end, err1, err2) {
 		return 0, 0, false
 	}
 	return start, end, true
 }
 
-// proposalRules are the two checks the revision leaves to a MAY or to nothing.
-func (s *agSubject) proposalRules(mode agMode) (agOutcome, bool) {
-	if mode == agRevision {
-		return agOutcome{}, false
-	}
+func agBoundsValid(start, end int, err1, err2 error) bool {
+	return err1 == nil && err2 == nil && start > 0 && end >= start
+}
+
+// proposalRules enforces both findings adopted by revision 0.1.5.
+func (s *agSubject) proposalRules(agMode) (agOutcome, bool) {
 	if agRangesOverlap(agList(agMap(s.stmt, "predicate"), "generated")) {
 		return agRefuse("attribution-ranges-overlap")
 	}
@@ -761,22 +762,40 @@ func agRangesOverlap(generated []any) bool {
 	return false
 }
 
-// trailerAgrees: the commit's Assisted-by lines are exactly agent.id followed
-// by agent.tools, the kernel convention the revision adopts.
+// trailerAgrees checks each supplied identifier and every listed tool.
 func (s *agSubject) trailerAgrees() bool {
 	agent := agMap(agMap(s.stmt, "predicate"), "agent")
 	want, _ := agent["id"].(string)
+	tools := map[string]bool{}
 	for _, tool := range agList(agent, "tools") {
 		name, _ := tool.(string)
-		want += " " + name
+		tools[name] = true
 	}
-	var found []string
+	found := false
 	for _, line := range strings.Split(string(s.trailer), "\n") {
-		if value, ok := strings.CutPrefix(line, "Assisted-by: "); ok {
-			found = append(found, value)
+		value, ok := strings.CutPrefix(line, "Assisted-by: ")
+		if !ok {
+			continue
+		}
+		found = true
+		if !agTrailerMatches(value, want, tools) {
+			return false
 		}
 	}
-	return len(found) == 1 && found[0] == want
+	return found
+}
+
+func agTrailerMatches(value, want string, tools map[string]bool) bool {
+	fields := strings.Fields(value)
+	if len(fields) == 0 || fields[0] != want {
+		return false
+	}
+	for _, tool := range fields[1:] {
+		if !tools[tool] {
+			return false
+		}
+	}
+	return true
 }
 
 // ---------------------------------------------------------------------------

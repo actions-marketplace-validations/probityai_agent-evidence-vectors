@@ -848,6 +848,7 @@ def claims(src: Sources) -> tuple[Claim, ...]:
 
 def declared_claims(src: Sources) -> tuple[Claim, ...]:
     """The claim sites written out one at a time, each against its own sentence."""
+    gemara = json.loads(source("interop/gemara-method-link/MANIFEST.json").read_text())
     rev = src.revision
     corpus = (
         f"{src.total} vectors ({src.accept} accept, {src.reject} reject, "
@@ -855,84 +856,42 @@ def declared_claims(src: Sources) -> tuple[Claim, ...]:
     )
     return (
         Claim(
-            "README.md",
-            "the AEE vector-count badge, its image",
-            "badge/AEE%20vectors-",
-            "-e8951c",
-            str(src.total),
+            "interop/gemara-method-link/README.md",
+            "the Gemara profile case count",
+            "The ",
+            " cases use complete Policy and EvaluationLog",
+            str(len(gemara["cases"])),
         ),
         Claim(
-            "README.md",
-            "the AEE vector-count badge, its alt text",
-            'alt="',
-            ' AEE conformance vectors"',
-            str(src.total),
-        ),
-        Claim(
-            "README.md",
-            "the AI Agent Action vector-count badge, its image",
-            "badge/AI%20Agent%20Action%20vectors-",
-            "-e8951c",
-            str(src.agent_action_total),
-        ),
-        Claim(
-            "README.md",
-            "the AI Agent Action vector-count badge, its alt text",
-            'alt="',
-            ' AI Agent Action conformance vectors"',
-            str(src.agent_action_total),
-        ),
-        Claim(
-            "README.md",
-            "the artifact-binding vector-count badge, its image",
-            "badge/artifact--binding%20vectors-",
-            "-e8951c",
-            str(src.binding_total),
-        ),
-        Claim(
-            "README.md",
-            "the artifact-binding vector-count badge, its alt text",
-            'alt="',
-            ' artifact-binding conformance vectors"',
-            str(src.binding_total),
-        ),
-        Claim(
-            "README.md",
-            "the AEE predicate version, in the badge",
-            "badge/predicate-in--toto%20AEE%20v",
-            "-6f57c2",
-            src.predicate_version,
-        ),
-        Claim(
-            "README.md",
+            "docs/guides/corpora.md",
             "the AEE predicate version, in the opening sentence",
             "**Adversarial Execution Evidence**, predicate version ",
             ", and **AI Agent",
             src.predicate_version,
         ),
         Claim(
-            "README.md",
+            "docs/guides/corpora.md",
             "the AI Agent Action predicate version, in the opening sentence",
             "**AI Agent\nAction**, predicate version ",
             ", proposed in",
             src.agent_action_predicate_version,
         ),
         Claim(
-            "README.md",
+            "docs/research/corpus-measurements.md",
             "what a full replay reports, in the forcing section",
             "the suite still reports ",
             ", exit 0. A rail with no",
             f"{src.total} of {src.total}",
         ),
         Claim(
-            "README.md",
+            "docs/research/corpus-measurements.md",
             "the size of the mutation sweep",
-            "notices — ",
+            "notices -- ",
             " single-site weakenings of",
             str(src.sites),
         ),
         Claim(
-            "README.md",
+            "docs/research/corpus-measurements.md",
             "the four forcing outcomes",
             "tighten-only ratchet: **",
             ".** The four outcomes",
@@ -940,14 +899,14 @@ def declared_claims(src: Sources) -> tuple[Claim, ...]:
             f"{src.unforced} unforced, {src.unmeasurable}\nunmeasurable",
         ),
         Claim(
-            "README.md",
+            "docs/research/corpus-measurements.md",
             "how many forcing sites carry an annotation",
-            "is a gap — and",
-            "sites carry an annotation saying",
+            "The baseline annotates ",
+            " sites as",
             WORDS.get(src.annotated, str(src.annotated)),
         ),
         Claim(
-            "README.md",
+            "docs/research/corpus-measurements.md",
             "the nightly sweep's size",
             "sweeps all ",
             " sites nightly",
@@ -1045,6 +1004,79 @@ def declared_claims(src: Sources) -> tuple[Claim, ...]:
 
 
 DELEGATED: tuple[Delegated, ...] = (
+    # The pinned JEP manifest and run.py validate these separate populations.
+    *(Delegated(path, "pinned JEP pilot populations", pattern,
+                "interop/jep-core07-reader/run.py")
+      for path, pattern in (
+          (".github/workflows/jep-core07-reader.yml", r"25/4/8"),
+          ("interop/jep-core07-reader/PROTOCOL.md", r"25 validation assertions"),
+          ("interop/jep-core07-reader/PROTOCOL.md", r"36 covered files"),
+          ("interop/jep-core07-reader/PROTOCOL.md", r"25/4/8"),
+          ("interop/jep-core07-reader/README.md", r"25 validation"),
+          ("interop/jep-core07-reader/run.py", r"25/4/8"),
+      )),
+
+    # These are encoding widths and JSON resource bounds, not corpus tallies.
+    # The candidate's tests bind the exact prose to fixed byte answers and
+    # exercise both sides of the declared depth and node budgets.
+    *(
+        Delegated(
+            "interop/action-tuple-framed-v1/PROFILE.md",
+            "the framed tuple's encoding widths and JSON resource budgets",
+            pattern,
+            "interop/action-tuple-framed-v1/test_reader.py",
+        )
+        for pattern in (
+            r"Unsigned \d+-bit big-endian UTF-8 byte count",
+            r"depth at most \d+ and at most [\d,]+ value nodes",
+        )
+    ),
+    Delegated(
+        "interop/action-tuple-framed-v1/test_reader.py",
+        "the fixed-byte test's exact encoding-width prose check",
+        r"Unsigned \d+-bit big-endian UTF-8 byte count",
+        "interop/action-tuple-framed-v1/test_reader.py",
+    ),
+    # The optional AgentID reader bounds a JWKS input, not a vector corpus.
+    # Its tests exercise the limit on both sides and read the prose cap back
+    # against MAX_KEYS. Match only those bounded technical statements.
+    Delegated(
+        "interop/agentid-offline/README.md",
+        "the AgentID reader's JWKS resource budget",
+        r"Its key count is bounded at \d+",
+        "interop/agentid-offline/test_reader.py",
+    ),
+    Delegated(
+        "interop/agentid-offline/reader.py",
+        "the AgentID key-selection docstring's resource budget",
+        r"Select exactly one public Ed25519 verification key from at most \d+ entries",
+        "interop/agentid-offline/test_reader.py",
+    ),
+    *(
+        Delegated(
+            path,
+            "the AgentID JWKS cardinality diagnostic",
+            r"JWKS must contain between \d+ and \d+ keys",
+            "interop/agentid-offline/test_reader.py",
+        )
+        for path in (
+            "interop/agentid-offline/reader.py",
+            "interop/agentid-offline/test_reader.py",
+        )
+    ),
+    # The action's report retention default is a number of days, not a count
+    # of anything in the corpus; it equals the suiteRevision by coincidence.
+    # action-retention-test.py holds the input, its default and the runner guide row.
+    *(
+        Delegated(path, "the action's report retention default in days", pattern,
+                  "scripts/action-retention-test.py")
+        for path, pattern in (
+            ("docs/guides/runner.md", r"uploaded report \(default: `\d+`\)"),
+            ("action.yml", r"The default, \d+, is what"),
+            ("action.yml", r'default: "\d+"'),
+            ("scripts/action-retention-test.py", r'OLD_DEFAULT = "\d+"'),
+        )
+    ),
     # A row of the accepted-complexity table is a gocyclo measurement of one Go
     # function, re-measured and gated by complexity-table-gate.py. Gate0's 36
     # collided with the seen-but-tolerated count when the forcing baseline moved.
@@ -1091,7 +1123,7 @@ DELEGATED: tuple[Delegated, ...] = (
         "scripts/consumer-lag-gate.py",
     ),
     Delegated(
-        "README.md",
+        "docs/research/independence.md",
         "the independence section's scoping sentence",
         r"It\s+has\s+not\s+been\s+run\s+against\s+suiteRevision\s+[\d,\s]*(?:and|or)\s+\d+,",
         "scripts/independent-runs-gate.py",
@@ -1156,6 +1188,31 @@ DELEGATED: tuple[Delegated, ...] = (
 
 
 FROZEN: tuple[Frozen, ...] = (
+    # Author-produced measurements made before CI integration. Only these exact
+    # dated spans are historical; the README's live case count is derived above.
+    *(
+        Frozen(
+            "interop/gemara-method-link/RUN.md",
+            name,
+            span,
+            "Author-produced 2026-09-30 package at commit "
+            "9bd6f42a1905c0c967c512251a280592250869d9. Original suite manifest "
+            "b0cda7d30ce37f6fb48ee6778b992ffcdd8f365469c3c77f5229b02f9fb1a4c9, "
+            "tests 893ddcc8dd7ff7840eb4e9620821567d36782f6e45ff8d60f6fc46372af3aa64, "
+            "reader/control report manifest "
+            "5448e5684565ea3c4211aa41ffe9a9998ad24c35b6ae6e42e125695e1accb70c. "
+            "These figures describe that recorded run, not an independent reader.",
+        )
+        for name, span in (
+            ("the Gemara original suite size", "Original 32-test suite manifest SHA-256"),
+            ("the Gemara author reader result", "Bundled reader: 20/20 matching answers."),
+            ("the Gemara self-adapter result", "Bundled reader through stdin adapter: 20/20."),
+            ("the Gemara accept-all result", "Accept-all control: 3/20 matching answers, exit 1."),
+            ("the Gemara original pytest result", "pytest: 32 passed."),
+            ("the Gemara license-only case count", "The 20 case files, four upstream source files"),
+            ("the Gemara license-only test boundary", "the 32 pytest tests were not repeated."),
+        )
+    ),
     # ---- four figures that came to collide with suiteRevision 29.
     # Each records something measured once, and none is a count of this corpus.
     # They are frozen rather than corrected because the corpus growing does not
@@ -1257,6 +1314,83 @@ FROZEN: tuple[Frozen, ...] = (
     # for the same runs; these declarations cover the reader-facing scoreboard.
     Frozen(
         "RUNS.md",
+        "the a2a-jcs-v01 raw canonicaliser score",
+        "53/53, target `rfc8785`",
+        (
+            "A path score an outside implementation posted for the a2a-jcs-v01 corpus, "
+            "which lives in a2aproject/a2a-tck and not here, at corpus commit 97b0072. "
+            "Its denominator is that corpus's size, not any corpus in this tree, and "
+            "it records one past run of one commit."
+        ),
+    ),
+    Frozen(
+        "RUNS.md",
+        "the a2a-jcs-v01 card signing score",
+        "| 57/57, target `card-signing-input` |",
+        (
+            "A path score an outside implementation posted for the a2a-jcs-v01 corpus, "
+            "which lives in a2aproject/a2a-tck and not here, at corpus commit 97b0072. "
+            "Its denominator is that corpus's size, not any corpus in this tree, and "
+            "it records one past run of one commit."
+        ),
+    ),
+    Frozen(
+        "RUNS.md",
+        "the a2a-jcs-v01 card verify score",
+        "57/57, target `card-signing-input`, refusal class",
+        (
+            "A path score an outside implementation posted for the a2a-jcs-v01 corpus, "
+            "which lives in a2aproject/a2a-tck and not here, at corpus commit 97b0072. "
+            "Its denominator is that corpus's size, not any corpus in this tree, and "
+            "it records one past run of one commit."
+        ),
+    ),
+    Frozen(
+        "RUNS.md",
+        "the a2a-jcs-v01 verify score before the fix, narrow class",
+        "then scored 52/57",
+        (
+            "A path score an outside implementation posted for the a2a-jcs-v01 corpus, "
+            "which lives in a2aproject/a2a-tck and not here, at corpus commit 97b0072. "
+            "Its denominator is that corpus's size, not any corpus in this tree, and "
+            "it records one past run of one commit."
+        ),
+    ),
+    Frozen(
+        "RUNS.md",
+        "the a2a-jcs-v01 verify score before the fix, ValueError",
+        "it scored 54/57",
+        (
+            "A path score an outside implementation posted for the a2a-jcs-v01 corpus, "
+            "which lives in a2aproject/a2a-tck and not here, at corpus commit 97b0072. "
+            "Its denominator is that corpus's size, not any corpus in this tree, and "
+            "it records one past run of one commit."
+        ),
+    ),
+    Frozen(
+        "RUNS.md",
+        "the a2a-jcs-v01 verify score rescored with the narrow class",
+        "gives 57/57 on the verify path",
+        (
+            "A path score an outside implementation posted for the a2a-jcs-v01 corpus, "
+            "which lives in a2aproject/a2a-tck and not here, at corpus commit 97b0072. "
+            "Its denominator is that corpus's size, not any corpus in this tree, and "
+            "it records one past run of one commit."
+        ),
+    ),
+    Frozen(
+        "RUNS.md",
+        "the a2a-jcs-v01 verify score of the parent commit",
+        "and 52/57",
+        (
+            "A path score an outside implementation posted for the a2a-jcs-v01 corpus, "
+            "which lives in a2aproject/a2a-tck and not here, at corpus commit 97b0072. "
+            "Its denominator is that corpus's size, not any corpus in this tree, and "
+            "it records one past run of one commit."
+        ),
+    ),
+    Frozen(
+        "RUNS.md",
         "the suiteRevision-28 run's per-outcome figures, as posted",
         "61/61 accepts, 209/209 rejects, 2/2 indeterminate",
         "The outcome split an outside verifier posted against suiteRevision 28 "
@@ -1292,7 +1426,7 @@ FROZEN: tuple[Frozen, ...] = (
         "track a later corpus would misquote him.",
     ),
     Frozen(
-        "README.md",
+        "docs/research/external-records.md",
         "the independent Rust verifier's score, as posted",
         "scores 272/272 on suiteRevision 28",
         "What one outside build answered against suiteRevision 28, which its own "
@@ -1302,7 +1436,7 @@ FROZEN: tuple[Frozen, ...] = (
         "on rather than against this one.",
     ),
     Frozen(
-        "README.md",
+        "docs/research/external-records.md",
         "the blind RFC 8785 run's figures, as posted",
         "ran the 57 RFC 8785 vectors blind against argentum-core before opening "
         "the generators: 57/57",
@@ -1312,7 +1446,7 @@ FROZEN: tuple[Frozen, ...] = (
         "rerun nobody performed and would destroy what blind means here.",
     ),
     Frozen(
-        "README.md",
+        "docs/research/external-records.md",
         "the reproduction figure an outside maintainer posted, as posted",
         "recorded 258/258 in his own repository",
         "What the VATE maintainer's own regeneration answered on the day he ran "
@@ -1574,7 +1708,7 @@ FROZEN: tuple[Frozen, ...] = (
         "of that member, not of the AI generation corpus.",
     ),
     Frozen(
-        "README.md",
+        "docs/reference/verifier-contract.md",
         "the external-rail contract, the shipped CLI's score",
         "it scored 0 of 186.",
         "An incident record. The CLI scored zero against the corpus as it stood, and "
@@ -1728,7 +1862,7 @@ FROZEN: tuple[Frozen, ...] = (
         "The same dated entry: the baseline as written, not as it stands.",
     ),
     Frozen(
-        "README.md",
+        "docs/research/corpus-measurements.md",
         "the condition-registry section's account of the unresolvable ids",
         "so 17 ids cited by accept vectors",
         "A count of condition ids that resolved to nothing before the registry was "
@@ -1806,7 +1940,7 @@ FROZEN: tuple[Frozen, ...] = (
     Frozen(
         "scripts/independent-runs-gate-test.py",
         "the fabricated score on the synthetic attempt",
-        '{"figure": "9/9", "role": "score"',
+        '"figure": "9/9", "role": "score"',
         "Input to a self-test, not a figure about a corpus. The gate asserts that "
         "this value attaches to the attempt it is given; deriving it from the "
         "corpus would make the assertion move with bytes the test never reads.",

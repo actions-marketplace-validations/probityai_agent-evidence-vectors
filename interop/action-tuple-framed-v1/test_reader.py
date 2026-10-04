@@ -1,0 +1,215 @@
+"""Fixed-byte, historical collision and actual process contract checks."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+import shutil
+import struct
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+import reader
+
+ROOT = Path(__file__).parent
+MANIFEST = ROOT / "MANIFEST.json"
+
+
+class CandidateTests(unittest.TestCase):
+    def case(self, number: int) -> dict:
+        return json.loads((ROOT / f"cases/ATF-{number:03}.json").read_bytes())
+
+    def test_fixed_preimage_and_known_sha256(self) -> None:
+        # This answer is hand-specified, not obtained from reader.encode_tuple.
+        expected = bytes.fromhex(
+            "50524f4249545900616374696f6e2d7475706c6500763100" + "00" * 20
+        )
+        empty = {"agent_id": "", "action_type": "", "scope": "", "issued_at_ms": 0}
+        self.assertEqual(reader.encode_tuple(empty), expected)
+        self.assertEqual(
+            hashlib.sha256(expected).hexdigest(),
+            "b1e9d2c00a8a6dfcc8f8f383e09e07fa0fbf3fddde0778c8f41c27b97be97f82",
+        )
+
+    def test_profile_widths_and_json_budgets_are_exercised(self) -> None:
+        text = (ROOT / "PROFILE.md").read_text()
+        self.assertEqual(text.count("Unsigned 32-bit big-endian UTF-8 byte count"), 3)
+        match = re.search(r"depth at most (\d+) and at most ([\d,]+) value nodes", text)
+        self.assertIsNotNone(match)
+        assert match is not None
+        self.assertEqual(int(match.group(1)), reader.MAX_DEPTH)
+        self.assertEqual(int(match.group(2).replace(",", "")), reader.MAX_NODES)
+        reader.strict_json(b"[" * reader.MAX_DEPTH + b"0" + b"]" * reader.MAX_DEPTH)
+        with self.assertRaisesRegex(reader.Refusal, "json-depth-or-nodes"):
+            reader.strict_json(b"[" * (reader.MAX_DEPTH + 1) + b"0" + b"]" * (
+                reader.MAX_DEPTH + 1))
+        reader.strict_json(json.dumps([0] * (reader.MAX_NODES - 1)).encode())
+        with self.assertRaisesRegex(reader.Refusal, "json-depth-or-nodes"):
+            reader.strict_json(json.dumps([0] * reader.MAX_NODES).encode())
+
+    def test_original_native_ambiguity_candidate_discriminates(self) -> None:
+        first, second = self.case(1), self.case(2)
+
+        def native(packet: dict) -> bytes:
+            value = packet["tuple"]
+            return (value["agent_id"] + value["action_type"] + value["scope"]).encode() + (
+                struct.pack(">q", value["issued_at_ms"])
+            )
+
+        self.assertEqual(native(first), native(second))
+        self.assertEqual(hashlib.sha256(native(first)).hexdigest(),
+                         "6fe8b805ca46d0f71f06b1b4b3301be537ffd53cedb8726df2545c3369445ecb")
+        self.assertNotEqual(first["frame_hex"], second["frame_hex"])
+        self.assertNotEqual(first["digest"], second["digest"])
+        for number in (1, 2):
+            self.assertEqual(reader.verify((ROOT / f"cases/ATF-{number:03}.json").read_bytes())[
+                "status"], "accepted")
+
+    def test_agent_action_boundary_also_discriminates(self) -> None:
+        first, second = self.case(1), self.case(9)
+        self.assertEqual(
+            first["tuple"]["agent_id"] + first["tuple"]["action_type"],
+            second["tuple"]["agent_id"] + second["tuple"]["action_type"],
+        )
+        self.assertNotEqual(first["frame_hex"], second["frame_hex"])
+
+    def test_composed_and_decomposed_unicode_are_distinct(self) -> None:
+        self.assertNotEqual(self.case(5)["digest"], self.case(6)["digest"])
+        for number in (4, 5, 6):
+            packet = self.case(number)
+            self.assertEqual(reader.decode_frame(bytes.fromhex(packet["frame_hex"])),
+                             packet["tuple"])
+
+    def test_max_utf8_bytes_and_embedded_zero_are_round_trip_values(self) -> None:
+        value = {"agent_id": "é" * 32768, "action_type": "", "scope": "\0",
+                 "issued_at_ms": -1}
+        self.assertEqual(reader.decode_frame(reader.encode_tuple(value)), value)
+        with self.assertRaisesRegex(reader.Refusal, "tuple-size"):
+            reader.encode_tuple({**value, "agent_id": value["agent_id"] + "x"})
+
+    def test_transport_budget_accepts_maximum_escaped_strings(self) -> None:
+        for text in ("\0" * reader.MAX_STRING, "\x1f" * reader.MAX_STRING,
+                     "😀" * (reader.MAX_STRING // 4)):
+            with self.subTest(scalar=ord(text[0])):
+                value: dict[str, object] = {name: text for name in reader.FIELDS}
+                value["issued_at_ms"] = -(2**63)
+                frame = reader.encode_tuple(value)
+                packet = {"profile": reader.PROFILE, "tuple": value,
+                          "frame_hex": frame.hex(), "digest": reader.sha256(frame)}
+                data = json.dumps(packet, ensure_ascii=True, separators=(",", ":")).encode()
+                self.assertLessEqual(len(data), reader.MAX_JSON)
+                self.assertEqual(reader.verify(data)["status"], "accepted")
+
+    def test_boundaries_and_each_refusal_class(self) -> None:
+        manifest = json.loads(MANIFEST.read_bytes())
+        for case in manifest["cases"]:
+            with self.subTest(case=case["id"]):
+                data = (ROOT / case["path"]).read_bytes()
+                try:
+                    result = reader.verify(data)
+                except reader.Refusal as exc:
+                    result = {"status": "refused", "reason": str(exc)}
+                self.assertEqual({key: result[key] for key in ("status", "reason")},
+                                 case["expected"])
+
+    def test_nested_and_root_duplicates_are_refused(self) -> None:
+        for data in (b'{"a":1,"a":2}', b'{"a":{"b":1,"b":2}}'):
+            with self.assertRaisesRegex(reader.Refusal, "duplicate-member"):
+                reader.strict_json(data)
+
+    def test_json_constants_invalid_utf8_depth_and_size_are_refused(self) -> None:
+        for data in (b'NaN', b'Infinity', b'"\xff"'):
+            with self.subTest(data_size=len(data)):
+                with self.assertRaisesRegex(reader.Refusal, "json-syntax"):
+                    reader.strict_json(data)
+        with self.assertRaisesRegex(reader.Refusal, "json-depth-or-nodes"):
+            reader.strict_json(b'[' * 40 + b']' * 40)
+        with self.assertRaisesRegex(reader.Refusal, "json-size"):
+            reader.strict_json(b" " * (reader.MAX_JSON + 1))
+
+    def test_historical_files_are_unchanged(self) -> None:
+        sources = json.loads((ROOT / "SOURCE-INPUTS.json").read_bytes())
+        offline = ROOT.parent / "agentid-offline"
+        for item in sources["files"]:
+            with self.subTest(path=item["path"]):
+                self.assertEqual(hashlib.sha256((offline / item["path"]).read_bytes()).hexdigest(),
+                                 item["sha256"])
+        self.assertEqual(hashlib.sha256((offline / "reader.py").read_bytes()).hexdigest(),
+                         sources["native_reader_source"]["sha256"])
+
+    def test_manifest_selected_bytes_and_population(self) -> None:
+        report = reader.corpus(MANIFEST, reader.sha256(MANIFEST.read_bytes()))
+        self.assertEqual(report["matched"], 36)
+        self.assertEqual(report["planned"], 36)
+        self.assertTrue(report["unsigned"])
+        self.assertFalse(report["host_adoption"])
+        with self.assertRaisesRegex(reader.Refusal, "manifest-pin"):
+            reader.corpus(MANIFEST, "0" * 64)
+
+
+class ProcessTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.copy = self.root / "candidate"
+        shutil.copytree(ROOT, self.copy, ignore=shutil.ignore_patterns("__pycache__"))
+
+    def command(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run([sys.executable, str(self.copy / "reader.py"), *args],
+                              text=True, capture_output=True, check=False, timeout=20)
+
+    def run_corpus(self, output: Path, pin: str | None = None) -> subprocess.CompletedProcess[str]:
+        manifest = self.copy / "MANIFEST.json"
+        return self.command("corpus", str(manifest), "--manifest-sha256",
+                            pin or reader.sha256(manifest.read_bytes()),
+                            "--output-dir", str(output))
+
+    def test_actual_accept_and_refuse_exit_codes(self) -> None:
+        self.assertEqual(self.command("check", str(self.copy / "cases/ATF-001.json")).returncode, 0)
+        result = self.command("check", str(self.copy / "cases/ATF-010.json"))
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(json.loads(result.stderr)["reason"], "tuple-mismatch")
+
+    def test_fresh_report_and_stale_output_refusal(self) -> None:
+        output = self.root / "first"
+        self.assertEqual(self.run_corpus(output).returncode, 0)
+        before = (output / "report.json").read_bytes()
+        self.assertEqual(self.run_corpus(output).returncode, 2)
+        self.assertEqual((output / "report.json").read_bytes(), before)
+        empty = self.root / "empty"
+        empty.mkdir()
+        self.assertEqual(self.run_corpus(empty).returncode, 2)
+        self.assertFalse((empty / "report.json").exists())
+
+    def test_wrong_selected_pin_and_changed_reader_refuse_without_report(self) -> None:
+        output = self.root / "wrong-pin"
+        self.assertEqual(self.run_corpus(output, "0" * 64).returncode, 2)
+        self.assertFalse((output / "report.json").exists())
+        path = self.copy / "reader.py"
+        path.write_bytes(path.read_bytes() + b"\n# changed source\n")
+        output = self.root / "changed-reader"
+        self.assertEqual(self.run_corpus(output).returncode, 2)
+        self.assertFalse((output / "report.json").exists())
+
+    def test_changed_case_extra_case_and_symlink_refuse(self) -> None:
+        case = self.copy / "cases/ATF-001.json"
+        original = case.read_bytes()
+        case.write_bytes(original + b"\n")
+        self.assertEqual(self.run_corpus(self.root / "changed-case").returncode, 2)
+        case.write_bytes(original)
+        extra = self.copy / "cases/extra.json"
+        extra.write_bytes(original)
+        self.assertEqual(self.run_corpus(self.root / "extra-case").returncode, 2)
+        extra.unlink()
+        case.unlink()
+        case.symlink_to(ROOT / "cases/ATF-001.json")
+        self.assertEqual(self.run_corpus(self.root / "symlink").returncode, 2)
+
+
+if __name__ == "__main__":
+    unittest.main()

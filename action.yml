@@ -2,14 +2,9 @@ name: "agent-evidence-vectors"
 description: "Replay the agent-evidence-vectors conformance corpus against your verifier and publish the report"
 author: "Sankalp Gilda"
 
-# The delivery shape is lifted from theupdateframework/tuf-conformance: a
-# composite action a client project points at its own executable, a results
-# JSON uploaded under a fixed artifact name so a scoreboard elsewhere can pull
-# it by name and render a missing consumer as "not found" rather than dropping
-# it, and a job summary a reviewer reads without opening the log. The contract
-# a consumer's verifier speaks is the external-implementation contract in
-# README.md: invoked as `<cmd> <vector-file>`, a verdict in the exit status,
-# and the last stdout line a JSON object carrying the condition codes.
+# Replay a consumer's verifier and retain its results. The interface is in
+# docs/reference/verifier-contract.md; workflow examples are in
+# docs/guides/runner.md.
 
 branding:
   icon: "check-square"
@@ -49,6 +44,13 @@ inputs:
     description: "Where the report JSON is written, relative to the workspace."
     required: false
     default: "agent-evidence-vectors-report.json"
+  retention-days:
+    description: >-
+      Days GitHub keeps the uploaded report artifact. The default, 30, is what
+      every earlier release of this action used. The repository or organisation
+      retention setting caps it, and GitHub refuses a value outside 1 to 90.
+    required: false
+    default: "30"
 
 outputs:
   report:
@@ -134,7 +136,7 @@ runs:
         name: ${{ inputs.artifact-name }}
         path: ${{ steps.replay.outputs.report }}
         overwrite: true
-        retention-days: 30
+        retention-days: ${{ inputs.retention-days }}
 
     # Keyed on the summary's verdict as well as the exit status. The status
     # alone once turned a replay on the harness's own reference rail into a

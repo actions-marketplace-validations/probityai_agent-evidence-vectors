@@ -1,53 +1,12 @@
 #!/usr/bin/env python3
-"""Mutation proof for ``distribution-gate.py``.
+"""Mutation tests for ``distribution-gate.py``.
 
-A gate nobody has watched fail is a gate nobody has watched. Each case below
-breaks one of the things the gate is for, in the shape that break would actually
-arrive in, and requires a refusal that names it.
+The control uses a committed, tagged copy of the gate's real inputs. Each
+mutation must change that copy, exit nonzero, and identify the broken claim.
+The cases cover recipe location and bytes, release pins, module paths, and
+both directions of corpus-table and run-form membership.
 
-The recipe case edits one command in the inbound copy, which is how the drift
-would really happen: somebody fixes a command in the README where it is
-explained and never opens the second copy. The tag case bumps `CITATION.cff` and
-leaves the prose behind, which is the ordering a release takes -- the citation
-file is what a deposit reads, so it moves first. Four corpus cases cover the four
-directions separately: a tracked corpus with no row, a row with no corpus, a
-tracked corpus the run form does not offer, and an option the corpus set no
-longer holds. They are separate cases because a gate that catches one of them can
-be written without catching the others, and a missing-from-the-form corpus in
-particular fails silently in the only place a stranger is asked to report a run.
-A fifth renames a suite. Four more cover the module path: an install path that
-is not this module's, a pinned tag whose `go.mod` declares a different path
-(which is the shape a renamed owner leaves behind, and the shape that shipped),
-a pinned tag this clone does not hold (which must report as a check that did not
-run, never as a pass), and a `go.mod` with two module lines. The last case
-renames the heading the recipe is found under, which is the failure that would
-otherwise turn the whole recipe check into a no-op while the gate still printed
-OK.
-
-Two guards make the cases mean something. Every mutation hashes the file it
-edits before and after and refuses when they match, so a mutation that silently
-missed cannot report success. And the control asserts the unmutated copy passes,
-so a gate that fails on everything cannot masquerade as a gate that catches
-these.
-
-The staged copy is a real git repository, initialised, committed AND TAGGED,
-because the gate reads two things out of git on purpose: it enumerates corpora
-with `git ls-files`, since the tracked tree is what a tag publishes, and it reads
-`go.mod` at the pinned tag, since that is the byte-for-byte content a module
-proxy serves for that tag. A test that handed it a bare directory would be
-testing a different enumeration and skipping the tag read entirely.
-
-The staged page's install path is REPAIRED to the staged `go.mod`'s module path
-before the control runs, and the repair is asserted rather than assumed. That is
-not the test papering over the tree: the tree it copies genuinely fails this
-check right now, because every released tag predates the module path moving and
-the page therefore still pins the old spelling on purpose. A control that failed
-would make all thirteen refusals below meaningless, so the fixture is built in
-the state the tree reaches when that tag is cut, and the tree's own current
-failure is the gate doing its job rather than a case to encode here.
-
-Usage: python3 scripts/distribution-gate-test.py
-Exit 0 when every case behaves; 1 otherwise.
+Usage: ``python3 scripts/distribution-gate-test.py``.
 """
 
 from __future__ import annotations
@@ -64,7 +23,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 GATE_REL = Path("scripts") / "distribution-gate.py"
-README_REL = Path("README.md")
+RECIPE_REL = Path("docs/reference/release-verification.md")
 PAGE_REL = Path("DISTRIBUTION.md")
 CITATION_REL = Path("CITATION.cff")
 GOMOD_REL = Path("go.mod")
@@ -128,7 +87,8 @@ def _staged_copy(tmp: Path) -> Path:
     (root / "scripts").mkdir(parents=True)
     (root / FORM_REL.parent).mkdir(parents=True)
     shutil.copy2(REPO_ROOT / GATE_REL, root / GATE_REL)
-    for rel in (README_REL, PAGE_REL, CITATION_REL, FORM_REL, GOMOD_REL):
+    for rel in (RECIPE_REL, PAGE_REL, CITATION_REL, FORM_REL, GOMOD_REL):
+        (root / rel.parent).mkdir(parents=True, exist_ok=True)
         shutil.copy2(REPO_ROOT / rel, root / rel)
     for manifest in sorted(REPO_ROOT.glob("vectors*/MANIFEST.json")):
         target = root / manifest.parent.name / "MANIFEST.json"
@@ -174,7 +134,7 @@ def _edit(root: Path, rel: Path, change: Callable[[str], str]) -> None:
 
 
 def case_recipe_drift(root: Path) -> str:
-    """One command fixed in the README and not in the copy."""
+    """One command changed in the reference page and not in the copy."""
     _edit(
         root,
         PAGE_REL,
@@ -256,22 +216,11 @@ def case_phantom_option(root: Path) -> str:
 
 
 def case_stale_tag_in_prose(root: Path) -> str:
-    """A version token in an ordinary sentence, left behind by a release.
-
-    The three tag claims are each found by their own regex, so a tag named in a
-    sentence none of them describes -- the releases row of the identifier table
-    names one -- would be owned by nothing. This breaks that token and nothing
-    else, so it fails only if the shape-based sweep is doing the work.
-    """
-    current = released_version(root)
+    """A stale tag outside the named claim sites must still fail."""
     _edit(
         root,
         PAGE_REL,
-        lambda text: text.replace(
-            f"`v{current}` is current",
-            "`v0.9.0` is current",
-            1,
-        ),
+        lambda text: text + "\nThe released tag is `v0.9.0`.\n",
     )
     return "the backticked version token `v0.9.0`"
 
@@ -296,7 +245,11 @@ def case_suite_renamed(root: Path) -> str:
     manifest = root / "vectors-aci" / "MANIFEST.json"
     loaded = json.loads(manifest.read_text(encoding="utf-8"))
     loaded["suite"] = "aci-renamed"
-    _edit(root, Path("vectors-aci") / "MANIFEST.json", lambda _: json.dumps(loaded, indent=2))
+    _edit(
+        root,
+        Path("vectors-aci") / "MANIFEST.json",
+        lambda _: json.dumps(loaded, indent=2),
+    )
     return "tables it as"
 
 
@@ -307,7 +260,9 @@ def case_install_path_not_ours(root: Path) -> str:
         root,
         PAGE_REL,
         lambda text: text.replace(
-            f"go install {package}@{tag}", f"go install {OTHER_OWNER}/cmd/aee-verify@{tag}", 1
+            f"go install {package}@{tag}",
+            f"go install {OTHER_OWNER}/cmd/aee-verify@{tag}",
+            1,
         ),
     )
     return "does not publish"
@@ -353,7 +308,7 @@ def case_heading_renamed(root: Path) -> str:
     """The recipe stops being findable by its own name."""
     _edit(
         root,
-        README_REL,
+        RECIPE_REL,
         lambda text: text.replace(
             "## Verify a release without trusting us",
             "## Checking a release",
@@ -361,6 +316,67 @@ def case_heading_renamed(root: Path) -> str:
         ),
     )
     return "has no heading"
+
+
+def case_recipe_missing(root: Path) -> str:
+    """A heading without a recipe cannot pass by finding another section."""
+    _edit(
+        root,
+        RECIPE_REL,
+        lambda text: re.sub(r"(?ms)^```[^\n]*\n.*?^```[ \t]*$", "", text, count=1),
+    )
+    return "no fenced block under it"
+
+
+def case_recipe_moved(root: Path) -> str:
+    """The recipe is present but belongs to a different section."""
+    _edit(
+        root,
+        RECIPE_REL,
+        lambda text: text.replace("```bash", "## A different section\n\n```bash", 1),
+    )
+    return "no fenced block under it"
+
+
+def case_recipe_unclosed(root: Path) -> str:
+    """An opening fence without its closing line is incomplete."""
+    _edit(
+        root,
+        RECIPE_REL,
+        lambda text: re.sub(r"(?m)^```[ \t]*$", "", text, count=1),
+    )
+    return "is never closed"
+
+
+def case_heading_duplicated(root: Path) -> str:
+    """Two recipe sections would leave the checked copy ambiguous."""
+    _edit(
+        root,
+        RECIPE_REL,
+        lambda text: text + "\n## Verify a release without trusting us\n",
+    )
+    return "expected one"
+
+
+def case_recipe_file_missing(root: Path) -> str:
+    """A deleted reference page must be reported rather than skipped."""
+    path = root / RECIPE_REL
+    if not path.is_file():
+        raise AssertionError("the staged reference page does not exist")
+    path.unlink()
+    return f"{RECIPE_REL} does not exist"
+
+
+def case_recipe_pin_stale(root: Path) -> str:
+    """Matching copies of an old recipe still name the wrong release."""
+    _, tag = _install_of(root)
+    for rel in (RECIPE_REL, PAGE_REL):
+        _edit(
+            root,
+            rel,
+            lambda text: text.replace(f"git checkout {tag}", "git checkout v99.0.0"),
+        )
+    return "the recipe's `git checkout` names v99.0.0"
 
 
 CASES: tuple[tuple[str, Callable[[Path], str]], ...] = (
@@ -371,15 +387,27 @@ CASES: tuple[tuple[str, Callable[[Path], str]], ...] = (
     ("a tracked corpus the run form does not offer", case_unoffered_corpus),
     ("a run-form option for a corpus that is not tracked", case_phantom_option),
     ("a row for a corpus that is not tracked", case_phantom_row),
-    ("a corpus whose suite name the table still spells the old way", case_suite_renamed),
+    (
+        "a corpus whose suite name the table still spells the old way",
+        case_suite_renamed,
+    ),
     (
         "an install command for a module path this repository does not publish",
         case_install_path_not_ours,
     ),
-    ("a pinned tag cut before the module path moved", case_tag_predates_the_module_path),
+    (
+        "a pinned tag cut before the module path moved",
+        case_tag_predates_the_module_path,
+    ),
     ("a pinned tag this clone does not hold", case_pinned_tag_absent),
     ("a go.mod declaring the module path twice", case_two_module_lines),
     ("the recipe's heading renamed out from under the gate", case_heading_renamed),
+    ("the reference recipe removed", case_recipe_missing),
+    ("the recipe moved into another section", case_recipe_moved),
+    ("the reference recipe's closing fence removed", case_recipe_unclosed),
+    ("the recipe heading duplicated", case_heading_duplicated),
+    ("the recipe reference page deleted", case_recipe_file_missing),
+    ("both recipe copies retain a stale release pin", case_recipe_pin_stale),
 )
 
 

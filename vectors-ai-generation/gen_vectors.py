@@ -6,7 +6,7 @@
 
 The subject under test is a verifier of the generation predicate
 ``https://open-fab.ai/attestation/generation/v0.1`` at specification revision
-0.1.4, in its default attest-only mode: recompute the artifact digests, verify
+0.1.5, in its default attest-only mode: recompute the artifact digests, verify
 the ed25519 signatures over the canonical statement, and read attribution from
 the predicate without executing anything.
 
@@ -24,8 +24,8 @@ revision as written, and a reject cites the clause it breaks. ``proposed``
 members depend on text the revision does not yet carry; each declares what the
 revision as written says about it and what the proposal in
 ``docs/proposals/ai-generation-v01-findings.md`` says, and a verifier is never
-failed on one. Revision 0.1.4 adopted the six findings that document opened
-with, so what remains proposed is the two rules it has not taken.
+failed on one. Revision 0.1.5 adopts all eight findings, including the overlap and
+trailer checks, so this corpus has no proposed members.
 """
 
 from __future__ import annotations
@@ -60,11 +60,11 @@ STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 PAYLOAD_TYPE = "application/vnd.in-toto+json"
 TRACKS_UPSTREAM = "ossf/tac#628"
 SPEC_UPSTREAM_REPO = "Open-fab-ai/openfab"
-SPEC_UPSTREAM_COMMIT = "17b964ee24b2cb7b751aebf9ed51524a5a9e1bd8"
-SPEC_REVISION = "0.1.4"
-SPEC_VENDORED = "spec-vendored/generation-predicate-v0.1-17b964ee.md"
-SCHEMA_VENDORED = "spec-vendored/generation-predicate-schema-17b964ee.json"
-LICENSE_VENDORED = "spec-vendored/LICENSE-17b964ee"
+SPEC_UPSTREAM_COMMIT = "13fd0a8b89399e02dbc9a0322b2c34d3466cbf15"
+SPEC_REVISION = "0.1.5"
+SPEC_VENDORED = "spec-vendored/generation-predicate-v0.1-13fd0a8b.md"
+SCHEMA_VENDORED = "spec-vendored/generation-predicate-schema-13fd0a8b.json"
+LICENSE_VENDORED = "spec-vendored/LICENSE-13fd0a8b"
 PROPOSED_TEXT = "docs/proposals/ai-generation-v01-findings.md"
 ID_HEX = 16
 
@@ -74,7 +74,7 @@ ID_HEX = 16
 # moved is refused before anything is written. The subject of every one is the
 # upstream generator's "source bundle", whose digest is that of the four bytes
 # "test", and its one generated range is the line "hello" with its LF.
-UPSTREAM_DIR = "upstream-vectors/17b964ee"
+UPSTREAM_DIR = "upstream-vectors/13fd0a8b"
 UPSTREAM_PATH = "docs/vectors"
 UPSTREAM_SUBJECT = b"test"
 UPSTREAM_RANGE_FILE = b"hello\n"
@@ -278,13 +278,15 @@ CONDITIONS: dict[str, dict[str, str]] = {
         "four complete signed attestations, one from each reference implementation, with and "
         "without sign-offs, cross-verified in its own CI.",
     },
-    "ofg-p-1": {
+    "ofg-c-23": {
         "requires": "Attribution ranges for one path do not overlap.",
-        "gap": "The revision permits two ranges to claim different origins for one line.",
+        "clause": "Predicate fields: ranges for one path MUST NOT overlap, and verifiers "
+        "MUST refuse overlapping or malformed ranges (rev 0.1.5).",
     },
-    "ofg-p-2": {
+    "ofg-c-24": {
         "requires": "A supplied Assisted-by trailer matches agent.id and agent.tools.",
-        "gap": "The revision makes the cross-check a MAY, so a disagreeing trailer passes.",
+        "clause": "Disclosure trailers: a verifier given Assisted-by trailer lines MUST "
+        "compare them against the attestation; a disagreement fails verification (rev 0.1.5).",
     },
 }
 
@@ -907,7 +909,7 @@ def attribution_members() -> list[dict[str, Any]]:
         attestation(
             "ranges-disjoint",
             "accept",
-            ["ofg-p-1"],
+            ["ofg-c-23"],
             signed(overlap_statement([("1-9", "human"), ("10-30", "ai")])),
             artifacts=overlap_artifacts(),
             expected=valid(),
@@ -915,19 +917,19 @@ def attribution_members() -> list[dict[str, Any]]:
         ),
         attestation(
             "ranges-overlap",
-            "proposed",
-            ["ofg-p-1"],
+            "reject",
+            ["ofg-c-23"],
             signed(overlap_statement([("1-20", "ai"), ("10-30", "human")])),
             artifacts=overlap_artifacts(),
             parent="ranges-disjoint",
-            expected=proposed(valid(), invalid("attribution-ranges-overlap")),
+            expected=invalid("attribution-ranges-overlap"),
             cites="lines 10 to 20 of one file claimed as both AI-generated and human-written. "
-            "Revision 0.1.4 has no rule against it.",
+            "Revision 0.1.5 requires refusal.",
         ),
         attestation(
             "trailer-agrees",
             "accept",
-            ["ofg-p-2"],
+            ["ofg-c-24"],
             base,
             trailer=TRAILER_AGREES,
             expected=valid(),
@@ -935,14 +937,14 @@ def attribution_members() -> list[dict[str, Any]]:
         ),
         attestation(
             "trailer-disagrees",
-            "proposed",
-            ["ofg-p-2"],
+            "reject",
+            ["ofg-c-24"],
             base,
             trailer=TRAILER_DISAGREES,
             parent="trailer-agrees",
-            expected=proposed(valid(), invalid("trailer-disagrees")),
+            expected=invalid("trailer-disagrees"),
             cites="the base attestation beside a commit whose Assisted-by trailer names a "
-            "different model. The revision lets a verifier skip the cross-check.",
+            "different model. Revision 0.1.5 makes the supplied-trailer cross-check mandatory.",
         ),
     ]
 
@@ -1244,9 +1246,9 @@ of the generation predicate `{PREDICATE_TYPE}` at specification revision
 This corpus is {total} vectors, of which {accept} a conformant verifier must not
 fail closed on and {reject} it must reject.
 
-The remaining members are graded `proposed`: each declares what revision
-{SPEC_REVISION} says about it and what `../{PROPOSED_TEXT}` proposes, and a
-verifier is never failed on one.
+There are no proposed members. Revision 0.1.5 makes overlapping ranges and
+supplied-trailer disagreement required refusals. The historical findings remain
+in `../{PROPOSED_TEXT}` with their adopted status.
 
 The specification, its JSON Schema and its licence are vendored under
 `spec-vendored/` and pinned by digest in the manifest. The golden member is

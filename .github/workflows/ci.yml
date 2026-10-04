@@ -8,6 +8,8 @@ name: ci
 # rail. Nothing here needs the repository to be public.
 
 on:
+  # Bot-token merges suppress push events; allow the native jobs on exact main.
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
@@ -219,7 +221,7 @@ jobs:
       - name: Install checkout wheel for distribution imports
         run: uv pip install --no-deps .
       - name: mypy --strict
-        run: uv run mypy packaging/run_vectors.py packaging/agent_evidence_vectors/w3creport.py packaging/agent_evidence_vectors/observedeffect.py packaging/agent_evidence_vectors/auditrecord.py packaging/agent_evidence_vectors/runmetrics.py packaging/agent_evidence_vectors/contextdiscovery.py vectors-w3c-report/gen_vectors.py vectors-w3c-report/origin/derive_pairs.py scripts/w3c-rails-parity-test.py scripts/w3c-report-rules-test.py packaging/agent_evidence_vectors/receiptsignature.py scripts/receipt-signature-rails-test.py vectors-receipt-signature/digest.py vectors-receipt-signature/tools/veritasacta-verify.py scripts/gen-w3c-appendix.py vectors/reject/gen_invalid_vectors.py vectors/accept/gen_valid_vectors.py vectors/gen_manifest.py scripts/spec-drift-gate.py scripts/interpretation-registry-gate.py scripts/interpretation-registry-gate-test.py scripts/coverage-matrix-gate.py scripts/complexity-table-gate.py scripts/specpins.py scripts/spec-anchor-gate.py scripts/spec-anchor-gate-test.py scripts/code-contract-gate.py scripts/code-contract-gate-test.py scripts/consumer-lag-gate.py scripts/consumer-lag-gate-test.py scripts/independent-runs-gate.py scripts/suite-commit-gate.py scripts/suite-commit-gate-test.py scripts/condition-registry-gate.py scripts/condition-registry-gate-test.py scripts/condition-forcing-gate.py scripts/condition-forcing-gate-test.py scripts/condition-forcing-crosscheck.py scripts/condition-forcing-crosscheck-test.py scripts/external-rail-gate.py scripts/predicate-state-gate.py scripts/forcing-gate.py scripts/forcing-gate-test.py scripts/countcensus.py scripts/countcensus-sparse-test.py scripts/count-gate.py scripts/count-gate-test.py scripts/distribution-gate.py scripts/distribution-gate-test.py scripts/regenerability-gate.py scripts/mutationdiff.py scripts/accept-anchor-gate.py scripts/accept-anchor-gate-test.py scripts/liveness-probe.py scripts/liveness-probe-test.py scripts/citation-metadata-gate.py scripts/citation-metadata-gate-test.py scripts/expectation-slack-gate.py scripts/expectation-slack-gate-test.py scripts/observed-code-closure-gate.py scripts/observed-code-closure-gate-test.py scripts/uncited-crosscheck-gate.py scripts/reading-differential.py scripts/reading-differential-test.py scripts/vendor-remap-test.py scripts/vector-distinctness-gate.py scripts/vector-distinctness-gate-test.py scripts/surface-leakage-gate.py scripts/surface-leakage-gate-test.py scripts/harness-output-contract-test.py scripts/verifier-must-run-test.py scripts/workflow-steps-gate.py scripts/workflow-steps-gate-test.py scripts/_lockfile.py scripts/_lockfile-test.py scripts/manifest-revision-test.py scripts/statement-layer-test.py scripts/independent-runs-gate-test.py scripts/indeterminate-readers-test.py scripts/indeterminate-scoring-gate.py scripts/indeterminate-scoring-gate-test.py
+        run: uv run mypy packaging/run_vectors.py packaging/agent_evidence_vectors/w3creport.py packaging/agent_evidence_vectors/observedeffect.py packaging/agent_evidence_vectors/auditrecord.py packaging/agent_evidence_vectors/runmetrics.py packaging/agent_evidence_vectors/contextdiscovery.py vectors-w3c-report/gen_vectors.py vectors-w3c-report/origin/derive_pairs.py scripts/w3c-rails-parity-test.py scripts/w3c-report-rules-test.py packaging/agent_evidence_vectors/receiptsignature.py scripts/receipt-signature-rails-test.py vectors-receipt-signature/digest.py vectors-receipt-signature/tools/veritasacta-verify.py scripts/gen-w3c-appendix.py vectors/reject/gen_invalid_vectors.py vectors/accept/gen_valid_vectors.py vectors/gen_manifest.py scripts/spec-drift-gate.py scripts/interpretation-registry-gate.py scripts/interpretation-registry-gate-test.py scripts/coverage-matrix-gate.py scripts/complexity-table-gate.py scripts/specpins.py scripts/spec-anchor-gate.py scripts/spec-anchor-gate-test.py scripts/code-contract-gate.py scripts/code-contract-gate-test.py scripts/consumer-lag-gate.py scripts/consumer-lag-gate-test.py scripts/independent-runs-gate.py scripts/suite-commit-gate.py scripts/suite-commit-gate-test.py scripts/condition-registry-gate.py scripts/condition-registry-gate-test.py scripts/condition-forcing-gate.py scripts/condition-forcing-gate-test.py scripts/condition-forcing-crosscheck.py scripts/condition-forcing-crosscheck-test.py scripts/external-rail-gate.py scripts/predicate-state-gate.py scripts/forcing-gate.py scripts/forcing-gate-test.py scripts/countcensus.py scripts/countcensus-sparse-test.py scripts/count-gate.py scripts/count-gate-test.py scripts/distribution-gate.py scripts/distribution-gate-test.py scripts/test_doc_gate_migration.py scripts/test_site_navigation.py docs/site/build.py scripts/regenerability-gate.py scripts/mutationdiff.py scripts/accept-anchor-gate.py scripts/accept-anchor-gate-test.py scripts/liveness-probe.py scripts/liveness-probe-test.py scripts/citation-metadata-gate.py scripts/citation-metadata-gate-test.py scripts/expectation-slack-gate.py scripts/expectation-slack-gate-test.py scripts/observed-code-closure-gate.py scripts/observed-code-closure-gate-test.py scripts/uncited-crosscheck-gate.py scripts/reading-differential.py scripts/reading-differential-test.py scripts/vendor-remap-test.py scripts/vector-distinctness-gate.py scripts/vector-distinctness-gate-test.py scripts/surface-leakage-gate.py scripts/surface-leakage-gate-test.py scripts/harness-output-contract-test.py scripts/verifier-must-run-test.py scripts/report-provenance-test.py scripts/action-retention-test.py scripts/verify-release-tag.py scripts/verify-release-tag-test.py scripts/workflow-steps-gate.py scripts/workflow-steps-gate-test.py scripts/_lockfile.py scripts/_lockfile-test.py scripts/manifest-revision-test.py scripts/statement-layer-test.py scripts/independent-runs-gate-test.py scripts/indeterminate-readers-test.py scripts/indeterminate-scoring-gate.py scripts/indeterminate-scoring-gate-test.py interop/action-tuple-framed-v1/reader.py
       # Type-checks by DIRECTORY, which is why it sits beside the pass above
       # rather than replacing it. That one is driven from the list of files
       # written out on the line above, and a list is only accurate on the day it
@@ -235,10 +237,28 @@ jobs:
       # workflow-steps-gate.py runs every shell step in this directory before a
       # push, so declaring it here is what makes it run locally too. There is no
       # second place to register it and no second place to forget.
+      - name: strict Gemara reader and test types
+        run: uv run mypy interop/gemara-method-link
       - name: type-check every python file
         run: uv run python scripts/typecheck-gate.py
       - name: ruff
-        run: uv run ruff check packaging vectors vectors-observed-effect vectors-agent-audit-record vectors-ai-generation vectors-receipt-signature vectors-source-coverage vectors-self-reported-record scripts
+        run: uv run ruff check packaging vectors vectors-observed-effect vectors-agent-audit-record vectors-ai-generation vectors-receipt-signature vectors-source-coverage vectors-self-reported-record scripts interop/gemara-method-link interop/ws4-prior-witness-candidate interop/agentavow-live-mcp interop/agentavow-signed-map-v1 interop/a2a-s3-retain-2026-10-01 interop/a2a-s4-dual-name-2026-10-02 interop/action-tuple-framed-v1
+      - name: E2 compatibility tests in the shared development environment
+        run: uv run python -m pytest -q interop/aps-priorseal-e2-2026-09-30/test_reproduction.py
+      - name: WS4 prior witness candidate cases
+        run: |
+          PYTHONPATH=packaging uv run python interop/ws4-prior-witness-candidate/gen_fixture.py --check
+          PYTHONPATH=packaging uv run python -m unittest discover -s interop/ws4-prior-witness-candidate -p 'test_profile.py'
+      - name: Live MCP named-tool definition cases
+        run: |
+          PYTHONPATH=packaging uv run python interop/agentavow-live-mcp/build_cases.py --check
+          PYTHONPATH=packaging uv run python interop/agentavow-live-mcp/run.py
+          PYTHONPATH=packaging uv run python -m unittest discover -s interop/agentavow-live-mcp -p 'test_definition_pin.py'
+      - name: E2 reports reproduce in the shared development environment
+        run: |
+          cd interop/aps-priorseal-e2-2026-09-30
+          sh fetch_inputs.sh
+          uv run python check_reproduction.py
       # The other half of the accepted-complexity gate. It runs here rather than
       # beside the Go half because it measures with ruff, and it measures with
       # --ignore-noqa because the marker that brings a function into
@@ -671,17 +691,12 @@ jobs:
           python3 scripts/count-gate.py
           python3 scripts/count-gate-test.py
           python3 scripts/countcensus-sparse-test.py
-      # The inbound page is the one document whose reader has already decided to
-      # trust nobody here, and everything on it is a copy of something the
-      # repository states elsewhere: the verification recipe is the README's, the
-      # tag is CITATION.cff's, the corpora table and the run form's dropdown are
-      # the tracked corpus set. Nothing ran a markdown fence, so a command fixed
-      # in the README and not in the copy would fail in exactly that reader's
-      # hands and nowhere else.
-      - name: the inbound page still describes the repository it ships with
+      # Keep the release recipe, corpus list and form aligned with their sources.
+      - name: check distribution metadata and release recipe
         run: |
           python3 scripts/distribution-gate.py
           python3 scripts/distribution-gate-test.py
+          uv run --extra dev python -m pytest -q scripts/test_doc_gate_migration.py
       # The pre-push mirror runs every step of every workflow locally, and it
       # ran them under a plain bash while Actions runs them under `bash -e`.
       # A step with one command cannot tell the two apart; a step with several
@@ -872,6 +887,21 @@ jobs:
       # requiring itself to go red.
       - name: a named verifier runs, or the harness says it did not
         run: python3 scripts/verifier-must-run-test.py
+      # A report names the corpus release and digest it ran, matched against
+      # the signed digest list. The test ends by deleting the block in a copy of
+      # the harness and requiring itself to go red.
+      - name: a report names the corpus release and digest it ran
+        run: python3 scripts/report-provenance-test.py
+      # The report's retention period is an input with the old fixed value as
+      # its default; the test restores the fixed number in a copy of the action
+      # and requires itself to go red.
+      - name: the action's report retention is an input
+        run: uv run python scripts/action-retention-test.py
+      # The release tag check accepts only a tag signed by the pinned key. The
+      # test builds throwaway keys and ends by deleting the fingerprint pin in
+      # a copy of the script and requiring itself to go red.
+      - name: the release tag check refuses a tag the pinned key did not sign
+        run: python3 scripts/verify-release-tag-test.py
 
   # What the corpus FORCES, held as a tighten-only ratchet. A vector count is an
   # upper bound on forcing and never a measurement of it: a vector declaring

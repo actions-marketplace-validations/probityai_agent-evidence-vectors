@@ -38,6 +38,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 GATE = REPO_ROOT / "scripts" / "dispositions-gate.py"
 LEDGER = "docs/DISPOSITIONS.json"
 PUBLISHED = "DISPOSITIONS.md"
+INDEPENDENCE = "docs/research/independence.md"
 
 # Everything the gate reads. The recordedIn anchors reach outside the ledger, so
 # the staged tree has to carry those files too or the control case would fail for
@@ -47,7 +48,7 @@ STAGED = (
     PUBLISHED,
     "vectors/CHANGES.md",
     "vectors/MANIFEST.json",
-    "README.md",
+    INDEPENDENCE,
     "docs/interpretation-decisions-open.md",
 )
 
@@ -92,6 +93,33 @@ def broken_anchor(root: Path) -> None:
             "anchor", "a sentence no file in this repository contains"
         ),
     )
+
+
+def missing_independence_record(root: Path) -> None:
+    (root / INDEPENDENCE).unlink()
+
+
+def bound_finding_removed(root: Path) -> None:
+    remove_finding(
+        root,
+        "Five first-party rails selected depth 128; the independent checker selected 256 "
+        "under the same text.",
+    )
+
+
+def counting_finding_removed(root: Path) -> None:
+    remove_finding(
+        root,
+        "Go counted depth per parsed child, admitting an empty-container leaf one level "
+        "beyond the bound accepted by Python.",
+    )
+
+
+def remove_finding(root: Path, finding: str) -> None:
+    path = root / INDEPENDENCE
+    text = path.read_text(encoding="utf-8")
+    assert finding in text, f"the staged record does not contain {finding!r}"
+    path.write_text(text.replace(finding, "Removed for this test.", 1), encoding="utf-8")
 
 
 def unknown_resolution(root: Path) -> None:
@@ -148,6 +176,21 @@ CASES: tuple[tuple[str, Mutate, str], ...] = (
     ("a landing revision the changelog does not carry", unknown_revision, "owns revision"),
     ("a forcing vector the corpus does not contain", unknown_vector, "is not in vectors/MANIFEST"),
     ("a cited record that no longer carries its phrase", broken_anchor, "no longer carries"),
+    (
+        "the moved independence record is missing",
+        missing_independence_record,
+        "recordedIn names docs/research/independence.md, which does not exist",
+    ),
+    (
+        "the independent depth-bound finding is missing",
+        bound_finding_removed,
+        "DC-01: docs/research/independence.md no longer carries",
+    ),
+    (
+        "the independent depth-counting finding is missing",
+        counting_finding_removed,
+        "DC-02: docs/research/independence.md no longer carries",
+    ),
     ("a resolution outside the declared vocabulary", unknown_resolution, "is not one of"),
     ("an unresolved row with no residual", residual_missing, "absorbing a gap"),
     ("a row whose reason is blank", empty_reason, "says nothing"),

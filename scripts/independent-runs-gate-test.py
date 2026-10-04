@@ -40,11 +40,11 @@ STAGED = (
     "scripts/independent-runs-gate.py",
     "docs/INDEPENDENT-RUNS.json",
     "docs/IMPLEMENTATION-REPORT.md",
-    "README.md",
+    "docs/research/independence.md",
     "vectors/CHANGES.md",
 )
 LEDGER = "docs/INDEPENDENT-RUNS.json"
-README = "README.md"
+INDEPENDENCE = "docs/research/independence.md"
 # How many attempts the ledger holds, read from the ledger rather than written
 # down here. The first case asserts that the gate's accepting output names the
 # number it found, and a literal in this file would be a second place that number
@@ -98,7 +98,11 @@ def figures_not_null(root: Path) -> None:
 
     def change(ledger: dict[str, Any]) -> None:
         ledger["attempts"][0]["figures"] = [
-            {"figure": "9/9", "role": "score", "carriedIn": [{"file": README, "times": 1}]}
+            {
+                "figure": "9/9",
+                "role": "score",
+                "carriedIn": [{"file": INDEPENDENCE, "times": 1}],
+            }
         ]
 
     edit(root, change)
@@ -159,12 +163,53 @@ def unresolved_dispatch(root: Path) -> None:
 def prose_pairs_figure_with_dispatch(root: Path) -> None:
     """The one way a figure can attach to an attempt through prose alone: a
     sentence naming the dispatch and a score together."""
-    path = root / README
+    path = root / INDEPENDENCE
     path.write_text(
         path.read_text(encoding="utf-8")
         + "\n\nThe contained dispatch at actions/runs/35194072925 returned 9/9.\n",
         encoding="utf-8",
     )
+
+
+def replace_prose(root: Path, old: str, new: str) -> None:
+    path = root / INDEPENDENCE
+    text = path.read_text(encoding="utf-8")
+    assert old in text, f"mutation anchor {old!r} moved"
+    path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
+def scope_removed(root: Path) -> None:
+    replace_prose(
+        root,
+        "It has not been run against suiteRevision ",
+        "The historical list of unrun revisions is ",
+    )
+
+
+def scope_changed(root: Path) -> None:
+    replace_prose(
+        root,
+        "It has not been run against suiteRevision 4, ",
+        "It has not been run against suiteRevision 3, ",
+    )
+
+
+def figure_changed(root: Path) -> None:
+    ledger = json.loads((root / LEDGER).read_text(encoding="utf-8"))
+    figure = str(ledger["runs"][0]["figures"][0]["figure"])
+    numerator, denominator = figure.split("/")
+    replace_prose(root, figure, f"{int(numerator) - 1}/{denominator}")
+
+
+def quotation_changed(root: Path) -> None:
+    replace_prose(root, "This one is directed, and more so", "This one was directed, and more so")
+
+
+def stale_publication_location(root: Path) -> None:
+    def change(ledger: dict[str, Any]) -> None:
+        ledger["runs"][0]["figures"][0]["carriedIn"][0]["file"] = "README.md"
+
+    edit(root, change)
 
 
 CASES: tuple[Case, ...] = (
@@ -230,6 +275,36 @@ CASES: tuple[Case, ...] = (
         prose_pairs_figure_with_dispatch,
         False,
         ("names the dispatch of attempt", "invites a reader to take one as the other"),
+    ),
+    (
+        "the moved not-run claim cannot be removed",
+        scope_removed,
+        False,
+        (INDEPENDENCE, "scoping sentence was found 0 time(s)"),
+    ),
+    (
+        "the moved not-run set must still match the ledger",
+        scope_changed,
+        False,
+        (INDEPENDENCE, "but the ledger has no run for"),
+    ),
+    (
+        "a posted score cannot change on the moved page",
+        figure_changed,
+        False,
+        (INDEPENDENCE, "125/125", "a mention was altered"),
+    ),
+    (
+        "a recorded quotation cannot change on the moved page",
+        quotation_changed,
+        False,
+        (INDEPENDENCE, "does not carry the author's wording verbatim"),
+    ),
+    (
+        "the publication record cannot point back to the old README",
+        stale_publication_location,
+        False,
+        ("headline figure is not recorded as carried in", INDEPENDENCE),
     ),
 )
 

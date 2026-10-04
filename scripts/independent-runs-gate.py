@@ -121,7 +121,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LEDGER = REPO_ROOT / "docs" / "INDEPENDENT-RUNS.json"
 CHANGES = REPO_ROOT / "vectors" / "CHANGES.md"
-README = REPO_ROOT / "README.md"
+INDEPENDENCE = REPO_ROOT / "docs" / "research" / "independence.md"
 REPORT = REPO_ROOT / "docs" / "IMPLEMENTATION-REPORT.md"
 
 # `## suiteRevision 14 (the vendored text catches up with the corpus)`
@@ -138,7 +138,10 @@ EVIDENCE = ("blind", "first-run-unchanged-build", "directed")
 # literal values, and a set built from it will not difference against the set of
 # paths read out of a run record, which is an ordinary set of strings. These are
 # document paths that happen to be known here, not a closed enumeration.
-PUBLISHING_DOCS: tuple[str, ...] = ("README.md", "docs/IMPLEMENTATION-REPORT.md")
+PUBLISHING_DOCS: tuple[str, ...] = (
+    "docs/research/independence.md",
+    "docs/IMPLEMENTATION-REPORT.md",
+)
 # A value this repository can source, or a note saying it cannot. Exactly one,
 # because a field left null with nothing beside it and a field nobody thought
 # about are the same field in a diff.
@@ -169,7 +172,7 @@ class Site:
 
 SITES = (
     Site(
-        README,
+        INDEPENDENCE,
         "the independence section's scoping sentence",
         "It has not been run against suiteRevision ",
         ", so this suite publishes no score for it at any of them.",
