@@ -131,19 +131,21 @@ def own_action(inputs: dict[str, Any]) -> Local:
         return Local(None, "the action was used without a verifier input")
     corpus = str(inputs.get("corpus", "") or "vectors")
     report = str(inputs.get("report-path", "") or "agent-evidence-vectors-report.json")
-    report_path = "/tmp/" + pathlib.Path(report).name
+    report_name = pathlib.Path(report).name
     # The replay's status is captured rather than allowed to abort the block:
     # the action writes its summary and its outputs for a failing run too, and
     # the mirror has to reach the same place. The status is re-raised at the end
     # so a failing replay still fails this step, as the action's last step does.
     return Local(
+        ': "${RUNNER_TEMP:?RUNNER_TEMP is required}"\n'
+        f'report_path="$RUNNER_TEMP"/{shlex.quote(report_name)}\n'
         "status=0\n"
         "python3 packaging/run_vectors.py"
         f" --corpus {shlex.quote(corpus)}"
         f" --verifier {shlex.quote(verifier)}"
-        f" --report {shlex.quote(report_path)} || status=$?\n"
-        f'echo report={shlex.quote(report_path)} >> "$GITHUB_OUTPUT"\n'
-        f'REPORT={shlex.quote(report_path)} STATUS="$status" CORPUS={shlex.quote(corpus)} \\\n'
+        ' --report "$report_path" || status=$?\n'
+        'echo "report=$report_path" >> "$GITHUB_OUTPUT"\n'
+        f'REPORT="$report_path" STATUS="$status" CORPUS={shlex.quote(corpus)} \\\n'
         "  python3 scripts/action-summary.py\n"
         # The action's last step fails the job on the exit status OR on a
         # summary verdict other than pass, so the mirror does both.

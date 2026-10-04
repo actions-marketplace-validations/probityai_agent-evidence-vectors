@@ -6,6 +6,7 @@ import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { executionProvenance } from './provenance.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const args = new Map();
@@ -173,8 +174,8 @@ const receipts = [
     serialized_verifier: result, ...(parsed ? { parse_first_verifier: parsed } : {}) };
 });
 const report = {
-  schema: 'probity.aps-jcs.comparison.v1', controller: 'astrogilda', execution: 'author-operated',
-  executor: process.env.GITHUB_ACTIONS ? 'GitHub Actions hosted runner' : 'authorized cloud workspace',
+  schema: 'probity.aps-jcs.comparison.v1',
+  ...executionProvenance(),
   ...(process.env.GITHUB_RUN_ID ? { workflow_run_id: process.env.GITHUB_RUN_ID,
     workflow_run_attempt: process.env.GITHUB_RUN_ATTEMPT, executed_head: process.env.GITHUB_SHA } : {}),
   scope: 'pinned raw JSON admission, serializer bytes and finite signed receipt controls',
@@ -198,4 +199,6 @@ const report = {
 };
 if (args.has('output')) writeFileSync(args.get('output'), JSON.stringify(report, null, 2) + '\n');
 process.stdout.write(JSON.stringify({ node_version: report.node_version,
+  controller: report.controller, operator: report.operator, execution: report.execution,
+  harness_authorship: report.harness_authorship,
   native_admission_executed: report.native_admission_executed, summary: report.summary }) + '\n');

@@ -431,6 +431,106 @@ def github_env_and_runner_temp_carry_within_a_job() -> None:
     assert rc == 0, f"runner variables did not carry within a job, or leaked across jobs:\n{log}"
 
 
+def _corpus_harness_block() -> str:
+    """Read the production block; the test must exercise its actual paths."""
+    path = HERE.parent / ".github" / "workflows" / "ci.yml"
+    doc = GATE.load_yaml(path)  # type: ignore[attr-defined]
+    for step in GATE.steps_of(doc, path):  # type: ignore[attr-defined]
+        if step.name == "one harness judges every corpus":
+            assert step.run is not None
+            return str(step.run)
+    raise AssertionError("the corpus harness step is missing")
+
+
+def corpus_harness_outputs_are_owned_by_the_job() -> None:
+    """Two jobs with spaces in their paths must not share a verifier binary."""
+    with tempfile.TemporaryDirectory(prefix="aee paths ") as tmp:
+        root = pathlib.Path(tmp)
+        tools = root / "tools"
+        tools.mkdir()
+        go = tools / "go"
+        # Refuse a global output before writing it, even against the old block.
+        go.write_text(
+            '#!/bin/sh\n[ "$1" = build ] && [ "$2" = -o ] || exit 22\n'
+            '[ "$3" = "$RUNNER_TEMP/aee-verify" ] || exit 23\n'
+            'printf "#!/bin/sh\\nexit 0\\n" > "$3"\nchmod +x "$3"\n'
+        )
+        go.chmod(0o755)
+        (root / "vectors").mkdir()
+        (root / "vectors" / "MANIFEST.json").write_text("{}")
+        original = GATE.REPO  # type: ignore[attr-defined]
+        GATE.REPO = root  # type: ignore[attr-defined]
+        try:
+            for label in ("job one", "job two"):
+                directory = root / label
+                directory.mkdir()
+                env = {"PATH": f"{tools}:/usr/bin:/bin", "RUNNER_TEMP": str(directory)}
+                proc = GATE.run_step(_corpus_harness_block(), env)  # type: ignore[attr-defined]
+                assert proc.returncode == 0, proc.stdout + proc.stderr
+                assert (directory / "aee-verify").is_file()
+            assert (root / "job one" / "aee-verify").read_bytes() == (
+                root / "job two" / "aee-verify"
+            ).read_bytes()
+        finally:
+            GATE.REPO = original  # type: ignore[attr-defined]
+
+
+def job_owned_outputs_require_runner_context() -> None:
+    """Both producers refuse unset or empty context before running a tool."""
+    action = GATE.own_action({"verifier": "unused"})  # type: ignore[attr-defined]
+    assert action.run is not None
+    for block in (_corpus_harness_block(), action.run):
+        for extra in ({}, {"RUNNER_TEMP": ""}):
+            proc = GATE.run_step(block, {"PATH": "/usr/bin:/bin", **extra})  # type: ignore[attr-defined]
+            assert proc.returncode != 0, "missing runner context passed"
+            assert "RUNNER_TEMP is required" in proc.stderr, proc.stderr
+
+
+def action_report_path_reaches_the_summary_and_outputs() -> None:
+    """The real summary reads the report produced under the job's quoted path."""
+    local = GATE.own_action(  # type: ignore[attr-defined]
+        {"verifier": "fixture-only", "report-path": "report with spaces.json"}
+    )
+    assert local.run is not None
+    with tempfile.TemporaryDirectory(prefix="aee action paths ") as tmp:
+        root = pathlib.Path(tmp)
+        (root / "packaging").mkdir()
+        (root / "scripts").mkdir()
+        (root / "scripts" / "action-summary.py").write_bytes(
+            (HERE / "action-summary.py").read_bytes()
+        )
+        # This fixture exercises file transport, not conformance arithmetic.
+        (root / "packaging" / "run_vectors.py").write_text(
+            "import json,pathlib,sys\n"
+            "p=pathlib.Path(sys.argv[sys.argv.index('--report')+1])\n"
+            "p.write_text(json.dumps({'rail':'external','totals':{'vectors':1,"
+            "'conform':1,'pass':1,'fail':0,'reasonParityMismatch':0,'suiteRefusals':0},"
+            "'verifier':{'vectorsExecuted':1},'rows':[]}))\n"
+        )
+        runner = root / "job temp"
+        runner.mkdir()
+        output = root / "outputs"
+        summary = root / "summary"
+        env = {
+            "PATH": f"{pathlib.Path(sys.executable).parent}:/usr/bin:/bin",
+            "RUNNER_TEMP": str(runner),
+            "GITHUB_OUTPUT": str(output),
+            "GITHUB_STEP_SUMMARY": str(summary),
+        }
+        original = GATE.REPO  # type: ignore[attr-defined]
+        GATE.REPO = root  # type: ignore[attr-defined]
+        try:
+            proc = GATE.run_step(local.run, env)  # type: ignore[attr-defined]
+        finally:
+            GATE.REPO = original  # type: ignore[attr-defined]
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        report = runner / "report with spaces.json"
+        assert report.is_file()
+        assert f"report={report}\n" in output.read_text()
+        assert "result=pass\n" in output.read_text()
+        assert "agent-evidence-vectors: pass" in summary.read_text()
+
+
 @contextlib.contextmanager
 def uv_provides(available: bool) -> Iterator[None]:
     """Answer the uv availability probe, so the case does not depend on the host."""
@@ -562,6 +662,12 @@ def main() -> int:
 
     check("a default working directory is honoured", a_default_working_directory_is_honoured)
     check("runner variables carry within a job", github_env_and_runner_temp_carry_within_a_job)
+    check("corpus binaries belong to their job", corpus_harness_outputs_are_owned_by_the_job)
+    check("job outputs require runner context", job_owned_outputs_require_runner_context)
+    check(
+        "the action report reaches its consumers",
+        action_report_path_reaches_the_summary_and_outputs,
+    )
     check("setup-python is mirrored with pip", setup_python_is_mirrored_with_pip)
     check("an unprovidable Python stops its job", an_unprovidable_python_stops_its_job)
     check("a foreign checkout stops its job", a_foreign_checkout_stops_its_job)

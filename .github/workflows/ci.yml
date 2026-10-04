@@ -114,13 +114,15 @@ jobs:
       - name: one harness judges every corpus
         run: |
           set -euo pipefail
-          go build -o /tmp/aee-verify ./cmd/aee-verify
+          : "${RUNNER_TEMP:?RUNNER_TEMP is required}"
+          binary="$RUNNER_TEMP/aee-verify"
+          go build -o "$binary" ./cmd/aee-verify
           status=0
           for dir in vectors*/; do
             [ -f "${dir}MANIFEST.json" ] || continue
             echo "== ${dir%/}"
             rc=0
-            /tmp/aee-verify "${dir%/}" || rc=$?
+            "$binary" "${dir%/}" || rc=$?
             case "$rc" in
               0) ;;
               # 2 is the reader saying it cannot judge this suite yet, and it says
