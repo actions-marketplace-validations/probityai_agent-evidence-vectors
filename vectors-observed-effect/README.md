@@ -122,24 +122,3 @@ that refuses for an unresolvable anchor are both conforming. Scoring either wron
 would be this corpus inventing a rule the predicate does not carry. The
 predicate's changelog names the version at which that member acquires a normative
 reader.
-
-## Not yet wired into the repository gates
-
-This corpus is self-contained and its three commands pass, and it is **not** yet
-registered with the repository-wide gates. Registering it means editing files this
-change deliberately does not touch. What it needs, exactly:
-
-- `scripts/release-digests.py`: a `"vectors-observed-effect": _recompute_from_generator`
-  entry beside the existing ones, so the release digest recomputes from
-  `digest.py` rather than from a second spelling of the preimage.
-- `scripts/regenerability-gate.py`: `vectors-observed-effect/gen_vectors.py` in
-  the generator list, and `("vectors-observed-effect/statements", "v*.json")`,
-  `("vectors-observed-effect", "MANIFEST.json")`, `("vectors-observed-effect", "INDEX.md")`
-  in the owned-output list.
-- `pyproject.toml`: `"vectors-observed-effect"` in `[tool.pyright] include`.
-  `scripts/typecheck-gate.py` refuses to pass while a Python file exists outside
-  that list.
-- `.github/workflows/ci.yml`: a step running `check_vectors.py` and
-  `mutation_check.py`, beside the existing per-corpus steps. The workflow already
-  greps for `<dir>check_vectors.py` and reports a corpus "judged by nothing"
-  without one; this corpus has one, and nothing runs it yet.
