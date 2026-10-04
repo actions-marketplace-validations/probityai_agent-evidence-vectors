@@ -96,6 +96,15 @@ they have to trust. The `observedParty` key signs nothing: it exists so
 `observedSigners` names a real key identifier and the disjointness check has
 something to be disjoint from.
 
+## The blob
+
+The read rows narrate one blob, and `MANIFEST.json` publishes it under `blobs`
+beside the keys. The expected verdict of `range-digest-over-bytes-alone` assumes a
+verifier that holds that blob. A verifier configured from the manifest with the
+observer key and no blob accepts that member, because the range digest is the one
+binding it cannot recompute. `read-row-nobody-can-check` is the same rule from the
+other side: a read over a blob nobody publishes, and it is accepted.
+
 ## Verdicts
 
 Four, not two. `valid`, `invalid`, `malformed`, and the `indeterminate`

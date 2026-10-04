@@ -2314,6 +2314,16 @@ def emit() -> None:
             "observedSigners names a real key identifier and the disjointness check "
             "has something to be disjoint from."
         ),
+        "blobs": {BLOB_DIGEST: BLOB.decode("ascii")},
+        "blobNote": (
+            "The one blob the read rows in this corpus narrate, keyed by its sha256 "
+            "and given as its ASCII text. The expected verdicts assume a consumer "
+            "that holds it, the way they assume one that holds the observer key: "
+            "range-digest-over-bytes-alone is malformed only to a verifier that "
+            "recomputes the range digest from these bytes, and a verifier configured "
+            "without them accepts it. read-row-nobody-can-check reads a different "
+            "blob that is published nowhere, and is accepted for that reason."
+        ),
         "emptyTree": EMPTY_TREE,
         "counts": counts,
         "conditions": CONDITIONS,

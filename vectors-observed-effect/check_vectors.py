@@ -1120,6 +1120,9 @@ def check_counts(manifest: dict[str, Any]) -> None:
         FAILURES.append(f"counts declare {manifest['counts']} and the members are {actual}")
     if manifest["predicateType"] != PREDICATE_TYPE:
         FAILURES.append("the manifest's predicateType is not the URI this verifier enforces")
+    published = {digest: text.encode("ascii") for digest, text in manifest["blobs"].items()}
+    if published != BLOBS:
+        FAILURES.append("the manifest's published blob is not the one this verifier states")
     if manifest["emptyTree"] != EMPTY_TREE:
         FAILURES.append("the manifest's empty-tree constants are not the computed ones")
     recomputed = corpus_digest(manifest)

@@ -3,6 +3,10 @@
     "digest": "sha256",
     "envelope": "ed25519"
   },
+  "blobNote": "The one blob the read rows in this corpus narrate, keyed by its sha256 and given as its ASCII text. The expected verdicts assume a consumer that holds it, the way they assume one that holds the observer key: range-digest-over-bytes-alone is malformed only to a verifier that recomputes the range digest from these bytes, and a verifier configured without them accepts it. read-row-nobody-can-check reads a different blob that is published nowhere, and is accepted for that reason.",
+  "blobs": {
+    "83c9f464f91df454a002f890170cac9f3152bc36813c477b0ee8abbe79a369ac": "port: 8080\nmode: strict\nport: 8080\nmode: strict\nport: 8080\nmode: strict\nport: 8080\nmode: strict\nport: 8080\nmode: strict\nport: 8080\nmode: strict\nport: 8080\nmode: strict\nport: 8080\nmode: strict\n"
+  },
   "conditions": {
     "oe-agreement": "dualValues: agreement must be derivable from the two carried values",
     "oe-anchor-unruled": "priorCommitment.externalAnchor: the predicate defines no offline token rule",
