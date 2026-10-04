@@ -10,6 +10,7 @@ name: commit-message-lint
 on:
   push:
   pull_request:
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: read
@@ -31,6 +32,29 @@ jobs:
 
       - name: Gate self-test
         run: .githooks/commit-msg --selftest
+
+      - name: Lint the prospective merge subject
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          export LC_ALL=C
+          if [[ ! "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] \
+             || [[ "$PR_TITLE" == *$'\n'* || "$PR_TITLE" == *$'\r'* ]]; then
+            echo 'Expected a single-line PR title and a positive PR number.' >&2
+            exit 1
+          fi
+          subject="${PR_TITLE} (#${PR_NUMBER})"
+          if [ "${#subject}" -gt 72 ]; then
+            echo 'Shorten the PR title: the merge subject including (#number) exceeds 72 characters.' >&2
+            exit 1
+          fi
+          message_file=$(mktemp)
+          trap 'rm -f "$message_file"' EXIT
+          printf '%s\n' "$subject" > "$message_file"
+          .githooks/commit-msg "$message_file"
 
       - name: Lint the commit messages this event introduces
         env:
