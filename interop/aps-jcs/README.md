@@ -32,8 +32,11 @@ verifier rejects them before checking signatures.
 
 Safe integers, noncharacters, fractions and resource limits keep their native
 policy differences. The serialized receipt controls distinguish a parse error,
-a wrong signing key and an indeterminate resource ceiling. These are finite,
-author-operated fixture and byte checks.
+a wrong signing key and an indeterminate resource ceiling. These are finite
+fixture and byte checks. The report keeps harness authorship separate from
+execution: in GitHub Actions, controller and operator are the workflow's
+`GITHUB_REPOSITORY`. A fork run names the fork; an APS host run names APS.
+Local runs leave the operator unrecorded rather than inferring it from authorship.
 
 [The Node matrix](../../.github/workflows/aps-jcs.yml) runs both APS native
 tests and this comparison on Node 20 and 22. Each run retains the raw native
