@@ -1,79 +1,16 @@
 #!/usr/bin/env python3
-"""Distribution gate: the inbound page must still describe the repository it ships with.
+"""Check the distribution page against the shipped repository.
 
-`DISTRIBUTION.md` is the page a stranger lands on. Everything on it that matters
-is a claim about the repository rather than an opinion about it, and every one of
-those claims is a copy of something the repository already states elsewhere. A
-copy with no invalidation is the defect this repository refuses everywhere else
-it appears, so these are checked here rather than trusted.
+The release recipe must match ``docs/reference/release-verification.md`` byte
+for byte. Its heading and fence must exist in both pages. Every advertised tag
+must match ``CITATION.cff``, and the install path must match ``go.mod`` both in
+the working tree and at the pinned tag.
 
-What is checked, and what each one costs when it is wrong.
+The corpus table and run form must name exactly the tracked manifest set.
+``scripts/count-gate.py`` checks published vector counts separately.
 
-The RECIPE. The four-command release-verification block appears under the same
-heading in `README.md` and in `DISTRIBUTION.md`. It is the one block in this
-repository whose reader has, by construction, decided to trust nobody here: a
-command that no longer works fails in the hands of exactly the person the page
-was written for, and it fails silently in the sense that nothing in CI runs a
-markdown fence. The two blocks are required to be byte-identical, which does not
-prove either one runs and does mean that fixing one fixes both. The README
-section is the explanatory home; this gate makes the second copy a copy rather
-than a fork.
-
-The TAG. The recipe checks out a tag, the inbound page names a tag to cite, and
-the `go install` line pins one. `CITATION.cff` carries the released version and
-is what GitHub's citation panel and an archive deposit read. All four are
-required to agree. A page that tells a reader to cite a version the citation
-file does not know about sends a citation into a permanent record naming bytes
-no tag holds, and `scripts/citation-metadata-gate.py` already refuses that for
-the deposit without ever reading the prose a human follows.
-
-The MODULE PATH. The `go install` line pins a tag, and the tag check above
-establishes that the tag is the released one. It establishes nothing about the
-PATH in front of the `@`, and that half is where a Go consumer actually breaks:
-released tags are immutable, so a repository whose module path moves keeps
-serving the OLD path at every tag cut before the move. The proxy answers 200 on
-`@v/list`, `@latest` and `@v/<tag>.info` for both spellings -- the forge
-redirects a renamed owner -- so nothing looks wrong until `go get` reads the
-`.mod` and refuses with "module declares its path as". That state shipped on
-this page and this gate passed it.
-
-So two statements are checked, and they are separate because each can be true
-while the other is false. The page's install path must be the path `go.mod`
-declares, or the page sends a stranger to a module this repository does not
-publish. And the module path must RESOLVE at the tag the page pins, which is
-exactly what `<proxy>/<path>/@v/<tag>.mod` answers -- and that answer is the
-repository's own `go.mod` at that tag, byte for byte, so it is read here with
-`git show <tag>:go.mod` instead of over the network. That is the same primary
-artifact rather than a stand-in for it, it needs no digest recorded at release
-time to go stale, and it keeps this gate under the rule
-`scripts/release-gate.py` states for all of them: a gate that runs on every push
-must not depend on a third party being reachable. A tag this clone does not hold
-is reported as a check that did not run, never as one that passed.
-
-The CORPORA. The inbound page tables the corpora this repository ships, and the
-independent-run issue form offers them as the choices a reporter picks from. The
-set of tracked `<dir>/MANIFEST.json` files is what a tag actually publishes, and
-each of those manifests names its own suite. A corpus that lands without a row
-here is a corpus no arriving reader is told about; a corpus missing from the form
-cannot have a run reported against it by the one route we ask people to use; and
-a row or an option that outlives its corpus is worse than either, because it
-advertises bytes the release does not carry. Every direction fails.
-
-Vector COUNTS are deliberately not part of this gate's subject, because they are
-deliberately not on the page. `scripts/count-gate.py` owns every published count
-in this repository and the inbound page publishes none, pointing at
-`release/CORPUS-DIGESTS.txt` and the manifests instead. A count in this table
-would be a fourth copy, and this file would then be the fourth place to keep it
-honest.
-
-Usage:
-    python3 scripts/distribution-gate.py
-    python3 scripts/distribution-gate.py --root <tree>   (what its own tests run)
-
-Exit 0 when the page agrees with the repository on every one of them; 1 on any
-disagreement, and every disagreement is printed rather than only the first. There
-is no partial pass: a page that is right about the corpora and wrong about the
-tag is a page that misdirects a citation.
+Usage: ``python3 scripts/distribution-gate.py [--root <tree>]``.
+Exit 0 when every check passes, otherwise 1 with the disagreements.
 """
 
 from __future__ import annotations
@@ -87,7 +24,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-README_REL = "README.md"
+RECIPE_REL = "docs/reference/release-verification.md"
 PAGE_REL = "DISTRIBUTION.md"
 CITATION_REL = "CITATION.cff"
 GOMOD_REL = "go.mod"
@@ -122,26 +59,48 @@ def _read(root: Path, rel: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def recipe_block(text: str, rel: str) -> str:
-    """The first fenced block under RECIPE_HEADING, fence lines included.
+def _recipe_section(text: str, rel: str) -> str:
+    """Return the text after the single required recipe heading."""
+    markers = list(re.finditer(rf"^#+[ \t]+{re.escape(RECIPE_HEADING)}[ \t]*$", text, re.MULTILINE))
+    if not markers:
+        raise GateError(f"{rel} has no heading '{RECIPE_HEADING}'")
+    if len(markers) != 1:
+        raise GateError(f"{rel} has {len(markers)} headings '{RECIPE_HEADING}'; expected one")
+    return text[markers[0].end() :]
 
-    Returned with the fences so that a change of language tag counts as a
-    difference. `bash` and no tag render the same and are not the same thing to
-    a reader deciding whether to paste the block into a shell.
+
+def recipe_block(text: str, rel: str) -> str:
+    """Return the first complete recipe fence, including its language tag.
+
+    Parameters
+    ----------
+    text : str
+        Markdown source containing one ``RECIPE_HEADING``.
+    rel : str
+        Repository path used in failure messages.
+
+    Returns
+    -------
+    str
+        The exact fenced block compared by :func:`_recipe_and_tag_failures`.
+
+    Raises
+    ------
+    GateError
+        The heading is absent or repeated, the recipe is missing, or its fence
+        is unclosed. A block in a later section does not satisfy this heading.
     """
-    marker = re.search(rf"^#+\s+{re.escape(RECIPE_HEADING)}\s*$", text, re.MULTILINE)
-    if marker is None:
-        raise GateError(
-            f"{rel} has no heading '{RECIPE_HEADING}'. The recipe is found by its heading, "
-            "so a renamed heading means the recipe cannot be checked at all."
-        )
-    start = text.find(FENCE, marker.end())
-    if start == -1:
+    section = _recipe_section(text, rel)
+    start = re.search(r"^```[^\n]*$", section, re.MULTILINE)
+    if start is None:
         raise GateError(f"{rel} has the heading '{RECIPE_HEADING}' and no fenced block under it")
-    end = text.find(FENCE, text.index("\n", start))
-    if end == -1:
+    if re.search(r"^#{1,6}(?:[ \t]+[^\n]*)?$", section[: start.start()], re.MULTILINE):
+        raise GateError(f"{rel} has the heading '{RECIPE_HEADING}' and no fenced block under it")
+    remainder = section[start.end() :]
+    end = re.search(r"^```[ \t]*$", remainder, re.MULTILINE)
+    if end is None:
         raise GateError(f"{rel}: the fenced block under '{RECIPE_HEADING}' is never closed")
-    return text[start : end + len(FENCE)]
+    return section[start.start() : start.end() + end.end()]
 
 
 def released_version(text: str) -> str:
@@ -185,9 +144,7 @@ def tags_claimed(page: str, recipe: str) -> dict[str, str]:
         )
     claims["the `go install` pin"] = install.group(2)
 
-    heading = re.search(
-        r"^#+\s+The tag to cite\s*$\s*\n\s*`(v[^`]+)`", page, re.MULTILINE
-    )
+    heading = re.search(r"^#+\s+The tag to cite\s*$\s*\n\s*`(v[^`]+)`", page, re.MULTILINE)
     if heading is None:
         raise GateError(
             f"{PAGE_REL} has no 'The tag to cite' section opening with a backticked tag. "
@@ -364,25 +321,19 @@ def offered_corpora(form: str) -> set[str]:
     return offered
 
 
-def _recipe_and_tag_failures(readme: str, page: str, citation: str) -> list[str]:
-    """The recipe must be one recipe, and every tag on the page must be released.
-
-    They are one function because the tag check reads the recipe: a recipe that
-    could not be found is a tag check with nothing to read, and reporting a
-    missing recipe followed by a missing tag would be one fault counted twice.
-    """
+def _recipe_and_tag_failures(reference: str, page: str, citation: str) -> list[str]:
+    """Compare recipe bytes and check every advertised tag against the release."""
     found: list[str] = []
     try:
-        readme_recipe = recipe_block(readme, README_REL)
+        reference_recipe = recipe_block(reference, RECIPE_REL)
         page_recipe = recipe_block(page, PAGE_REL)
     except GateError as exc:
         return [str(exc)]
 
-    if readme_recipe != page_recipe:
+    if reference_recipe != page_recipe:
         found.append(
-            f"the verification recipe differs between {README_REL} and {PAGE_REL}. "
-            "They are two copies of one recipe and the reader who follows the stale one "
-            "is the reader who trusts nobody here. Make them identical."
+            f"the verification recipe differs between {RECIPE_REL} and {PAGE_REL}. "
+            "Update both copies together."
         )
     try:
         version = released_version(citation)
@@ -442,7 +393,7 @@ def failures(root: Path) -> list[str]:
     second fault is then found by whoever the first fix was supposed to help.
     """
     try:
-        readme = _read(root, README_REL)
+        reference = _read(root, RECIPE_REL)
         page = _read(root, PAGE_REL)
         citation = _read(root, CITATION_REL)
         form = _read(root, FORM_REL)
@@ -450,7 +401,7 @@ def failures(root: Path) -> list[str]:
         return [str(exc)]
 
     return (
-        _recipe_and_tag_failures(readme, page, citation)
+        _recipe_and_tag_failures(reference, page, citation)
         + _module_path_failures(root, page)
         + _corpus_failures(root, page, form)
     )

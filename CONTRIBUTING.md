@@ -1,8 +1,7 @@
 # Contributing
 
-How to propose a change to this suite, what happens to the proposal, and what the
-gates will refuse. The decision process over all of this — who decides, what is
-never changed, how an objection is answered — is [`GOVERNANCE.md`](GOVERNANCE.md).
+Use this guide to add a vector, fix a reader or report a disagreement.
+[`GOVERNANCE.md`](GOVERNANCE.md) describes who decides and how objections are recorded.
 
 Anyone may propose anything. There is no membership, no fee, and no distinction
 between an implementer's proposal and the maintainer's.
@@ -14,10 +13,10 @@ filed in the wrong repository.**
 
 | What you want to change | Where it goes |
 | --- | --- |
-| What the predicate **requires** — a rule, a field, a normative sentence | upstream, in the in-toto attestation project's review of the predicate. This repository vendors a pinned copy and cannot change it |
-| What the corpus **forces** — a vector, a boundary case, a missing discriminator | here |
+| What the predicate **requires** -- a rule, a field, a normative sentence | upstream, in the in-toto attestation project's review of the predicate. This repository vendors a pinned copy and cannot change it |
+| What the corpus **forces** -- a vector, a boundary case, a missing discriminator | here |
 | A **failure code**: a new one, or a precedence question | here |
-| A **reference rail** defect — the Go core, the Python rail, the CLI, the attestor | here |
+| A **reference rail** defect -- the Go core, the Python rail, the CLI, the attestor | here |
 | A **disagreement with something this repository decided**, including a decision already published | here, as an issue. It becomes a row in [`DISPOSITIONS.md`](DISPOSITIONS.md) with its own identifier whichever way it goes |
 | Your own verifier's divergence from this corpus | here, as an issue. A divergence is interesting whether or not it turns out to be your bug |
 
@@ -35,7 +34,7 @@ cp go.work.example go.work         # only if you are building the attestor modul
 The hook installer sets one config key, writes no files, and refuses to switch if
 a hook that runs today would stop running. The commit-message gate it installs
 runs in CI from the same tracked file, so a clone that skips this step is checked
-anyway — the hook exists to stop you finding out by email.
+anyway -- the hook exists to stop you finding out by email.
 
 ## Run everything before you push
 
@@ -63,12 +62,12 @@ worth reading before writing rather than after failing.
 | --- | --- |
 | `scripts/regenerability-gate.py` | a committed file no generator produces. The corpus regenerates into a copy and is diffed; hand-written vectors and hand-written manifest entries fail on the push that adds them |
 | `scripts/count-gate.py` | a count typed by hand. Every published count is checked against the one source that derives it, and a **new** count-shaped integer anywhere in tracked prose fails unless it is declared, delegated, frozen with a reason, or attributed to a revision in the sentence itself |
-| `scripts/condition-registry-gate.py` | a condition id a vector cites and no registry row resolves, and a registry row no vector cites — in both directions |
+| `scripts/condition-registry-gate.py` | a condition id a vector cites and no registry row resolves, and a registry row no vector cites -- in both directions |
 | `scripts/spec-drift-gate.py`, `scripts/spec-anchor-gate.py` | a reference into the vendored specification that has come off the prose it was written for. Resolving to a line that still carries text is not enough; a stale reference reads as evidence |
 | `scripts/spec-drift-gate.py` | vendored bytes that are not upstream's |
 | `scripts/code-contract-gate.py` | prose describing a failure-code behaviour the evaluator does not have |
 | `scripts/external-rail-gate.py` | the shipped CLI failing the shipped corpus through the documented third-party contract. Both existed and nobody had run one against the other |
-| `scripts/predicate-state-gate.py` | the two rails here answering an absent, null or empty `predicate` differently. The corpus contract cannot refuse this: it grades a reject vector by intersecting the declared and observed code sets, so two rails rejecting one statement for different reasons both pass |
+| `scripts/predicate-state-gate.py` | different absent, null or empty `predicate` handling between the Go and Python rails; a validity verdict alone does not bind their reason codes |
 | `scripts/forcing-gate.py` | a corpus that has stopped forcing a rule the baseline records it as forcing. Tighten-only |
 | `scripts/independent-runs-gate.py` | prose about what an outside implementation ran that disagrees with the run ledger |
 | `scripts/suite-commit-gate.py` | a suite commit in the run ledger, or a rewritten commit in `docs/REWRITE-MAP-2026-09-18.json`, that neither the default branch nor a tag reaches, so a fresh clone does not carry it |
@@ -107,7 +106,7 @@ asked. Three of them were found here on one day:
   never run in CI, it does not belong in CI.
 
 **Zero warnings.** A build with a warning is not done. That covers `gofmt`,
-`go vet`, `staticcheck`, `golangci-lint`, `mypy --strict` and `ruff` — all of them
+`go vet`, `staticcheck`, `golangci-lint`, `mypy --strict` and `ruff` -- all of them
 run on every push and none of them is allowed to be noisy.
 
 ## Adding a vector
@@ -138,18 +137,18 @@ In this order:
 - **Regenerate the manifest**: `python3 vectors/gen_manifest.py`.
 - **Pin every code the reference rail emits.** Run
   `python3 scripts/observed-code-closure-gate.py`; if it names your vector, add
-  the codes it lists to an `(also emits: ...)` clause on the row — in the codes
+  the codes it lists to an `(also emits: ...)` clause on the row -- in the codes
   cell for a reject vector, in the conditions cell for an indeterminate one,
   because that table has a codes cell per reading and the emission set belongs to
   the vector rather than to any one reading. The clause is a record of what our
   verifier reports and nothing else: it never widens what the vector measures, it
   obliges no other rail to emit the same, and it is checked in both directions, so
   a code that stops being emitted has to leave the clause in the same change.
-  Do **not** reach for the `also carries` clause instead — that one is the
+  Do **not** reach for the `also carries` clause instead -- that one is the
   second-fault self-check's exemption key, so a code declared there switches a
   recompute off.
 - **Bump `suiteRevision` and write the changelog entry.** The entry states the
-  corpus size, what changed, and — this is the part that matters — what the
+  corpus size, what changed, and -- this is the part that matters -- what the
   revision does *not* exercise. A revision that makes a rule normative over a
   corpus that cannot see it should say so in its own words rather than leaving a
   reader to find out.
@@ -188,7 +187,7 @@ person catch each other's transcription errors and cannot catch a misreading of
 the specification, because they all inherit the same one. Two rules in this corpus
 exist only because one outside reader read the text and reached a different answer.
 
-The external contract is in [`README.md`](README.md): a verdict in the exit status,
+The external contract is in the [verifier contract](docs/reference/verifier-contract.md): a verdict in the exit status,
 a single-line JSON object on stdout carrying the codes and the recomputed result,
 and a key policy read from `AEE_SUBSTRATE_KEYS` so both tier columns can be
 compared. Evaluation order does not matter and message text does not matter.
@@ -207,7 +206,7 @@ said it.
 
 Post a run with the source digest that produced it and it goes into
 `docs/INDEPENDENT-RUNS.json` and into the independence column, transcribed exactly
-as posted — never rounded, never restated as a fraction of a different corpus, and
+as posted -- never rounded, never restated as a fraction of a different corpus, and
 never described as unprompted if you called it directed.
 
 The reporting path is one form:
@@ -251,7 +250,7 @@ corpora gets its row in [`RUNS.md`](RUNS.md).
 Open an issue. State what you think is wrong and, if you can, what you think it
 should be instead. Every objection from someone other than the maintainer becomes a
 row in the disposition ledger under a permanent identifier, carrying your name, the
-objection in your frame, the resolution and the reason — including when the
+objection in your frame, the resolution and the reason -- including when the
 resolution is to decline it.
 
 If you would rather your objection were recorded in your own words than in a
@@ -261,7 +260,7 @@ everything raised from now on.
 ## Commit messages
 
 Plain ASCII, imperative subject under seventy-two characters, no AI-attribution
-trailer, and no project-internal identifiers — audit numbers, decision-log
+trailer, and no project-internal identifiers -- audit numbers, decision-log
 references, phase and round labels. Those resolve inside the document that minted
 them and not in a history that outlives it. `.githooks/commit-msg --selftest` runs
 the rule fixtures, and CI lints the range your push introduces from the same file.
