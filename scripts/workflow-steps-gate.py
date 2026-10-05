@@ -25,6 +25,8 @@ a check that did not run, which is the same defect in a different costume.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import pathlib
 import re
@@ -33,6 +35,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Callable, Iterator, Mapping
 from typing import Any, NamedTuple
 
@@ -42,6 +45,202 @@ from _lockfile import single_instance  # noqa: E402
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 WORKFLOWS = REPO / ".github" / "workflows"
+
+
+def git(root: pathlib.Path, *args: str) -> bytes:
+    """Read or change only the Git repository explicitly named by the caller."""
+    return subprocess.run(  # noqa: S603 -- fixed Git commands, explicit repository
+        ["git", "-C", str(root), *args], capture_output=True, check=True
+    ).stdout
+
+
+def write_json(path: pathlib.Path, value: Any) -> None:
+    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def optional_git(root: pathlib.Path, *args: str) -> str:
+    proc = subprocess.run(  # noqa: S603 -- read an optional local Git binding
+        ["git", "-C", str(root), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
+def tags(root: pathlib.Path) -> dict[str, str]:
+    return dict(
+        line.split(" ", 1)
+        for line in git(root, "for-each-ref", "--format=%(refname) %(objectname)", "refs/tags")
+        .decode()
+        .splitlines()
+    )
+
+
+def inventory(root: pathlib.Path) -> dict[str, dict[str, str]]:
+    """Record tracked bytes, including symlink text rather than its target."""
+    files: dict[str, dict[str, str]] = {}
+    for row in git(root, "ls-files", "--stage", "-z").split(b"\0"):
+        if not row:
+            continue
+        metadata, name = row.split(b"\t", 1)
+        mode, _, stage = metadata.decode().split()
+        if stage != "0" or mode == "160000":
+            raise ValueError("unmerged entries and submodules need an explicit checkout contract")
+        relative = os.fsdecode(name)
+        path = root / relative
+        if not path.exists() and not path.is_symlink():
+            files[relative] = {"mode": mode, "state": "missing"}
+            continue
+        data = os.fsencode(os.readlink(path)) if path.is_symlink() else path.read_bytes()
+        actual_mode = (
+            "120000"
+            if path.is_symlink()
+            else ("100755" if path.stat().st_mode & 0o111 else "100644")
+        )
+        files[relative] = {"mode": actual_mode, "sha256": hashlib.sha256(data).hexdigest()}
+    return files
+
+
+def committed_inventory(root: pathlib.Path, revision: str) -> dict[str, dict[str, str]]:
+    """Hash every selected Git blob, including files omitted by sparse checkout."""
+    entries = []
+    for row in git(root, "ls-tree", "-rz", revision).split(b"\0"):
+        if row:
+            metadata, name = row.split(b"\t", 1)
+            mode, kind, identity = metadata.decode().split()
+            if kind != "blob":
+                raise ValueError("submodules need an explicit checkout contract")
+            entries.append((mode, identity, os.fsdecode(name)))
+    proc = subprocess.run(  # noqa: S603 -- read precisely the selected tree's Git blobs
+        ["git", "-C", str(root), "cat-file", "--batch"],
+        input="".join(f"{identity}\n" for _, identity, _ in entries).encode(),
+        capture_output=True,
+        check=True,
+    )
+    cursor = 0
+    files = {}
+    for mode, identity, relative in entries:
+        end = proc.stdout.index(b"\n", cursor)
+        header = proc.stdout[cursor:end].decode().split()
+        if header[:2] != [identity, "blob"]:
+            raise ValueError("Git batch response does not identify the selected blob")
+        size = int(header[2])
+        data = proc.stdout[end + 1 : end + 1 + size]
+        if len(data) != size or proc.stdout[end + 1 + size : end + 2 + size] != b"\n":
+            raise ValueError("Git batch response is incomplete")
+        files[relative] = {"mode": mode, "sha256": hashlib.sha256(data).hexdigest()}
+        cursor = end + 2 + size
+    if cursor != len(proc.stdout):
+        raise ValueError("unexpected trailing Git batch response")
+    return files
+
+
+class Source:
+    """An immutable input revision; every job gets its own Git database and files."""
+
+    def __init__(self, root: pathlib.Path) -> None:
+        self.root = root.resolve()
+        self.head = git(root, "rev-parse", "HEAD").decode().strip()
+        self.tree = git(root, "rev-parse", "HEAD^{tree}").decode().strip()
+        self.tags = tags(root)
+        self.input_files = inventory(root)
+        self.files = committed_inventory(root, self.head)
+        if any(
+            value.get("state") != "missing" and value != self.files.get(path)
+            for path, value in self.input_files.items()
+        ):
+            raise ValueError("present input bytes differ from the selected Git tree")
+        if git(root, "status", "--porcelain", "--untracked-files=no"):
+            raise ValueError("input tracked bytes differ from the selected commit")
+        for key in ("GITHUB_SHA", "GITHUB_HEAD_SHA"):
+            if os.environ.get(key) and os.environ[key] != self.head:
+                raise ValueError(f"{key} does not identify the selected source commit")
+        if os.environ.get("GITHUB_EVENT_NAME", "push") != "push":
+            raise ValueError("this mirror has only a verified local push context")
+        self.ref = optional_git(root, "symbolic-ref", "-q", "HEAD")
+        self.origin = optional_git(root, "remote", "get-url", "origin")
+        match = re.fullmatch(
+            r"(?:https://github\.com/|git@github\.com:)([^/]+/[^/]+?)(?:\.git)?", self.origin
+        )
+        self.repository = match.group(1) if match else ""
+        self.default_branch = optional_git(
+            root, "symbolic-ref", "-q", "refs/remotes/origin/HEAD"
+        ).removeprefix("refs/remotes/origin/")
+
+    def verify(self) -> None:
+        if (
+            git(self.root, "rev-parse", "HEAD").decode().strip() != self.head
+            or git(self.root, "rev-parse", "HEAD^{tree}").decode().strip() != self.tree
+            or tags(self.root) != self.tags
+            or inventory(self.root) != self.input_files
+            or git(self.root, "status", "--porcelain", "--untracked-files=no")
+        ):
+            raise ValueError("the input source or tag refs changed during the mirror")
+
+    def checkout(self, destination: pathlib.Path) -> None:
+        self.verify()
+        subprocess.run(  # noqa: S603 -- independent clone of the verified local input
+            [
+                "git",
+                "clone",
+                "--quiet",
+                "--no-hardlinks",
+                "--dissociate",
+                "--no-checkout",
+                str(self.root),
+                str(destination),
+            ],
+            capture_output=True,
+            check=True,
+        )
+        git(
+            destination,
+            "fetch",
+            "--quiet",
+            str(self.root),
+            "+refs/tags/*:refs/tags/*",
+            "+refs/remotes/origin/*:refs/remotes/origin/*",
+        )
+        git(destination, "checkout", "--quiet", "--detach", self.head)
+        alternates = destination / ".git" / "objects" / "info" / "alternates"
+        if alternates.exists() and alternates.read_bytes().strip():
+            raise ValueError("job checkout still depends on another repository's object store")
+        if self.origin:
+            git(destination, "remote", "set-url", "origin", self.origin)
+        if (
+            git(destination, "rev-parse", "HEAD^{tree}").decode().strip() != self.tree
+            or tags(destination) != self.tags
+            or inventory(destination) != self.files
+        ):
+            raise ValueError("job checkout does not reproduce the selected source and tags")
+
+    def context(self, temp: pathlib.Path) -> dict[str, str]:
+        return {
+            "github.sha": self.head,
+            "github.event.pull_request.head.sha || github.sha": self.head,
+            "github.ref": self.ref,
+            "github.repository": self.repository,
+            "github.server_url": "https://github.com" if self.repository else "",
+            "github.event.repository.default_branch": self.default_branch,
+            "runner.temp": str(temp),
+            **LOCAL_ABSENT,
+        }
+
+
+# These fields have no value in a local push mirror. Unknown contexts are faults.
+LOCAL_ABSENT = dict.fromkeys(
+    (
+        "github.event.before",
+        "github.event.pull_request.base.sha",
+        "github.event.pull_request.head.sha",
+        "github.event.pull_request.title",
+        "github.event.pull_request.number",
+        "github.token",
+        "github.run_id",
+    ),
+    "",
+)
 
 # A marketplace step is one with `uses:` and no shell body. Every one of them
 # used to be printed as SKIP and left at that, and on 2026-09-11 that cost three
@@ -330,7 +529,11 @@ def steps_of(doc: Any, path: pathlib.Path) -> Iterator[Step]:
                 uses=str(step.get("uses") or ""),
                 inputs=step.get("with") or {},
                 ident=str(step.get("id") or ""),
-                env=step.get("env") or {},
+                env={
+                    **((doc or {}).get("env") or {}),
+                    **(job.get("env") or {}),
+                    **(step.get("env") or {}),
+                },
                 continue_on_error=step.get("continue-on-error") is True,
                 workdir=str(step.get("working-directory") or job_dir),
                 condition=str(step.get("if") or ""),
@@ -365,7 +568,7 @@ SHELL_FLAGS = ("-e",)
 
 
 # `${{ ... }}`, the only interpolation Actions performs in an `env:` value.
-EXPRESSION = re.compile(r"\$\{\{(.+?)\}\}")
+EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
 STEP_OUTPUT = re.compile(r"^steps\.([A-Za-z0-9_-]+)\.outputs\.([A-Za-z0-9_-]+)$")
 STEP_STATUS = re.compile(r"^steps\.([A-Za-z0-9_-]+)\.(outcome|conclusion)$")
 
@@ -374,31 +577,18 @@ def expand(
     value: str,
     outputs: dict[str, dict[str, str]],
     statuses: dict[str, dict[str, str]] | None = None,
+    context: Mapping[str, str] | None = None,
 ) -> tuple[str, str]:
-    """Resolve one `env:` value. Returns (expanded, reason it could not be).
+    """Resolve recorded outputs/status and the explicit local push context.
 
-    Two kinds of expression appear in these workflows and they are not treated
-    alike.
-
-    A reference to ANOTHER STEP'S OUTPUT is answered from what that step wrote
-    to $GITHUB_OUTPUT when this gate ran it. If the named step was not run here,
-    or ran and never wrote that name, the value is NOT guessed: the step is
-    declared NOT RUN and the reason says which output was missing. Substituting
-    an empty string instead is how this hole opened -- `test "$RESULT" = pass`
-    against an unset RESULT fails, and a gate that fails a push the remote would
-    accept is a gate its reader learns to bypass.
-
-    ANY OTHER CONTEXT -- `github.*`, `inputs.*`, `secrets.*` -- resolves to the
-    empty string, which is what Actions itself yields for a context value that
-    is absent. The steps here that read one are written for it: the commit-message
-    lint falls back to `HEAD~1..HEAD` when `github.event.before` is empty, and the
-    crosswalk filer prints its body and exits when `$GITHUB_ACTIONS` is not true.
+    Missing outputs and unsupported expressions refuse execution. Only the
+    enumerated absent local-event fields resolve to an empty string.
     """
     missing = ""
 
     def one(match: re.Match[str]) -> str:
         nonlocal missing
-        expression = match.group(1).strip()
+        expression = " ".join(match.group(1).split())
         status = STEP_STATUS.match(expression)
         if status is not None:
             # A step's outcome is recorded by this gate when it runs the step,
@@ -415,6 +605,10 @@ def expand(
             return recorded_status[which]
         reference = STEP_OUTPUT.match(expression)
         if reference is None:
+            known = {**LOCAL_ABSENT, **(context or {})}
+            if expression in known:
+                return known[expression]
+            missing = f"unsupported expression ${{{{ {expression} }}}}; no verified local context"
             return ""
         step_id, name = reference.groups()
         recorded = outputs.get(step_id)
@@ -435,7 +629,10 @@ def expand(
             return ""
         return recorded[name]
 
-    return EXPRESSION.sub(one, value), missing
+    expanded = EXPRESSION.sub(one, value)
+    if "${{" in expanded and not missing:
+        missing = "unterminated or unresolved GitHub expression; no shell was run"
+    return expanded, missing
 
 
 def step_environment(
@@ -443,6 +640,7 @@ def step_environment(
     outputs: dict[str, dict[str, str]],
     scratch: str,
     statuses: dict[str, dict[str, str]] | None = None,
+    context: Mapping[str, str] | None = None,
 ) -> tuple[dict[str, str], str]:
     """The environment for one step, or the reason it cannot be assembled.
 
@@ -457,7 +655,7 @@ def step_environment(
         "GITHUB_PATH": str(pathlib.Path(scratch) / f"path-{step.job}-{step.position}"),
     }
     for key, raw in step.env.items():
-        value, missing = expand(str(raw), outputs, statuses)
+        value, missing = expand(str(raw), outputs, statuses, context)
         if missing:
             return env, missing
         env[str(key)] = value
@@ -499,7 +697,8 @@ class JobState:
     and the steps that read the variable failed after it.
     """
 
-    def __init__(self, scratch: str, label: str) -> None:
+    def __init__(self, scratch: str, label: str, root: pathlib.Path | None = None) -> None:
+        self.root = root or REPO
         self.temp = pathlib.Path(scratch) / f"runner-temp-{label}"
         self.temp.mkdir(parents=True, exist_ok=True)
         self.env: dict[str, str] = {}
@@ -507,12 +706,69 @@ class JobState:
         # Set when a step that provisions the job's toolchain could not run;
         # every later step of the job is then NOT RUN with this reason.
         self.blocked = ""
+        self.outputs: dict[str, dict[str, str]] = {}
+        self.statuses: dict[str, dict[str, str]] = {}
+        self.ran = 0
+        self.failed = 0
+        self.not_run: list[str] = []
 
     def environment(self, base: dict[str, str]) -> dict[str, str]:
-        env = {**base, **self.env, "RUNNER_TEMP": str(self.temp), "GITHUB_WORKSPACE": str(REPO)}
+        project_env = str(self.temp / "project-env")
+        env = {
+            **base,
+            **self.env,
+            "RUNNER_TEMP": str(self.temp),
+            "GITHUB_WORKSPACE": str(self.root),
+            "UV_PROJECT_ENVIRONMENT": project_env,
+        }
+        env.pop("VIRTUAL_ENV", None)
+        if (self.temp / "setup-python").is_dir():
+            env["VIRTUAL_ENV"] = str(self.temp / "setup-python")
+        elif pathlib.Path(project_env).is_dir():
+            env["VIRTUAL_ENV"] = project_env
+        elif (self.temp / "baseline-python").is_dir():
+            env["VIRTUAL_ENV"] = str(self.temp / "baseline-python")
         if self.path:
             env["PATH"] = os.pathsep.join([*reversed(self.path), env.get("PATH", "")])
+        if pathlib.Path(project_env).is_dir() and not (self.temp / "setup-python").is_dir():
+            env["PATH"] = os.pathsep.join(
+                [str(pathlib.Path(project_env) / "bin"), env.get("PATH", "")]
+            )
         return env
+
+    def provision_baseline(self, evidence: pathlib.Path) -> None:
+        """Isolate the actual local interpreter, including fallback pip installs."""
+        retained = evidence / "baseline-python"
+        retained.mkdir()
+        command = [
+            "uv",
+            "venv",
+            "--seed",
+            "--python",
+            sys.executable,
+            str(self.temp / "baseline-python"),
+        ]
+        with (retained / "stdout").open("wb") as stdout, (retained / "stderr").open("wb") as stderr:
+            proc = subprocess.run(  # noqa: S603 -- seed only this job's baseline environment
+                command,
+                stdout=stdout,
+                stderr=stderr,
+                check=False,
+            )
+        write_json(
+            retained / "result.json",
+            {
+                "command": command,
+                "returncode": proc.returncode,
+                "selected_local_python": sys.version,
+                "hosted_provisioning": False,
+            },
+        )
+        if proc.returncode:
+            raise ValueError(
+                "job-owned baseline Python could not be provisioned; see retained output"
+            )
+        self.path.append(str(self.temp / "baseline-python" / "bin"))
 
     def absorb(self, env: dict[str, str]) -> None:
         """Carry what the step just wrote to $GITHUB_ENV and $GITHUB_PATH forward."""
@@ -536,10 +792,36 @@ def record_outputs(step: Step, env: dict[str, str], outputs: dict[str, dict[str,
     outputs[step.ident] = written
 
 
-def run_step(run: str, env: dict[str, str], workdir: str = "") -> subprocess.CompletedProcess[str]:
+def run_step(
+    run: str,
+    env: dict[str, str],
+    workdir: str = "",
+    root: pathlib.Path | None = None,
+    evidence: pathlib.Path | None = None,
+) -> subprocess.CompletedProcess[str]:
+    workspace = (root or REPO).resolve()
+    directory = (workspace / workdir).resolve()
+    if not directory.is_relative_to(workspace):
+        raise ValueError("working-directory escapes the job checkout")
+    if evidence is not None:
+        with (evidence / "stdout").open("wb") as stdout, (evidence / "stderr").open("wb") as stderr:
+            proc = subprocess.run(  # noqa: S603 -- retained original workflow process bytes
+                [SHELL, *SHELL_FLAGS, "-c", run],
+                cwd=directory,
+                env=env,
+                stdout=stdout,
+                stderr=stderr,
+                check=False,
+            )
+        return subprocess.CompletedProcess(
+            proc.args,
+            proc.returncode,
+            (evidence / "stdout").read_bytes().decode("utf-8", "replace"),
+            (evidence / "stderr").read_bytes().decode("utf-8", "replace"),
+        )
     return subprocess.run(  # noqa: S603 -- running the repo's own workflow steps is the point
         [SHELL, *SHELL_FLAGS, "-c", run],
-        cwd=REPO / workdir,
+        cwd=directory,
         env=env,
         capture_output=True,
         text=True,
@@ -557,6 +839,11 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--list", action="store_true", help="print the plan and run nothing")
     ap.add_argument("--only", metavar="NAME", help="run one workflow, by file stem")
+    ap.add_argument(
+        "--evidence-dir",
+        type=pathlib.Path,
+        help="retain job source, mutations and process bytes here",
+    )
     args = ap.parse_args()
 
     if not WORKFLOWS.is_dir():
@@ -578,7 +865,7 @@ def main() -> int:
     # lock is taken here rather than left to the individual steps so the refusal
     # arrives before any work starts, instead of partway through a long run.
     with single_instance("aee-workflow-steps-gate"):
-        return execute(files)
+        return execute(files, args.evidence_dir)
 
 
 def plan(files: list[pathlib.Path]) -> int:
@@ -621,63 +908,291 @@ def step_base_environment(ambient: Mapping[str, str]) -> dict[str, str]:
     return base
 
 
-def execute(files: list[pathlib.Path]) -> int:
+def retain_job(job: JobState, source: Source, evidence: pathlib.Path) -> None:
+    """Preserve mutations and small native reports before deleting the checkout."""
+    final = inventory(job.root)
+    final_tags = tags(job.root)
+    write_json(
+        evidence / "source-final.json",
+        {
+            "head": git(job.root, "rev-parse", "HEAD").decode().strip(),
+            "tree": git(job.root, "rev-parse", "HEAD^{tree}").decode().strip(),
+            "tags": final_tags,
+            "files": final,
+        },
+    )
+    (evidence / "tracked.diff").write_bytes(git(job.root, "diff", "--binary", source.head, "--"))
+    (evidence / "status.raw").write_bytes(git(job.root, "status", "--porcelain", "-z"))
+    retain_tracked_changes(job, source, evidence, final)
+    retain_reports(job, evidence)
+    if (
+        git(job.root, "rev-parse", "HEAD").decode().strip() != source.head
+        or final_tags != source.tags
+    ):
+        raise ValueError("job changed its source commit or selected tag refs; evidence retained")
+    source.verify()
+
+
+def retain_tracked_changes(
+    job: JobState,
+    source: Source,
+    evidence: pathlib.Path,
+    final: dict[str, dict[str, str]],
+) -> None:
+    for relative in sorted(source.files.keys() | final.keys()):
+        if source.files.get(relative) == final.get(relative):
+            continue
+        path = job.root / relative
+        if relative in source.files:
+            original = evidence / "original-tracked" / relative
+            original.parent.mkdir(parents=True, exist_ok=True)
+            original.write_bytes(git(source.root, "show", f"{source.head}:{relative}"))
+        if path.is_file() or path.is_symlink():
+            target = evidence / "changed-tracked" / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(
+                os.fsencode(os.readlink(path)) if path.is_symlink() else path.read_bytes()
+            )
+
+
+def retain_reports(job: JobState, evidence: pathlib.Path) -> None:
+    for label, directory in (
+        ("workspace", job.root / ".build"),
+        ("runner-temp", job.temp),
+        ("release", job.root / "release"),
+    ):
+        if not directory.is_dir():
+            continue
+        for path in directory.rglob("*"):
+            relative = path.relative_to(directory)
+            if (
+                path.is_symlink()
+                or not path.is_file()
+                or any(
+                    part
+                    in {
+                        "project-env",
+                        "setup-python",
+                        "baseline-python",
+                        "node_modules",
+                        "target",
+                        ".git",
+                        "__pycache__",
+                    }
+                    for part in relative.parts
+                )
+            ):
+                continue
+            if path.suffix not in {
+                ".json",
+                ".jsonl",
+                ".txt",
+                ".log",
+                ".md",
+                ".csv",
+                ".xml",
+                ".ots",
+                ".bak",
+            }:
+                continue
+            target = evidence / "reports" / label / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(path.read_bytes())
+
+
+def execute_job(
+    steps: list[Step],
+    job: JobState,
+    source: Source,
+    evidence: pathlib.Path,
+    base: dict[str, str],
+) -> None:
+    context = source.context(job.temp)
+    for step in steps:
+        retained = evidence / "steps" / str(step.position)
+        retained.mkdir(parents=True)
+        block, suffix, fault = resolve_in_job(step, job)
+        env: dict[str, str] = {}
+        directory = ""
+        if block is not None:
+            env, missing = step_environment(step, job.outputs, str(job.temp), job.statuses, context)
+            block, unresolved = expand(block, job.outputs, job.statuses, context)
+            directory, missing_directory = expand(step.workdir, job.outputs, job.statuses, context)
+            missing = missing or unresolved or missing_directory
+            if missing:
+                block, suffix, fault = None, missing, True
+        if block is None:
+            job.failed += int(fault)
+            job.not_run.append(f"{step.label}  ({suffix})")
+            write_json(
+                retained / "result.json",
+                {"label": step.label, "status": "NOT_RUN", "reason": suffix, "fault": fault},
+            )
+            print(f"  NOT RUN  {step.label}  ({suffix})")
+            continue
+        print(f"  RUN   {step.label}{suffix}")
+        (retained / "command.sh").write_text(block, encoding="utf-8")
+        try:
+            proc = run_step(
+                block,
+                {**job.environment(base), **env},
+                directory if step.run is not None else "",
+                job.root,
+                retained,
+            )
+        except (OSError, ValueError) as exc:
+            job.failed += 1
+            write_json(
+                retained / "result.json",
+                {"label": step.label, "status": "NOT_RUN", "reason": str(exc), "fault": True},
+            )
+            job.not_run.append(f"{step.label}  ({exc})")
+            print(f"  NOT RUN  {step.label}  ({exc})")
+            continue
+        job.ran += 1
+        job.failed += int(proc.returncode != 0 and not step.continue_on_error)
+        outcome = "success" if proc.returncode == 0 else "failure"
+        write_json(
+            retained / "result.json",
+            {
+                "label": step.label,
+                "status": "EXECUTED",
+                "returncode": proc.returncode,
+                "continue_on_error": step.continue_on_error,
+                "stdout_sha256": hashlib.sha256((retained / "stdout").read_bytes()).hexdigest(),
+                "stderr_sha256": hashlib.sha256((retained / "stderr").read_bytes()).hexdigest(),
+            },
+        )
+        if proc.returncode != 0 and step.continue_on_error:
+            print(f"  FAILED, continue-on-error  {step.label}  (exit {proc.returncode})")
+        elif proc.returncode != 0:
+            report_failure(step.label, proc)
+        for key in ("GITHUB_OUTPUT", "GITHUB_STEP_SUMMARY", "GITHUB_ENV", "GITHUB_PATH"):
+            (retained / key).write_bytes(pathlib.Path(env[key]).read_bytes())
+        record_outputs(step, env, job.outputs)
+        job.absorb(env)
+        if step.ident:
+            job.statuses[step.ident] = {
+                "outcome": outcome,
+                "conclusion": "success" if step.continue_on_error else outcome,
+            }
+
+
+def execute_owned_job(
+    source: Source,
+    scratch: str,
+    label: str,
+    steps: list[Step],
+    evidence: pathlib.Path,
+    base: dict[str, str],
+) -> tuple[int, int, list[str]]:
+    """Run and retain one independent job even when another job failed."""
+    retained = evidence / label
+    retained.mkdir()
+    root = pathlib.Path(scratch) / label / "checkout"
+    setup_start = time.monotonic()
+    source.checkout(root)
+    setup_seconds = time.monotonic() - setup_start
+    job = JobState(scratch, label, root)
+    git_bytes = sum(p.stat().st_size for p in (root / ".git").rglob("*") if p.is_file())
+    print(
+        f"JOB_SOURCE {label} HEAD {source.head} TREE {source.tree} FILES {len(source.files)} "
+        f"TAGS {len(source.tags)} GIT_BYTES {git_bytes} CHECKOUT_SECONDS {setup_seconds:.6f}"
+    )
+    write_json(
+        retained / "source-initial.json",
+        {
+            "head": source.head,
+            "tree": source.tree,
+            "tags": tags(root),
+            "files": inventory(root),
+            "checkout_seconds": setup_seconds,
+            "git_directory_bytes": git_bytes,
+        },
+    )
+    try:
+        job.provision_baseline(retained)
+        execute_job(steps, job, source, retained, base)
+    except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+        job.failed += 1
+        print(f"FAULT: {label}: {exc}")
+        write_json(retained / "fault.json", {"reason": str(exc)})
+        for step in steps:
+            if not (retained / "steps" / str(step.position) / "result.json").exists():
+                stopped = f"{step.label}  (job stopped: {exc})"
+                job.not_run.append(stopped)
+    finally:
+        try:
+            retain_job(job, source, retained)
+        except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+            job.failed += 1
+            print(f"FAULT: {label}: {exc}")
+            write_json(retained / "retention-fault.json", {"reason": str(exc)})
+        shutil.rmtree(root.parent)
+        shutil.rmtree(job.temp)
+    source.verify()
+    return job.ran, job.failed, job.not_run
+
+
+def execute(files: list[pathlib.Path], evidence_dir: pathlib.Path | None = None) -> int:
     ran = failed = 0
     not_run: list[str] = []
     base = step_base_environment(os.environ)
-    # What each step with an `id:` wrote to $GITHUB_OUTPUT, so a later step that
-    # names it in an `env:` value gets the value the runner would have given it.
-    outputs: dict[str, dict[str, str]] = {}
-    # Each step with an `id:` also has an outcome and a conclusion, which a later
-    # step reads as steps.<id>.outcome; they differ only under continue-on-error.
-    statuses: dict[str, dict[str, str]] = {}
-
-    with tempfile.TemporaryDirectory(prefix="aee-workflow-steps-") as scratch:
-        for path in files:
-            doc = load_yaml(path)
-            print(f"\n=== {path.name} ===")
-            job: JobState | None = None
-            job_name = None
-            for step in steps_of(doc, path):
-                if step.job != job_name:
-                    job_name = step.job
-                    job = JobState(scratch, f"{path.stem}-{step.job}")
-                assert job is not None
-                block, suffix, fault = resolve_in_job(step, job)
-                if fault:
-                    failed += 1
-                    not_run.append(f"{step.label}  ({suffix})")
-                    print(f"  NOT RUN  {step.label}  ({suffix})")
-                    continue
-                if block is None:
-                    not_run.append(f"{step.label}  ({suffix})")
-                    print(f"  NOT RUN  {step.label}  ({suffix})")
-                    continue
-                env, missing = step_environment(step, outputs, scratch, statuses)
-                if missing:
-                    not_run.append(f"{step.label}  ({missing})")
-                    print(f"  NOT RUN  {step.label}  ({missing})")
-                    continue
-                print(f"  RUN   {step.label}{suffix}")
-                # A `working-directory` applies to `run:` blocks only; a mirrored
-                # action's shell starts at the root, as the action itself does.
-                workdir = step.workdir if step.run is not None else ""
-                proc = run_step(block, {**job.environment(base), **env}, workdir)
-                ran += 1
-                outcome = "success" if proc.returncode == 0 else "failure"
-                if proc.returncode != 0 and step.continue_on_error:
-                    print(f"  FAILED, continue-on-error  {step.label}  (exit {proc.returncode})")
-                elif proc.returncode != 0:
-                    failed += 1
-                    report_failure(step.label, proc)
-                record_outputs(step, env, outputs)
-                job.absorb(env)
-                if step.ident:
-                    statuses[step.ident] = {
-                        "outcome": outcome,
-                        "conclusion": "success" if step.continue_on_error else outcome,
-                    }
-
+    evidence = (
+        evidence_dir or pathlib.Path(tempfile.mkdtemp(prefix="aee-workflow-evidence-"))
+    ).resolve()
+    if evidence.is_relative_to(REPO.resolve()):
+        print("FAULT: evidence-dir must be outside the input checkout")
+        return 1
+    evidence.mkdir(parents=True, exist_ok=True)
+    if any(evidence.iterdir()):
+        print("FAULT: evidence-dir must be empty; existing evidence will not be overwritten")
+        return 1
+    print(f"Evidence retained at {evidence}")
+    try:
+        source = Source(REPO)
+        write_json(
+            evidence / "source-input.json",
+            {
+                "head": source.head,
+                "tree": source.tree,
+                "tags": source.tags,
+                "files": source.files,
+                "input_files": source.input_files,
+                "event": LOCAL_EVENT,
+            },
+        )
+        with tempfile.TemporaryDirectory(prefix="aee-workflow-steps-") as scratch:
+            ordinal = 0
+            for path in files:
+                relative = path.resolve().relative_to(source.root)
+                if str(relative) not in source.files:
+                    raise ValueError("workflow must be a tracked file of the selected source")
+                doc = load_yaml(path)
+                print(f"\n=== {path.name} ===")
+                grouped: dict[str, list[Step]] = {}
+                for step in steps_of(doc, path):
+                    grouped.setdefault(step.job, []).append(step)
+                for job_name, steps in grouped.items():
+                    ordinal += 1
+                    label = re.sub(r"[^A-Za-z0-9_.-]", "_", f"{ordinal:03d}-{path.stem}-{job_name}")
+                    count, faults, missing = execute_owned_job(
+                        source,
+                        scratch,
+                        label,
+                        steps,
+                        evidence,
+                        base,
+                    )
+                    ran += count
+                    failed += faults
+                    not_run.extend(missing)
+        source.verify()
+    except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+        failed += 1
+        print(f"FAULT: {exc}")
+        write_json(evidence / "fault.json", {"reason": str(exc)})
+    write_json(evidence / "result.json", {"ran": ran, "failed": failed, "not_run": not_run})
     return summarise("ran", ran, failed, not_run)
 
 
@@ -689,6 +1204,32 @@ def resolve_in_job(step: Step, job: JobState) -> tuple[str | None, str, bool]:
     """
     if job.blocked:
         return None, job.blocked, False
+    if step.uses.split("@", 1)[0] == "actions/checkout" and not step.inputs.get("repository"):
+        where = str(step.inputs.get("path") or ".")
+        if where != ".":
+            job.blocked = "self checkout into another path is not mirrored by the job root"
+            return None, job.blocked, True
+        ref = str(step.inputs.get("ref") or "")
+        if ref:
+            selected, missing = expand(
+                ref,
+                job.outputs,
+                job.statuses,
+                {
+                    "github.sha": git(job.root, "rev-parse", "HEAD").decode().strip(),
+                },
+            )
+            try:
+                target = (
+                    git(job.root, "rev-parse", "--verify", f"{selected}^{{commit}}")
+                    .decode()
+                    .strip()
+                )
+            except subprocess.CalledProcessError:
+                target = ""
+            if missing or target != git(job.root, "rev-parse", "HEAD").decode().strip():
+                job.blocked = missing or "checkout ref does not select the frozen source commit"
+                return None, job.blocked, True
     block, suffix, fault = resolve(step)
     action = step.uses.split("@", 1)[0]
     if block is None and action == "actions/setup-python":

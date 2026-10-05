@@ -32,7 +32,10 @@ from __future__ import annotations
 
 import contextlib
 import importlib.util
+import json
+import os
 import pathlib
+import subprocess
 import sys
 import tempfile
 from collections.abc import Callable, Iterator
@@ -337,18 +340,10 @@ def continue_on_error_is_honoured_end_to_end() -> None:
         "          OUTCOME: ${{ steps.must_fail.outcome }}\n"
         '        run: test "$OUTCOME" = failure\n'
     )
-    with tempfile.TemporaryDirectory() as tmp:
-        path = pathlib.Path(tmp) / "neg.yml"
-        path.write_text(workflow, encoding="utf-8")
-        with contextlib.redirect_stdout(open(pathlib.Path(tmp) / "out.txt", "w")):
-            rc = GATE.execute([path])  # type: ignore[attr-defined]
-    assert rc == 0, f"a continue-on-error failure failed the run (exit {rc})"
+    rc, log = _execute(workflow)
+    assert rc == 0, f"a continue-on-error failure failed the run (exit {rc}):\n{log}"
     # The balance: the same failure WITHOUT the key still fails the run.
-    with tempfile.TemporaryDirectory() as tmp:
-        path = pathlib.Path(tmp) / "pos.yml"
-        path.write_text(workflow.replace("        continue-on-error: true\n", ""), encoding="utf-8")
-        with contextlib.redirect_stdout(open(pathlib.Path(tmp) / "out.txt", "w")):
-            rc = GATE.execute([path])  # type: ignore[attr-defined]
+    rc, _ = _execute(workflow.replace("        continue-on-error: true\n", ""))
     assert rc != 0, "a failing step without continue-on-error passed the run"
 
 
@@ -362,20 +357,80 @@ def the_action_mirror_fails_on_a_non_pass_verdict() -> None:
     )
 
 
+def _fixture_git(root: pathlib.Path, *args: str) -> str:
+    return subprocess.run(  # noqa: S603 -- commands act only on this test's fixture repository
+        ["git", "-C", str(root), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _fixture(workflow: str, root: pathlib.Path) -> pathlib.Path:
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / ".github" / "workflows" / "wf.yml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(workflow, encoding="utf-8")
+    _fixture_git(root, "init", "-q")
+    _fixture_git(root, "add", ".")
+    _fixture_git(
+        root,
+        "-c",
+        "user.name=Fixture operator",
+        "-c",
+        "user.email=fixture@example.test",
+        "commit",
+        "--no-gpg-sign",
+        "-qm",
+        "test: record fixture source",
+    )
+    _fixture_git(
+        root,
+        "-c",
+        "user.name=Fixture operator",
+        "-c",
+        "user.email=fixture@example.test",
+        "tag",
+        "--no-sign",
+        "-a",
+        "fixture-tag",
+        "-m",
+        "fixture source annotation",
+    )
+    return path
+
+
+@contextlib.contextmanager
+def _local_input(root: pathlib.Path) -> Iterator[None]:
+    original = GATE.REPO  # type: ignore[attr-defined]
+    ambient = {
+        key: os.environ.pop(key, None)
+        for key in (
+            "GITHUB_SHA",
+            "GITHUB_HEAD_SHA",
+            "GITHUB_EVENT_NAME",
+        )
+    }
+    GATE.REPO = root  # type: ignore[attr-defined]
+    try:
+        yield
+    finally:
+        GATE.REPO = original  # type: ignore[attr-defined]
+        for key, value in ambient.items():
+            if value is not None:
+                os.environ[key] = value
+            else:
+                os.environ.pop(key, None)
+
+
 def _execute(workflow: str, root: pathlib.Path | None = None) -> tuple[int, str]:
     """Run one synthetic workflow through the gate; return (exit, printed log)."""
     with tempfile.TemporaryDirectory() as tmp:
-        path = pathlib.Path(tmp) / "wf.yml"
-        path.write_text(workflow, encoding="utf-8")
+        root = root or pathlib.Path(tmp) / "source"
+        path = _fixture(workflow, root)
         out = pathlib.Path(tmp) / "out.txt"
-        original = GATE.REPO  # type: ignore[attr-defined]
-        if root is not None:
-            GATE.REPO = root  # type: ignore[attr-defined]
-        try:
-            with open(out, "w") as handle, contextlib.redirect_stdout(handle):
-                rc = GATE.execute([path])  # type: ignore[attr-defined]
-        finally:
-            GATE.REPO = original  # type: ignore[attr-defined]
+        with _local_input(root), open(out, "w") as handle, contextlib.redirect_stdout(handle):
+            rc = GATE.execute([path])  # type: ignore[attr-defined]
         return rc, out.read_text()
 
 
@@ -632,6 +687,291 @@ def an_ambient_virtual_env_does_not_reach_the_steps() -> None:
     assert "VIRTUAL_ENV" not in bare, bare.get("VIRTUAL_ENV")
 
 
+def a_mutating_job_does_not_change_the_next_jobs_source() -> None:
+    """An OTS-like producer keeps its changed proof; the next job reads the original."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp) / "input"
+        root.mkdir()
+        (root / "proof.ots").write_bytes(b"original-proof\x00\xff")
+        workflow = (
+            "jobs:\n  upgrade:\n    steps:\n"
+            "      - run: printf upgraded > proof.ots\n"
+            '      - run: test "$(cat proof.ots)" = upgraded\n'
+            "  verify:\n    steps:\n"
+            '      - run: python3 -c "from pathlib import Path; '
+            "assert Path('proof.ots').read_bytes() == b'original-proof\\x00\\xff'\"\n"
+        )
+        rc, log = _execute(workflow, root)
+        assert rc == 0, f"one job's mutated proof contaminated another:\n{log}"
+        assert (root / "proof.ots").read_bytes() == b"original-proof\x00\xff"
+
+
+def reader_revision_is_the_actual_full_source_sha() -> None:
+    workflow = (
+        "jobs:\n  reader:\n    steps:\n"
+        "      - run: |\n"
+        '          selected="${{ github.event.pull_request.head.sha || github.sha }}"\n'
+        '          test "$selected" = "$(git rev-parse HEAD)"\n'
+        '          test "${#selected}" = 40\n'
+        "      - env:\n          REVISION: ${{ github.sha }}\n"
+        '        run: test "$REVISION" = "$(git rev-parse HEAD)"\n'
+    )
+    rc, log = _execute(workflow)
+    assert rc == 0, f"the reader revision did not bind to the actual source:\n{log}"
+
+
+def mutations_and_native_report_bytes_survive_job_cleanup() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        directory = pathlib.Path(tmp)
+        root = directory / "input"
+        root.mkdir()
+        (root / "proof.ots").write_bytes(b"original proof")
+        workflow = (
+            "jobs:\n  upgrade:\n    steps:\n"
+            "      - run: |\n"
+            "          printf 'new proof' > proof.ots\n"
+            "          mkdir -p .build/remora-e7-result\n"
+            "          printf '{\"fixture_only\":true}\\r\\n' "
+            "> .build/remora-e7-result/report.json\n"
+            "          printf 'raw stdout\\r\\n'\n"
+            "          printf 'raw stderr\\r\\n' >&2\n"
+            "  verify:\n    steps:\n"
+            "      - run: test \"$(cat proof.ots)\" = 'original proof'\n"
+        )
+        path = _fixture(workflow, root)
+        evidence = directory / "evidence"
+        with (
+            _local_input(root),
+            open(directory / "log", "w") as out,
+            contextlib.redirect_stdout(out),
+        ):
+            rc = GATE.execute([path], evidence)  # type: ignore[attr-defined]
+        assert rc == 0, (directory / "log").read_text()
+        producer = evidence / "001-wf-upgrade"
+        consumer = evidence / "002-wf-verify"
+        assert (producer / "changed-tracked/proof.ots").read_bytes() == b"new proof"
+        assert b"original proof" in (producer / "tracked.diff").read_bytes()
+        assert (producer / "reports/workspace/remora-e7-result/report.json").read_bytes() == (
+            b'{"fixture_only":true}\r\n'
+        )
+        assert (producer / "steps/0/stdout").read_bytes() == b"raw stdout\r\n"
+        assert (producer / "steps/0/stderr").read_bytes() == b"raw stderr\r\n"
+        assert (producer / "original-tracked/proof.ots").read_bytes() == b"original proof"
+        before = json.loads((producer / "source-initial.json").read_text())
+        after = json.loads((producer / "source-final.json").read_text())
+        independent = json.loads((consumer / "source-initial.json").read_text())
+        assert before["files"] == independent["files"]
+        assert before["files"]["proof.ots"] != after["files"]["proof.ots"]
+        assert before["tags"] == after["tags"] == independent["tags"]
+        assert not (consumer / "changed-tracked").exists()
+
+
+def unknown_context_refuses_execution_before_bash() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        marker = pathlib.Path(tmp) / "executed"
+        workflow = (
+            "jobs:\n  unknown:\n    steps:\n"
+            "      - run: |\n"
+            f"          echo executed > '{marker}'\n"
+            '          echo "${{ secrets.UNKNOWN }}"\n'
+        )
+        rc, log = _execute(workflow)
+        assert rc == 1 and "unsupported expression" in log, log
+        assert not marker.exists(), "the unresolved expression reached a shell"
+        value, missing = GATE.expand("${{ inputs.unrecognised }}", {})  # type: ignore[attr-defined]
+        assert missing and value == "", (value, missing)
+
+
+def multiline_expressions_have_the_same_bounded_context() -> None:
+    rc, log = _execute(
+        "jobs:\n  j:\n    steps:\n      - run: |\n"
+        '          selected="${{ github.event.pull_request.head.sha ||\n'
+        '          github.sha }}"\n'
+        '          test "$selected" = "$(git rev-parse HEAD)"\n'
+    )
+    assert rc == 0, log
+    with tempfile.TemporaryDirectory() as tmp:
+        marker = pathlib.Path(tmp) / "executed"
+        for expression in ("${{ secrets.\n          UNKNOWN }}", "${{ secrets.UNKNOWN"):
+            rc, log = _execute(
+                "jobs:\n  j:\n    steps:\n      - run: |\n"
+                f"          echo executed > '{marker}'\n"
+                f'          echo "{expression}"\n'
+            )
+            assert rc == 1 and not marker.exists(), log
+
+
+def workflow_job_and_step_environment_use_actual_context() -> None:
+    rc, log = _execute(
+        "env:\n  REVISION: ${{ github.sha }}\n  PRIORITY: workflow\n"
+        "jobs:\n  j:\n    env:\n      PRIORITY: job\n    steps:\n"
+        '      - run: test "$REVISION" = "$(git rev-parse HEAD)" && test "$PRIORITY" = job\n'
+        "      - env:\n          PRIORITY: step\n"
+        '        run: test "$PRIORITY" = step\n'
+    )
+    assert rc == 0, log
+
+
+def sparse_inputs_produce_complete_jobs_and_hidden_drift_is_refused() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp) / "source"
+        (root / "hidden").mkdir(parents=True)
+        (root / "hidden" / "proof").write_text("original")
+        path = _fixture(
+            'jobs:\n  j:\n    steps:\n      - run: test "$(cat hidden/proof)" = original\n',
+            root,
+        )
+        _fixture_git(root, "sparse-checkout", "init", "--cone")
+        _fixture_git(root, "sparse-checkout", "set", ".github")
+        assert not (root / "hidden/proof").exists()
+        with _local_input(root):
+            assert GATE.execute([path]) == 0  # type: ignore[attr-defined]
+        assert not (root / "hidden/proof").exists(), "the mirror changed its sparse donor"
+        _fixture_git(root, "sparse-checkout", "disable")
+        _fixture_git(root, "update-index", "--assume-unchanged", "hidden/proof")
+        (root / "hidden/proof").write_text("hidden drift")
+        assert not _fixture_git(root, "status", "--porcelain", "--untracked-files=no")
+        with _local_input(root):
+            assert GATE.execute([path]) == 1  # type: ignore[attr-defined]
+
+
+def step_outputs_and_status_do_not_leak_between_jobs() -> None:
+    for expression in ("steps.producer.outputs.result", "steps.producer.outcome"):
+        workflow = (
+            "jobs:\n  first:\n    steps:\n"
+            "      - id: producer\n"
+            '        run: echo result=pass >> "$GITHUB_OUTPUT"\n'
+            "      - env:\n          RESULT: ${{ steps.producer.outputs.result }}\n"
+            '        run: test "$RESULT" = pass\n'
+            "  second:\n    steps:\n"
+            f"      - env:\n          RESULT: ${{{{ {expression} }}}}\n"
+            "        run: exit 0\n"
+        )
+        rc, log = _execute(workflow)
+        reason = "no value" if "outputs" in expression else "no outcome"
+        assert rc == 1 and reason in log, log
+
+
+def selected_source_cannot_be_faked_or_dirty() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp) / "source"
+        path = _fixture("jobs:\n  j:\n    steps:\n      - run: exit 0\n", root)
+        with _local_input(root):
+            for key in ("GITHUB_SHA", "GITHUB_HEAD_SHA"):
+                os.environ[key] = "1" * 40
+                rc = GATE.execute([path])  # type: ignore[attr-defined]
+                assert rc == 1, f"a fake {key} was trusted"
+                os.environ.pop(key)
+            path.write_text(path.read_text() + "# changed tracked source\n")
+            assert GATE.execute([path]) == 1  # type: ignore[attr-defined]
+
+
+def job_tag_ref_changes_are_retained_and_cannot_change_the_donor() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        directory = pathlib.Path(tmp)
+        root = directory / "source"
+        path = _fixture(
+            "jobs:\n  j:\n    steps:\n      - run: git tag -d fixture-tag\n"
+            "  next:\n    steps:\n"
+            '      - run: test "$(git cat-file -t fixture-tag)" = tag\n',
+            root,
+        )
+        annotation = _fixture_git(root, "rev-parse", "refs/tags/fixture-tag")
+        evidence = directory / "evidence"
+        with _local_input(root):
+            rc = GATE.execute([path], evidence)  # type: ignore[attr-defined]
+        assert rc == 1, "a job silently changed its frozen tag binding"
+        assert _fixture_git(root, "rev-parse", "refs/tags/fixture-tag") == annotation
+        assert _fixture_git(root, "cat-file", "-t", annotation) == "tag"
+        final = json.loads((evidence / "001-wf-j/source-final.json").read_text())
+        assert "refs/tags/fixture-tag" not in final["tags"]
+        next_result = json.loads((evidence / "002-wf-next/steps/0/result.json").read_text())
+        assert next_result["status"] == "EXECUTED" and next_result["returncode"] == 0
+
+
+def checkout_and_working_directory_bind_to_the_selected_source() -> None:
+    for declaration in (
+        "      - uses: actions/checkout@v4\n        with:\n          ref: does-not-exist\n",
+        "      - uses: actions/checkout@v4\n        with:\n          path: elsewhere\n",
+        "      - working-directory: ..\n        run: exit 0\n",
+    ):
+        rc, log = _execute("jobs:\n  j:\n    steps:\n" + declaration)
+        assert rc == 1, f"an unsupported checkout/directory was executed:\n{log}"
+    rc, log = _execute(
+        "jobs:\n  j:\n    steps:\n"
+        "      - uses: actions/checkout@v4\n        with:\n          ref: ${{ github.sha }}\n"
+        '      - run: test "$(git cat-file -t refs/tags/fixture-tag)" = tag\n'
+    )
+    assert rc == 0, log
+
+
+def baseline_python_and_uv_environment_belong_to_each_job() -> None:
+    workflow = (
+        "jobs:\n  first:\n    steps:\n      - run: |\n"
+        '          test "$VIRTUAL_ENV" = "$RUNNER_TEMP/baseline-python"\n'
+        '          test "$UV_PROJECT_ENVIRONMENT" = "$RUNNER_TEMP/project-env"\n'
+        '          python3 -c "import sys; assert sys.prefix != sys.base_prefix"\n'
+        "  second:\n    steps:\n      - run: |\n"
+        '          test "$VIRTUAL_ENV" = "$RUNNER_TEMP/baseline-python"\n'
+        '          test "$UV_PROJECT_ENVIRONMENT" = "$RUNNER_TEMP/project-env"\n'
+    )
+    rc, log = _execute(workflow)
+    assert rc == 0, log
+
+
+def envelope_failure_keeps_executed_counts_and_later_jobs() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        directory = pathlib.Path(tmp)
+        root = directory / "source"
+        path = _fixture(
+            "jobs:\n  broken:\n    steps:\n"
+            "      - run: exit 7\n"
+            "      - run: printf '\\377' > \"$GITHUB_ENV\"\n"
+            "      - name: unreachable consumer\n        run: echo unreachable\n"
+            "  next:\n    steps:\n      - run: printf next-job\n",
+            root,
+        )
+        evidence = directory / "evidence"
+        with _local_input(root):
+            rc = GATE.execute([path], evidence)  # type: ignore[attr-defined]
+        assert rc == 1
+        result = json.loads((evidence / "result.json").read_text())
+        assert result["ran"] == 3 and result["failed"] == 2, result
+        assert len(result["not_run"]) == 1 and "unreachable" in result["not_run"][0], result
+        first = json.loads((evidence / "001-wf-broken/steps/0/result.json").read_text())
+        assert first["status"] == "EXECUTED" and first["returncode"] == 7
+        assert (evidence / "001-wf-broken/steps/1/GITHUB_ENV").read_bytes() == b"\xff"
+        next_step = json.loads((evidence / "002-wf-next/steps/0/result.json").read_text())
+        assert next_step["status"] == "EXECUTED" and next_step["returncode"] == 0
+        assert (evidence / "002-wf-next/steps/0/stdout").read_bytes() == b"next-job"
+
+
+def alternate_backed_input_produces_independent_job_objects() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        directory = pathlib.Path(tmp)
+        original = directory / "original"
+        _fixture(
+            "jobs:\n  first:\n    steps:\n"
+            "      - run: test ! -s .git/objects/info/alternates\n"
+            "  second:\n    steps:\n"
+            "      - run: test ! -s .git/objects/info/alternates\n",
+            original,
+        )
+        borrowed = directory / "borrowed"
+        _fixture_git(directory, "clone", "--quiet", "--shared", str(original), str(borrowed))
+        alternate = borrowed / ".git/objects/info/alternates"
+        assert alternate.read_text().strip(), "fixture did not borrow an object store"
+        before = alternate.read_bytes()
+        annotation = _fixture_git(borrowed, "rev-parse", "refs/tags/fixture-tag")
+        path = borrowed / ".github/workflows/wf.yml"
+        with _local_input(borrowed):
+            rc = GATE.execute([path])  # type: ignore[attr-defined]
+        assert rc == 0, "a job retained the managed input's alternate-object dependency"
+        assert alternate.read_bytes() == before
+        assert _fixture_git(borrowed, "rev-parse", "refs/tags/fixture-tag") == annotation
+        assert _fixture_git(original, "rev-parse", "refs/tags/fixture-tag") == annotation
+
+
 def main() -> int:
     check("a failing first command is caught", first_command_failing_is_caught)
     check("a failing middle command is caught", middle_command_failing_is_caught)
@@ -675,6 +1015,52 @@ def main() -> int:
     check(
         "an ambient VIRTUAL_ENV does not reach the steps",
         an_ambient_virtual_env_does_not_reach_the_steps,
+    )
+    check(
+        "mutating jobs do not contaminate source",
+        a_mutating_job_does_not_change_the_next_jobs_source,
+    )
+    check("reader revision binds actual source SHA", reader_revision_is_the_actual_full_source_sha)
+    check(
+        "mutation and original process bytes survive cleanup",
+        mutations_and_native_report_bytes_survive_job_cleanup,
+    )
+    check("unknown context refuses before Bash", unknown_context_refuses_execution_before_bash)
+    check(
+        "multiline expressions have bounded context",
+        multiline_expressions_have_the_same_bounded_context,
+    )
+    check(
+        "workflow/job/step environment respects context",
+        workflow_job_and_step_environment_use_actual_context,
+    )
+    check(
+        "sparse source and hidden drift have exact identity",
+        sparse_inputs_produce_complete_jobs_and_hidden_drift_is_refused,
+    )
+    check(
+        "step outputs and status belong to a job", step_outputs_and_status_do_not_leak_between_jobs
+    )
+    check("fake or dirty source is refused", selected_source_cannot_be_faked_or_dirty)
+    check(
+        "job refs do not alter the donor",
+        job_tag_ref_changes_are_retained_and_cannot_change_the_donor,
+    )
+    check(
+        "checkout and directory binding is enforced",
+        checkout_and_working_directory_bind_to_the_selected_source,
+    )
+    check(
+        "baseline Python and uv environment belong to a job",
+        baseline_python_and_uv_environment_belong_to_each_job,
+    )
+    check(
+        "envelope failure retains execution and later jobs",
+        envelope_failure_keeps_executed_counts_and_later_jobs,
+    )
+    check(
+        "borrowed input yields independent job objects",
+        alternate_backed_input_produces_independent_job_objects,
     )
 
     if FAILURES:
