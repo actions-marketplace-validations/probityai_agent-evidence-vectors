@@ -354,6 +354,15 @@ def commit_date(root: Path, ref: str) -> str | None:
         root, "show", "-s", "--format=%cs", f"{ref}^{{commit}}")
 
 
+def commit_epoch(root: Path, ref: str) -> int | None:
+    """The committer's instant, for ordering dates carrying different offsets."""
+    value = _git(root, "show", "-s", "--format=%ct", f"{ref}^{{commit}}")
+    try:
+        return int(value) if value is not None else None
+    except ValueError:
+        return None
+
+
 def check_release_identity(cff: dict[str, Any]) -> list[str]:
     """Catch an advanced source tree retaining metadata older than a release.
 
@@ -390,7 +399,7 @@ def check_release_identity(cff: dict[str, Any]) -> list[str]:
 
 
 def newest_release_tag(root: Path) -> tuple[str, str] | None:
-    """The most recently dated `v*` tag, as (name, date), or None if there is none."""
+    """The newest committer instant, with its stored calendar date and tag name."""
     listed = _git(root, "for-each-ref", "--format=%(refname:short)", "refs/tags/v*")
     if not listed:
         return None
@@ -399,11 +408,13 @@ def newest_release_tag(root: Path) -> tuple[str, str] | None:
     # checked is about the released contents rather than about when somebody ran
     # `git tag`. Resolving each one separately costs a handful of git calls over
     # a handful of tags and removes a whole class of off-by-a-day disagreement.
-    rows = [(name, commit_date(root, name)) for name in listed.split()]
-    dated = [(name, date) for name, date in rows if date]
+    rows = [(name, commit_date(root, name), commit_epoch(root, name)) for name in listed.split()]
+    dated = [(name, date, epoch) for name, date, epoch in rows
+             if date is not None and epoch is not None]
     if not dated:
         return None
-    return max(dated, key=lambda row: row[1])
+    name, date, _ = max(dated, key=lambda row: row[2])
+    return name, date
 
 
 def check_release_date(cff: dict[str, Any]) -> list[str]:

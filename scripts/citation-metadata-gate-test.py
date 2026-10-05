@@ -473,6 +473,16 @@ DATED_CUTS = (
 )
 
 
+def commit_with_dates(root: Path, committer: str, author: str) -> None:
+    subprocess.run(
+        ["git", "-c", "user.name=citation gate test", "-c",
+         "user.email=citation-gate-test@example.invalid", "-c", "commit.gpgsign=false",
+         "commit", "--quiet", "--allow-empty", "-m", "dated release"],
+        cwd=root, env={**os.environ, "GIT_COMMITTER_DATE": committer,
+                       "GIT_AUTHOR_DATE": author}, check=True, capture_output=True,
+    )
+
+
 def timezone_date_checks(tmp: Path) -> list[str]:
     """Bind to the committer's date across midnight, rather than the observer's.
 
@@ -485,13 +495,7 @@ def timezone_date_checks(tmp: Path) -> list[str]:
         root = tmp / f"timezone{index}"
         root.mkdir()
         stage(root)
-        subprocess.run(
-            ["git", "-c", "user.name=citation gate test", "-c",
-             "user.email=citation-gate-test@example.invalid", "-c", "commit.gpgsign=false",
-             "commit", "--quiet", "--allow-empty", "-m", "dated release"],
-            cwd=root, env={**os.environ, "GIT_COMMITTER_DATE": committer,
-                           "GIT_AUTHOR_DATE": author}, check=True, capture_output=True,
-        )
+        commit_with_dates(root, committer, author)
         version = re.search(r"^version: (\S+)$", (root / CFF).read_text(), re.MULTILINE)
         assert version is not None, "the staged citation has no version to tag"
         tag(root, f"v{version.group(1)}")
@@ -507,6 +511,33 @@ def timezone_date_checks(tmp: Path) -> list[str]:
     return failures
 
 
+def release_order_checks(tmp: Path) -> list[str]:
+    """A newer instant can carry an earlier date label; keep the fallback bound."""
+    root = tmp / "release-order"
+    root.mkdir()
+    stage(root)
+    cuts = (
+        ("v0.14.0", "2026-10-05T00:30:00+1400", "2026-10-04T10:30:00+0000"),
+        ("v0.15.0", "2026-10-04T22:30:00-0400", "2026-10-05T02:30:00+0000"),
+    )
+    for name, committer, author in cuts:
+        commit_with_dates(root, committer, author)
+        subprocess.run(["git", "-c", "tag.gpgsign=false", "tag", "-a", name, "-m", name],
+                       cwd=root, check=True, capture_output=True)
+    commit_with_dates(root, "2026-10-05T03:00:00+0000", "2026-10-05T03:00:00+0000")
+    failures: list[str] = []
+    for timezone in TIMEZONES:
+        set_release_date(root, "2026-10-04")
+        code, output = run(root, timezone)
+        if code != 0:
+            failures.append(f"newest release by instant under {timezone}:\n{output}")
+        set_release_date(root, "2026-10-03")
+        code, output = run(root, timezone)
+        if code == 0 or "earlier than tag v0.15.0 on 2026-10-04" not in output:
+            failures.append(f"wrong fallback date under {timezone}:\n{output}")
+    return failures
+
+
 def main() -> int:
     failures: list[str] = []
     with tempfile.TemporaryDirectory() as raw:
@@ -519,6 +550,7 @@ def main() -> int:
         failures.extend(check("identity", IDENTITY_CASES, True, tmp))
         failures.extend(check("accept", ACCEPT_CASES, False, tmp))
         failures.extend(timezone_date_checks(tmp))
+        failures.extend(release_order_checks(tmp))
     total = (
         len(STALE_CASES)
         + len(CENSUS_CASES)
@@ -528,13 +560,14 @@ def main() -> int:
         + len(IDENTITY_CASES)
         + len(ACCEPT_CASES)
         + 2 * len(DATED_CUTS) * len(TIMEZONES)
+        + 2 * len(TIMEZONES)
     )
     if failures:
         print(f"FAIL: {len(failures)} of {total} case(s) do not hold:", file=sys.stderr)
         for failure in failures:
             print(f"  {failure}", file=sys.stderr)
         return 1
-    refusals = total - len(ACCEPT_CASES) - len(DATED_CUTS) * len(TIMEZONES)
+    refusals = total - len(ACCEPT_CASES) - (len(DATED_CUTS) + 1) * len(TIMEZONES)
     print(
         f"OK: {total} case(s), of which {refusals} assert a refusal the gate makes "
         "and name the figure it makes it about."
