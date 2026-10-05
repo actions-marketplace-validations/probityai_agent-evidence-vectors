@@ -150,10 +150,16 @@ python3 scripts/verify-release-tag.py vX.Y.Z
 #    come from here instead. Nothing is pushed until this is green.
 python3 scripts/workflow-steps-gate.py
 
-# 7. Push the commit and the tag in ONE push. Two pushes leave a window in
-#    which the default branch carries a page pinned to a tag the remote does
-#    not have, which is the same refusal as step 5 seen from the runner.
-git push origin <branch>:main tag vX.Y.Z
+# 7. Publish the owned feature branch and the new tag atomically. The feature
+#    branch's installation pin and signed tag arrive together. The default
+#    branch stays at its reviewed revision until the source pull request lands.
+git push --atomic origin <branch> refs/tags/vX.Y.Z:refs/tags/vX.Y.Z
+
+# 8. Open a source pull request from <branch> into main. Review its exact head
+#    and require all hosted checks to pass, including the release tag run.
+#    Merge through the normal protected landing procedure. Read back the
+#    merged source tree, main checks and actual package publication before
+#    reporting the release as delivered.
 ```
 
 A tag that precedes its remote run cannot publish a bad release, and that is
