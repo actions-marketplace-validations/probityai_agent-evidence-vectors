@@ -64,8 +64,22 @@ jobs:
               echo "release checkout does not match the event commit" >&2
               exit 1
             fi
+            # actions/checkout rewrites refs/tags/<name> to the bare commit it
+            # checked out, so the local ref no longer names the annotated tag.
+            # Fetch the tag object itself before recording it, and require that
+            # it peels to the commit under test.
+            git fetch --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+            selected_tag="$(git rev-parse "refs/tags/${GITHUB_REF_NAME}")"
+            if [ "$(git cat-file -t "$selected_tag")" != "tag" ]; then
+              echo "release tag ${GITHUB_REF_NAME} is not an annotated tag object" >&2
+              exit 1
+            fi
+            if [ "$(git rev-parse "${selected_tag}^{commit}")" != "$selected_commit" ]; then
+              echo "release tag ${GITHUB_REF_NAME} does not peel to the checked-out commit" >&2
+              exit 1
+            fi
             echo "AEV_RELEASE_COMMIT=$selected_commit" >> "$GITHUB_ENV"
-            echo "AEV_RELEASE_TAG_OBJECT=$(git rev-parse "refs/tags/${GITHUB_REF_NAME}")" >> "$GITHUB_ENV"
+            echo "AEV_RELEASE_TAG_OBJECT=$selected_tag" >> "$GITHUB_ENV"
           fi
           if [ -n "${GITHUB_REF_NAME:-}" ]; then
             uv run python scripts/release-gate.py --tag "${GITHUB_REF_NAME}"
