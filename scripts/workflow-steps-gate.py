@@ -758,6 +758,38 @@ def read_github_env(text: str) -> dict[str, str]:
     return found
 
 
+# Directories the workspace snapshot does not descend into: the repository's
+# own metadata and tool caches that a job may reuse but never reads as input.
+UNWATCHED = frozenset(
+    {
+        ".git",
+        ".venv",
+        "node_modules",
+        "target",
+        "__pycache__",
+        ".mypy_cache",
+        ".ruff_cache",
+        ".pytest_cache",
+    }
+)
+
+
+def workspace_paths() -> set[pathlib.Path]:
+    """Every path in the workspace, outside the directories in UNWATCHED.
+
+    A new directory and the new paths under it are all listed; `finish`
+    removes them in sorted order, so the directory goes first and its
+    children are already gone when their turn comes.
+    """
+    found: set[pathlib.Path] = set()
+    for directory, subdirectories, files in os.walk(REPO):
+        subdirectories[:] = [d for d in subdirectories if d not in UNWATCHED]
+        base = pathlib.Path(directory)
+        found.update(base / name for name in subdirectories)
+        found.update(base / name for name in files)
+    return found
+
+
 class JobState:
     """What one job carries between its steps on a runner and nowhere else.
 
@@ -785,12 +817,27 @@ class JobState:
         # Directories this job fetched for a foreign checkout, removed when the
         # job ends: every job starts from a fresh workspace on the runner.
         self.fetched: list[pathlib.Path] = []
+        # Every workspace path before the job's first step, so what the job
+        # writes can be removed when it ends.
+        self.before = workspace_paths()
 
     def finish(self) -> None:
-        """Remove what this job fetched, as the runner discards the workspace."""
+        """Remove what this job wrote and fetched, as the runner discards the workspace.
+
+        On the runner each job, and each matrix combination, starts from a fresh
+        checkout. Here they share one, so a job that writes into the workspace
+        left its output for the next: the second REMORA combination refused to
+        overwrite the qualification the first had written and failed a push the
+        remote accepts. Paths that existed before the job are never touched.
+        """
         for directory in reversed(self.fetched):
             shutil.rmtree(directory, ignore_errors=True)
         self.fetched.clear()
+        for path in sorted(workspace_paths() - self.before):
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path, ignore_errors=True)
+            else:
+                path.unlink(missing_ok=True)
 
     def environment(self, base: dict[str, str]) -> dict[str, str]:
         env = {**base, **self.env, "RUNNER_TEMP": str(self.temp), "GITHUB_WORKSPACE": str(REPO)}

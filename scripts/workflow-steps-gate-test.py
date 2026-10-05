@@ -680,6 +680,31 @@ def a_matrix_runs_once_per_combination() -> None:
     assert "FAIL  j (python=b)[0]" in log and rc != 0, log
 
 
+def each_job_starts_from_a_clean_workspace() -> None:
+    """What one job writes into the workspace is gone before the next starts.
+
+    The second REMORA combination refused to overwrite the qualification the
+    first had written. A file that was there before the run is left alone.
+    """
+    with tempfile.TemporaryDirectory() as tmp_name:
+        root = pathlib.Path(tmp_name)
+        (root / "kept.txt").write_text("before\n")
+        workflow = (
+            "jobs:\n  j:\n    strategy:\n      matrix:\n        n: [1, 2]\n"
+            "    steps:\n"
+            "      - run: |\n"
+            "          test ! -e out/result\n"
+            "          mkdir -p out && echo done > out/result\n"
+            "          echo changed > kept.txt.new\n"
+        )
+        rc, log = _execute(workflow, root)
+        assert rc == 0, f"a combination saw what the one before it wrote:\n{log}"
+        assert not (root / "out").exists() and not (root / "kept.txt.new").exists(), (
+            "the job's output outlived it"
+        )
+        assert (root / "kept.txt").read_text() == "before\n", "a pre-existing file was touched"
+
+
 def matrix_include_and_exclude_follow_the_documented_rules() -> None:
     """include extends matching combinations or adds its own; exclude removes."""
     combos, reason = GATE.matrix_combinations(  # type: ignore[attr-defined]
@@ -899,6 +924,7 @@ def main() -> int:
         a_missing_working_directory_fails_the_step_not_the_gate,
     )
     check("a matrix runs once per combination", a_matrix_runs_once_per_combination)
+    check("each job starts from a clean workspace", each_job_starts_from_a_clean_workspace)
     check(
         "matrix include and exclude follow the documented rules",
         matrix_include_and_exclude_follow_the_documented_rules,
