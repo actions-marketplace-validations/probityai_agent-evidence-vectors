@@ -851,7 +851,7 @@ def _rule_commitment_signature_form(state: _State) -> None:
     if commitment is None:
         return
     signature = commitment.get("sig")
-    if not (_lower_hex(signature) and len(signature) == 128):
+    if not (isinstance(signature, str) and _lower_hex(signature) and len(signature) == 128):
         raise Malformed("commitment-signature-malformed")
 
 
