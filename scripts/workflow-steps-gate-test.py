@@ -842,6 +842,27 @@ def an_interpreter_without_pip_is_not_run() -> None:
             assert (rc == 0) is (not imports), f"pip importable={imports} gave exit {rc}:\n{log}"
 
 
+def a_tag_only_workflow_runs_only_on_its_tag() -> None:
+    """release.yml runs on a push of v* tags and nowhere else, so an untagged
+    commit does not run it here either; a commit carrying a matching tag does,
+    and any other trigger shape still runs."""
+    excludes = GATE.trigger_excludes  # type: ignore[attr-defined]
+    release = {"on": {"push": {"tags": ["v*"]}, "workflow_dispatch": None}}
+    reason = excludes(release, [])
+    assert reason and "v*" in reason, reason
+    assert excludes(release, ["v0.17.0"]) == "", "a tagged release was skipped"
+    assert excludes(release, ["cited/abc"]) != "", "a non-matching tag ran it"
+    for other in (
+        {"on": {"push": {"branches": ["main"]}}},
+        {"on": {"push": {"tags": ["v*"], "branches": ["main"]}}},
+        {"on": {"push": {"tags": ["v*"]}, "pull_request": None}},
+        {"on": {"schedule": [{"cron": "0 0 * * *"}]}},
+        {True: {"push": None}},
+        {"on": "push"},
+    ):
+        assert excludes(other, []) == "", f"skipped a workflow the remote runs: {other}"
+
+
 def a_step_guarded_to_another_event_is_not_run() -> None:
     """A step whose `if:` names another event does not run for a push.
 
@@ -944,6 +965,7 @@ def main() -> int:
         a_missing_command_nothing_provides_still_fails,
     )
     check("an interpreter without pip is not run", an_interpreter_without_pip_is_not_run)
+    check("a tag-only workflow runs only on its tag", a_tag_only_workflow_runs_only_on_its_tag)
     check("a step guarded to another event is not run", a_step_guarded_to_another_event_is_not_run)
     check(
         "an ambient VIRTUAL_ENV does not reach the steps",

@@ -25,6 +25,7 @@ a check that did not run, which is the same defect in a different costume.
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import os
 import pathlib
 import re
@@ -1072,10 +1073,16 @@ def plan(files: list[pathlib.Path]) -> int:
     planned = 0
     not_run: list[str] = []
     known = run_context()
+    tags = revision_tags()
     for path in files:
         doc = load_yaml(path)
         print(f"\n=== {path.name} ===")
+        excluded = trigger_excludes(doc, tags)
         for step in steps_of(doc, path):
+            if excluded:
+                not_run.append(f"{step.label}  ({excluded})")
+                print(f"  NOT RUN  {step.label}  ({excluded})")
+                continue
             if step.unexpanded:
                 not_run.append(f"{step.label}  ({step.unexpanded})")
                 print(f"  NOT RUN  {step.label}  ({step.unexpanded})")
@@ -1272,15 +1279,61 @@ class _Run:
             }
 
 
+def revision_tags() -> list[str]:
+    """The tags that point at the revision under test, or [] when there are none."""
+    proc = subprocess.run(  # noqa: S603 -- reading which tags name this commit
+        ["git", "-C", str(REPO), "tag", "--points-at", "HEAD"],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return proc.stdout.split() if proc.returncode == 0 else []
+
+
+def trigger_excludes(doc: Any, tags: list[str]) -> str:
+    """The reason a workflow never runs for this revision, or "" when it may.
+
+    Only one case is decided: a workflow whose sole automatic trigger is a push
+    of matching TAGS (release.yml: `push: tags: ['v*']`, plus manual dispatch).
+    The remote runs it when a release tag is pushed and at no other time, so
+    running it on an untagged commit verifies a release that does not exist:
+    the signed digest list legitimately changes between releases and is signed
+    again when the next one is cut. Every other trigger shape runs as before,
+    because skipping a workflow the remote does run would be the silent gap
+    this gate exists to close.
+    """
+    on = (doc or {}).get("on", (doc or {}).get(True))
+    if not isinstance(on, dict):
+        return ""
+    automatic = {k: v for k, v in on.items() if k not in ("workflow_dispatch",)}
+    push = automatic.get("push")
+    if set(automatic) != {"push"} or not isinstance(push, dict):
+        return ""
+    if set(push) != {"tags"}:
+        return ""
+    patterns = [str(t) for t in (push.get("tags") or [])]
+    if any(fnmatch.fnmatchcase(tag, pattern) for tag in tags for pattern in patterns):
+        return ""
+    return (
+        f"the workflow runs only on a push of tags {patterns}, and no such tag "
+        "points at the revision under test"
+    )
+
+
 def execute(files: list[pathlib.Path]) -> int:
     with tempfile.TemporaryDirectory(prefix="aee-workflow-steps-") as scratch:
         run = _Run(scratch)
         job: JobState | None = None
+        tags = revision_tags()
         try:
             for path in files:
                 doc = load_yaml(path)
                 print(f"\n=== {path.name} ===")
+                excluded = trigger_excludes(doc, tags)
                 for step in steps_of(doc, path):
+                    if excluded:
+                        run.skip(step, excluded)
+                        continue
                     if job is None or job.label != f"{path.stem}-{step.job}":
                         if job is not None:
                             job.finish()
