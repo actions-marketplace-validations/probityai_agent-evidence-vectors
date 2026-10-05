@@ -349,10 +349,9 @@ def _git(root: Path, *arguments: str) -> str | None:
 
 
 def commit_date(root: Path, ref: str) -> str | None:
-    """The committer date of what `ref` points at, as UTC `YYYY-MM-DD`."""
+    """The stored committer calendar date, independent of the runner timezone."""
     return _git(
-        root, "show", "-s", "--format=%cd", "--date=format-local:%Y-%m-%d",
-        f"{ref}^{{commit}}")
+        root, "show", "-s", "--format=%cs", f"{ref}^{{commit}}")
 
 
 def check_release_identity(cff: dict[str, Any]) -> list[str]:

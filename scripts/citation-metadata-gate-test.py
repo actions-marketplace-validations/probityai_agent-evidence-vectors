@@ -28,6 +28,7 @@ Exit 0 when every case holds; 1 on the first summary of failures.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -107,9 +108,9 @@ def tag(root: Path, name: str) -> None:
 
 
 def head_date(root: Path) -> str:
-    """The committer date of the staged copy's one commit, as UTC YYYY-MM-DD."""
+    """The staged commit's stored calendar date, as YYYY-MM-DD."""
     done = subprocess.run(
-        ["git", "show", "-s", "--format=%cd", "--date=format-local:%Y-%m-%d", "HEAD"],
+        ["git", "show", "-s", "--format=%cs", "HEAD"],
         cwd=root,
         capture_output=True,
         text=True,
@@ -122,11 +123,12 @@ def set_release_date(root: Path, value: str) -> None:
     reword(root, CFF, r'date-released: "[^"]+"', f'date-released: "{value}"')
 
 
-def run(root: Path) -> tuple[int, str]:
+def run(root: Path, timezone: str | None = None) -> tuple[int, str]:
     proc = subprocess.run(
         [sys.executable, str(GATE), "--root", str(root)],
         capture_output=True,
         text=True,
+        env={**os.environ, "TZ": timezone} if timezone is not None else None,
         check=False,
     )
     return proc.returncode, proc.stdout + proc.stderr
@@ -464,6 +466,47 @@ def check(group: str, cases: list[Case], want_refusal: bool, tmp: Path) -> list[
     return failures
 
 
+TIMEZONES = ("UTC", "America/New_York", "Pacific/Kiritimati")
+DATED_CUTS = (
+    ("2026-10-04T20:23:15-0400", "2026-10-05T00:23:15+0000", "2026-10-04", "2026-10-05"),
+    ("2026-10-05T00:23:15+1400", "2026-10-04T10:23:15+0000", "2026-10-05", "2026-10-04"),
+)
+
+
+def timezone_date_checks(tmp: Path) -> list[str]:
+    """Bind to the committer's date across midnight, rather than the observer's.
+
+    The author uses the same instant with a different calendar date. Both the
+    author-date shortcut and conversion to the runner's date must fail these
+    controls. An adjacent wrong date must still be refused in every timezone.
+    """
+    failures: list[str] = []
+    for index, (committer, author, expected, wrong) in enumerate(DATED_CUTS):
+        root = tmp / f"timezone{index}"
+        root.mkdir()
+        stage(root)
+        subprocess.run(
+            ["git", "-c", "user.name=citation gate test", "-c",
+             "user.email=citation-gate-test@example.invalid", "-c", "commit.gpgsign=false",
+             "commit", "--quiet", "--allow-empty", "-m", "dated release"],
+            cwd=root, env={**os.environ, "GIT_COMMITTER_DATE": committer,
+                           "GIT_AUTHOR_DATE": author}, check=True, capture_output=True,
+        )
+        version = re.search(r"^version: (\S+)$", (root / CFF).read_text(), re.MULTILINE)
+        assert version is not None, "the staged citation has no version to tag"
+        tag(root, f"v{version.group(1)}")
+        for timezone in TIMEZONES:
+            set_release_date(root, expected)
+            code, output = run(root, timezone)
+            if code != 0:
+                failures.append(f"stored committer date {expected} under {timezone}:\n{output}")
+            set_release_date(root, wrong)
+            code, output = run(root, timezone)
+            if code == 0 or f"commit dated {expected}" not in output:
+                failures.append(f"wrong release date {wrong} under {timezone}:\n{output}")
+    return failures
+
+
 def main() -> int:
     failures: list[str] = []
     with tempfile.TemporaryDirectory() as raw:
@@ -475,6 +518,7 @@ def main() -> int:
         failures.extend(check("date", DATE_CASES, True, tmp))
         failures.extend(check("identity", IDENTITY_CASES, True, tmp))
         failures.extend(check("accept", ACCEPT_CASES, False, tmp))
+        failures.extend(timezone_date_checks(tmp))
     total = (
         len(STALE_CASES)
         + len(CENSUS_CASES)
@@ -483,13 +527,14 @@ def main() -> int:
         + len(DATE_CASES)
         + len(IDENTITY_CASES)
         + len(ACCEPT_CASES)
+        + 2 * len(DATED_CUTS) * len(TIMEZONES)
     )
     if failures:
         print(f"FAIL: {len(failures)} of {total} case(s) do not hold:", file=sys.stderr)
         for failure in failures:
             print(f"  {failure}", file=sys.stderr)
         return 1
-    refusals = total - len(ACCEPT_CASES)
+    refusals = total - len(ACCEPT_CASES) - len(DATED_CUTS) * len(TIMEZONES)
     print(
         f"OK: {total} case(s), of which {refusals} assert a refusal the gate makes "
         "and name the figure it makes it about."
