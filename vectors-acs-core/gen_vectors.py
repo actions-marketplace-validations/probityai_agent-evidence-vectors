@@ -107,7 +107,9 @@ AWAITING_TEXT = {
 #: the maintainers accepted as the shape of a negative suite; the seventh is the
 #: aggregate-budget class added to it, which is the only family that needs more
 #: than one step; the eighth sits inside the first and is written separately
-#: because its property is about authority rather than about scope.
+#: because its property is about authority rather than about scope. The tenth
+#: is about who signed rather than whether a signature verifies, and it is the
+#: only family whose two profiles give different verdicts for one substitution.
 FAMILIES = {
     "acs-f-1": "correctly signed and outside the granted mandate",
     "acs-f-2": "a consumed authorization presented a second time",
@@ -118,6 +120,7 @@ FAMILIES = {
     "acs-f-7": "steps in mandate individually and out of mandate in aggregate",
     "acs-f-8": "attributed content standing in for an authorization",
     "acs-f-9": "a handshake or a disposition answered outside the negotiated contract",
+    "acs-f-10": "a Guardian response signed by a party other than the Guardian",
 }
 
 #: One row per requirement. Each carries the verbatim normative sentence, which
@@ -301,6 +304,14 @@ REQUIREMENTS: tuple[dict, ...] = (
         "sentence": (
             "Non-repudiation, proving to a third party that a specific Guardian "
             "issued a specific head, requires the asymmetric ACS-Crypto profile"
+        ),
+    },
+    {
+        "id": "ACS-R-022",
+        "role": "verifier",
+        "file": "specification",
+        "sentence": (
+            "A required signature is missing, malformed, or fails verification"
         ),
     },
 )
@@ -1339,6 +1350,183 @@ def build() -> list[dict]:
         ),
     )
 
+    # acs-f-10 --------------------------------------------------------------
+    # One substitution under both profiles: the Observed Agent signs a head and
+    # presents it as the Guardian's. Under ACS-Crypto it has no access to the
+    # Guardian's private key, so the signature verifies only under its own key
+    # and a public-key holder sees the wrong signer. Under the HMAC baseline it
+    # holds the session key, so its MAC verifies under the key the key_id
+    # resolves to and the signer cannot be determined. The two outcomes are
+    # different shapes on purpose: a wrong signer and an undeterminable one are
+    # different findings, and one verdict for both would erase that.
+    def attributed_head(
+        profile: str, algorithm: str, key_id: str, key_class: str,
+        held_by: list[str], signed_by: str, signed_with: str,
+    ) -> dict:
+        return {
+            "profile": profile,
+            "context_entry": {
+                "step_id": "st-0003",
+                "step_type": "hooks/toolCallRequest",
+                "chain_hash": "3" * 64,
+            },
+            "guardian_response": {
+                "decision": "allow",
+                "chain_hash": "3" * 64,
+                "signature": {"algorithm": algorithm, "value": "AAAA", "key_id": key_id},
+            },
+            "key_id_resolves_to": {
+                "key_id": key_id,
+                "class": key_class,
+                "signing_key_held_by": held_by,
+            },
+            "signed_by": signed_by,
+            "signed_with": signed_with,
+        }
+
+    add(
+        kind="reject",
+        family="acs-f-10",
+        requirements=["ACS-R-022", "ACS-R-021"],
+        payload=attributed_head(
+            "ACS-Crypto", "ML-DSA-65", "guardian-k1", "asymmetric",
+            ["guardian"], "observed_agent", "agent-k2",
+        ),
+        verdict="deny",
+        code="SIGNATURE_INVALID",
+        evidence_basis="artifact",
+        witness_scope="EXTERNAL",
+        coverage="effective",
+        cites=(
+            "a chain head presented as the Guardian's whose ML-DSA-65 signature "
+            "verifies only under the Observed Agent's own key, while its key_id "
+            "resolves to the Guardian's. Verification under the resolved key "
+            "fails, which is the error table's SIGNATURE_INVALID row. A party "
+            "holding only the Guardian's public key can tell the signer is not "
+            "the Guardian, so the member is EXTERNAL. A verifier that checks the "
+            "signature against whichever key makes it verify accepts this."
+        ),
+    )
+    add(
+        kind="accept",
+        family="acs-f-10",
+        requirements=["ACS-R-022", "ACS-R-021"],
+        payload=attributed_head(
+            "ACS-Crypto", "ML-DSA-65", "guardian-k1", "asymmetric",
+            ["guardian"], "guardian", "guardian-k1",
+        ),
+        verdict="allow",
+        code=None,
+        evidence_basis="artifact",
+        witness_scope="EXTERNAL",
+        coverage="effective",
+        cites=(
+            "the same head signed by the Guardian under the key its key_id "
+            "resolves to, so a verifier that refuses every asymmetric head "
+            "scores zero on the family."
+        ),
+    )
+    add(
+        kind="indeterminate",
+        family="acs-f-10",
+        requirements=["ACS-R-022", "ACS-R-021"],
+        payload=attributed_head(
+            "ACS-Core", "HMAC-SHA256", "session-k1", "symmetric",
+            ["guardian", "observed_agent"], "observed_agent", "session-k1",
+        ),
+        verdict="unmeasurable",
+        code=None,
+        unmeasurable_because=(
+            "under the HMAC baseline the verification key is the signing key, "
+            "and both the Guardian and the Observed Agent hold it. The Observed "
+            "Agent's MAC verifies under the key the key_id resolves to exactly "
+            "as the Guardian's would, so nothing in the head or the public "
+            "material says which of them computed it. Section 8.6 states the "
+            "bound: non-repudiation, proving to a third party that a specific "
+            "Guardian issued a specific head, requires the asymmetric "
+            "ACS-Crypto profile. Graded allow, the member would credit the "
+            "Guardian with a head it may not have issued; graded deny, it would "
+            "attribute the head to a signer nobody can identify."
+        ),
+        evidence_basis="artifact",
+        witness_scope="SELF",
+        coverage="supported",
+        cites=(
+            "the same substitution under the HMAC baseline, where the signer "
+            "cannot be determined rather than determined to be wrong. The "
+            "member is SELF because no artifact lets any party check who "
+            "computed the MAC: the only accounts of it are the two key-holders' "
+            "own. The sealed-session pair in acs-f-6 is PEER under the same "
+            "profile because the Observed Agent can check a dropped head from "
+            "heads already published to it; a signer's identity has no such "
+            "artifact."
+        ),
+    )
+
+    # The same symmetric head, signed honestly by the Guardian, offered to a
+    # third party as proof of which Guardian issued it. The signature is not
+    # what fails: the claim is one the symmetric tier cannot carry, and a
+    # surface that can only call it weak lets it through.
+    claimed_external = attributed_head(
+        "ACS-Core", "HMAC-SHA256", "session-k1", "symmetric",
+        ["guardian", "observed_agent"], "guardian", "session-k1",
+    )
+    claimed_external["presented_as"] = {
+        "witness_scope": "EXTERNAL",
+        "claim": "non_repudiation",
+        "audience": "third_party",
+    }
+    add(
+        kind="reject",
+        family="acs-f-10",
+        requirements=["ACS-R-021"],
+        payload=claimed_external,
+        verdict="deny",
+        code=None,
+        evidence_basis="artifact",
+        witness_scope="EXTERNAL",
+        coverage="effective",
+        cites=(
+            "an HMAC-SHA256 chain head the Guardian did sign, presented to a "
+            "third party as evidence that this Guardian issued it. The member "
+            "rejects the external claim, not the signature: the MAC verifies, "
+            "and section 8.6 says proving to a third party that a specific "
+            "Guardian issued a specific head requires ACS-Crypto. No registry "
+            "code names a refused claim over a valid signature, so none is "
+            "asserted. The member is EXTERNAL because the algorithm and the "
+            "claim both sit in the presented bytes, so a party outside the "
+            "trust domain can refuse it without the Guardian's account and "
+            "without holding the key."
+        ),
+    )
+    claimed_peer = attributed_head(
+        "ACS-Core", "HMAC-SHA256", "session-k1", "symmetric",
+        ["guardian", "observed_agent"], "guardian", "session-k1",
+    )
+    claimed_peer["presented_as"] = {
+        "witness_scope": "PEER",
+        "claim": "integrity",
+        "audience": "key_holder",
+    }
+    add(
+        kind="accept",
+        family="acs-f-10",
+        requirements=["ACS-R-021"],
+        payload=claimed_peer,
+        verdict="allow",
+        code=None,
+        evidence_basis="artifact",
+        witness_scope="PEER",
+        coverage="effective",
+        cites=(
+            "the same HMAC head presented to the Observed Agent, a key-holder, "
+            "as integrity evidence, which section 8.6 says the baseline gives. "
+            "A verifier that refuses every HMAC head scores zero here, so the "
+            "member above measures the external claim rather than the "
+            "algorithm."
+        ),
+    )
+
     return members
 
 
@@ -1376,13 +1564,19 @@ def render_index(manifest: dict) -> str:
         )
         for row in manifest["requirements"]
     )
-    families = "\n".join(f"| `{key}` | {value} |" for key, value in sorted(FAMILIES.items()))
+    families = "\n".join(
+        f"| `{key}` | {value} |"
+        for key, value in sorted(FAMILIES.items(), key=lambda item: int(item[0].rsplit("-", 1)[1]))
+    )
     scoped = "\n".join(f"| {key} | {value} |" for key, value in sorted(OUT_OF_SCOPE.items()))
     awaiting = "\n".join(f"| {key} | {value} |" for key, value in sorted(AWAITING_TEXT.items()))
     accept = manifest["counts"]["accept"]
     reject = manifest["counts"]["reject"]
     total = len(manifest["vectors"])
     indeterminate = manifest["counts"]["indeterminate"]
+    carrying = (
+        "1 member carries" if indeterminate == 1 else f"{indeterminate} members carry"
+    )
     return f"""# Conformance vectors (ACS-Core negative suite)
 
 Every member of this suite in one table, rejected and accepted alike.
@@ -1416,8 +1610,8 @@ error registry or names none at all.
 **There are three verdicts.** A member whose property the specification cannot
 express is `unmeasurable`, with the reason recorded. Folding those into
 rejections would credit an implementation for behaviour nothing requires;
-folding them into passes would hide the gap. {indeterminate} member carries
-that verdict today.
+folding them into passes would hide the gap. {carrying} that verdict
+today.
 
 Regenerate byte-identically: `python3 gen_vectors.py`.
 Self-check: `aee-verify vectors-acs-core/` from the repository root.

@@ -43,7 +43,8 @@
     "acs-f-6": "an action whose observability references were removed",
     "acs-f-7": "steps in mandate individually and out of mandate in aggregate",
     "acs-f-8": "attributed content standing in for an authorization",
-    "acs-f-9": "a handshake or a disposition answered outside the negotiated contract"
+    "acs-f-9": "a handshake or a disposition answered outside the negotiated contract",
+    "acs-f-10": "a Guardian response signed by a party other than the Guardian"
   },
   "outOfScope": {
     "the MODIFY disposition and its composition rules": "an open pull request moves MODIFY support out of the mandatory profile and adds a new section for the declaration, and neither the new section nor the declaration field exists at the pinned commit",
@@ -267,14 +268,24 @@
       "sentence": "Non-repudiation, proving to a third party that a specific Guardian issued a specific head, requires the asymmetric ACS-Crypto profile",
       "sentenceDigest": "4c97a8c91e35a161b6eaf9aa49a73de4b0791fc3187ff55d1164db9c7a89b420",
       "specVersion": "0.1.0"
+    },
+    {
+      "id": "ACS-R-022",
+      "role": "verifier",
+      "file": "specification",
+      "vendored": "spec-vendored/specification-9d4a9da.md",
+      "line": 428,
+      "sentence": "A required signature is missing, malformed, or fails verification",
+      "sentenceDigest": "2d0f1473abc9de5cf83e996a6314095fde5f52c46324b24a7d9758a62a62c934",
+      "specVersion": "0.1.0"
     }
   ],
   "counts": {
-    "accept": 13,
-    "reject": 24,
-    "indeterminate": 1
+    "accept": 15,
+    "reject": 26,
+    "indeterminate": 2
   },
-  "corpusDigest": "9013f6801c6a410536461299458ada59df8b90aef5afe75fe2adfe24d273d156",
+  "corpusDigest": "990cc18c1825ecd27cb33b6a68ebf5b5da2493d19e83791ef929b12b5bcad1cb",
   "note": "Each reject member has an accepting twin somewhere in its family, so an implementation that denies everything scores zero rather than full marks. A member the specification cannot express carries the verdict unmeasurable and the reason it cannot.",
   "vectors": [
     {
@@ -419,6 +430,26 @@
       "cites": "the same response with the chain head inside the signed set."
     },
     {
+      "id": "v3232493ab40ae031",
+      "kind": "reject",
+      "file": "vectors/v3232493ab40ae031.json",
+      "family": "acs-f-10",
+      "requirements": [
+        "ACS-R-021"
+      ],
+      "specVersion": "0.1.0",
+      "expected": {
+        "verdict": "deny",
+        "code": null,
+        "codeValue": null,
+        "unmeasurableBecause": null
+      },
+      "evidenceBasis": "artifact",
+      "witnessScope": "EXTERNAL",
+      "coverage": "effective",
+      "cites": "an HMAC-SHA256 chain head the Guardian did sign, presented to a third party as evidence that this Guardian issued it. The member rejects the external claim, not the signature: the MAC verifies, and section 8.6 says proving to a third party that a specific Guardian issued a specific head requires ACS-Crypto. No registry code names a refused claim over a valid signature, so none is asserted. The member is EXTERNAL because the algorithm and the claim both sit in the presented bytes, so a party outside the trust domain can refuse it without the Guardian's account and without holding the key."
+    },
+    {
       "id": "v3c03d4e4ce213e9c",
       "kind": "accept",
       "file": "vectors/v3c03d4e4ce213e9c.json",
@@ -518,6 +549,27 @@
       "witnessScope": "EXTERNAL",
       "coverage": "effective",
       "cites": "the same session under ACS-Crypto sealed off the last witnessed head."
+    },
+    {
+      "id": "v53ef0aaa91303587",
+      "kind": "accept",
+      "file": "vectors/v53ef0aaa91303587.json",
+      "family": "acs-f-10",
+      "requirements": [
+        "ACS-R-022",
+        "ACS-R-021"
+      ],
+      "specVersion": "0.1.0",
+      "expected": {
+        "verdict": "allow",
+        "code": null,
+        "codeValue": null,
+        "unmeasurableBecause": null
+      },
+      "evidenceBasis": "artifact",
+      "witnessScope": "EXTERNAL",
+      "coverage": "effective",
+      "cites": "the same head signed by the Guardian under the key its key_id resolves to, so a verifier that refuses every asymmetric head scores zero on the family."
     },
     {
       "id": "v661266c5c87cb206",
@@ -661,6 +713,26 @@
       "cites": "a context entry with the request digest absent under a profile that requires it. The chain then commits to step metadata and not to request content, which is the difference between a chain that witnesses what happened and one that witnesses that something did."
     },
     {
+      "id": "v855c3b68b325eec1",
+      "kind": "accept",
+      "file": "vectors/v855c3b68b325eec1.json",
+      "family": "acs-f-10",
+      "requirements": [
+        "ACS-R-021"
+      ],
+      "specVersion": "0.1.0",
+      "expected": {
+        "verdict": "allow",
+        "code": null,
+        "codeValue": null,
+        "unmeasurableBecause": null
+      },
+      "evidenceBasis": "artifact",
+      "witnessScope": "PEER",
+      "coverage": "effective",
+      "cites": "the same HMAC head presented to the Observed Agent, a key-holder, as integrity evidence, which section 8.6 says the baseline gives. A verifier that refuses every HMAC head scores zero here, so the member above measures the external claim rather than the algorithm."
+    },
+    {
       "id": "v986429a577e03404",
       "kind": "reject",
       "file": "vectors/v986429a577e03404.json",
@@ -680,6 +752,27 @@
       "witnessScope": "PEER",
       "coverage": "effective",
       "cites": "a session sealed off the second head after the Guardian's signed response had published a third. The seal drops a witnessed step, and a decision-failure count derived from the sealed total then misses it. Under the HMAC baseline the Observed Agent holds the session key and the heads already published to it, so it can check the seal without the Guardian's account and the member is PEER. It cannot prove to a third party which side signed, because the Guardian can re-sign a shorter chain with the same key."
+    },
+    {
+      "id": "v9f011986566cb7bc",
+      "kind": "indeterminate",
+      "file": "vectors/v9f011986566cb7bc.json",
+      "family": "acs-f-10",
+      "requirements": [
+        "ACS-R-022",
+        "ACS-R-021"
+      ],
+      "specVersion": "0.1.0",
+      "expected": {
+        "verdict": "unmeasurable",
+        "code": null,
+        "codeValue": null,
+        "unmeasurableBecause": "under the HMAC baseline the verification key is the signing key, and both the Guardian and the Observed Agent hold it. The Observed Agent's MAC verifies under the key the key_id resolves to exactly as the Guardian's would, so nothing in the head or the public material says which of them computed it. Section 8.6 states the bound: non-repudiation, proving to a third party that a specific Guardian issued a specific head, requires the asymmetric ACS-Crypto profile. Graded allow, the member would credit the Guardian with a head it may not have issued; graded deny, it would attribute the head to a signer nobody can identify."
+      },
+      "evidenceBasis": "artifact",
+      "witnessScope": "SELF",
+      "coverage": "supported",
+      "cites": "the same substitution under the HMAC baseline, where the signer cannot be determined rather than determined to be wrong. The member is SELF because no artifact lets any party check who computed the MAC: the only accounts of it are the two key-holders' own. The sealed-session pair in acs-f-6 is PEER under the same profile because the Observed Agent can check a dropped head from heads already published to it; a signer's identity has no such artifact."
     },
     {
       "id": "va00ef569d09bf7d5",
@@ -920,6 +1013,27 @@
       "witnessScope": "PEER",
       "coverage": "effective",
       "cites": "a signature computed over an envelope with the session identifier removed. It verifies against the bytes it covers, which is what makes it the case a verifier that checks the signature and not the canonical form accepts."
+    },
+    {
+      "id": "vd8ac84523a5a038c",
+      "kind": "reject",
+      "file": "vectors/vd8ac84523a5a038c.json",
+      "family": "acs-f-10",
+      "requirements": [
+        "ACS-R-022",
+        "ACS-R-021"
+      ],
+      "specVersion": "0.1.0",
+      "expected": {
+        "verdict": "deny",
+        "code": "SIGNATURE_INVALID",
+        "codeValue": -32004,
+        "unmeasurableBecause": null
+      },
+      "evidenceBasis": "artifact",
+      "witnessScope": "EXTERNAL",
+      "coverage": "effective",
+      "cites": "a chain head presented as the Guardian's whose ML-DSA-65 signature verifies only under the Observed Agent's own key, while its key_id resolves to the Guardian's. Verification under the resolved key fails, which is the error table's SIGNATURE_INVALID row. A party holding only the Guardian's public key can tell the signer is not the Guardian, so the member is EXTERNAL. A verifier that checks the signature against whichever key makes it verify accepts this."
     },
     {
       "id": "vef655ce2a45f618b",
