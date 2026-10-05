@@ -1401,6 +1401,16 @@ def retain_reports(job: JobState, evidence: pathlib.Path) -> None:
 def resolve_inputs(
     step: Step, job: JobState, context: Mapping[str, str]
 ) -> tuple[Step, str | None, str, bool]:
+    action = step.uses.split("@", 1)[0]
+    # Remote-only inputs cannot affect a command this mirror never runs.
+    # Checkout and providers still need their local source/tool bindings.
+    if (
+        step.run is None
+        and action in CANNOT_RUN
+        and action not in PROVIDES
+        and action != "actions/checkout"
+    ):
+        return step, *resolve_in_job(step, job)
     selected, problem = interpolate_inputs(step, job, context)
     if problem:
         if step.uses.split("@", 1)[0] == "actions/checkout":
@@ -1446,6 +1456,10 @@ def execute_job(
     for step in steps:
         retained = evidence / "steps" / str(step.position)
         retained.mkdir(parents=True)
+        write_json(
+            retained / "input.json",
+            {"uses": step.uses, "with": step.inputs, "if": step.condition},
+        )
         step, block, suffix, fault = resolve_inputs(step, job, context)
         env: dict[str, str] = {}
         directory = ""

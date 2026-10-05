@@ -1498,7 +1498,66 @@ def setup_python_owns_uv_selection_despite_ambient_pin() -> None:
     assert rc == 0 and "RUN   j[1]" in log, log
 
 
+def remote_only_inputs_keep_their_reason_and_raw_evidence() -> None:
+    """An unavailable remote dependency is irrelevant to a remote-only action."""
+    expression = "${{ needs.visibility.outputs.public == 'true' }}"
+    for action in (
+        "ossf/scorecard-action", "pypa/gh-action-pypi-publish", "actions/upload-artifact"
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp) / "source"
+            evidence = pathlib.Path(tmp) / "evidence"
+            workflow = (
+                "jobs:\n  j:\n    steps:\n"
+                f"      - uses: {action}@pinned\n"
+                f"        with:\n          publish_results: \"{expression}\"\n"
+                "      - run: true\n"
+            )
+            path = _fixture(workflow, root)
+            out = pathlib.Path(tmp) / "out.txt"
+            with _local_input(root), open(out, "w") as handle, contextlib.redirect_stdout(handle):
+                rc = GATE.execute([path], evidence)  # type: ignore[attr-defined]
+            result = json.loads(next(evidence.glob("*/steps/0/result.json")).read_text())
+            assert rc == 0 and result["status"] == "NOT_RUN" and not result["fault"], result
+            reason = action + " " + GATE.CANNOT_RUN[action]  # type: ignore[attr-defined]
+            assert result["reason"] == reason, result
+            original = json.loads(next(evidence.glob("*/steps/0/input.json")).read_text())
+            assert original == {
+                "uses": action + "@pinned", "with": {"publish_results": expression}, "if": ""
+            }, original
+            assert "ran 1 steps, 0 failed" in out.read_text(), out.read_text()
+
+
+def unknown_action_inputs_still_fault() -> None:
+    rc, log = _execute(
+        "jobs:\n  j:\n    steps:\n      - uses: unknown/action@pinned\n"
+        "        with:\n          value: '${{ needs.remote.outputs.value }}'\n"
+        "      - run: true\n"
+    )
+    assert rc == 1 and "needs.remote.outputs.value" in log and "1 failed" in log, log
+
+
+def local_action_and_provider_inputs_still_fault() -> None:
+    for action, key in (
+        ("actions/setup-python", "python-version"), ("actions/setup-go", "go-version")
+    ):
+        rc, log = _execute(
+            f"jobs:\n  j:\n    steps:\n      - uses: {action}@pinned\n"
+            f"        with:\n          {key}: '${{{{ needs.remote.outputs.version }}}}'\n"
+        )
+        assert rc == 1 and "needs.remote.outputs.version" in log and "1 failed" in log, log
+
+
 def main() -> int:
+    check(
+        "remote-only inputs retain classification and raw custody",
+        remote_only_inputs_keep_their_reason_and_raw_evidence,
+    )
+    check("unknown action inputs remain a fault", unknown_action_inputs_still_fault)
+    check(
+        "local action and provider inputs remain a fault",
+        local_action_and_provider_inputs_still_fault,
+    )
     check("a failing first command is caught", first_command_failing_is_caught)
     check("a failing middle command is caught", middle_command_failing_is_caught)
     check("a failure stops the block", failure_stops_the_block)
