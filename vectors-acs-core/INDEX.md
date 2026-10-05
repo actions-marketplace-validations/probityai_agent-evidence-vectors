@@ -5,8 +5,8 @@ Ground truth: the four normative files vendored in `spec-vendored/`, read at
 `9d4a9da` of `GenAI-Security-Project/agent-control-standard`, each pinned by sha256 in
 `MANIFEST.json`.
 
-This corpus is 38 vectors, of which 13 a conformant verifier must
-not fail closed on and 24 it must reject.
+This corpus is 41 vectors, of which 14 a conformant verifier must
+not fail closed on and 25 it must reject.
 
 **No implementation has been run against this corpus.** There is no reference
 adapter in the specification's repository at the pinned commit, and the two
@@ -31,8 +31,8 @@ error registry or names none at all.
 **There are three verdicts.** A member whose property the specification cannot
 express is `unmeasurable`, with the reason recorded. Folding those into
 rejections would credit an implementation for behaviour nothing requires;
-folding them into passes would hide the gap. 1 member carries
-that verdict today.
+folding them into passes would hide the gap. 2 members carry that verdict
+today.
 
 Regenerate byte-identically: `python3 gen_vectors.py`.
 Self-check: `aee-verify vectors-acs-core/` from the repository root.
@@ -62,6 +62,7 @@ Self-check: `aee-verify vectors-acs-core/` from the repository root.
 | `ACS-R-019` | guardian | `spec-vendored/specification-9d4a9da.md:57` | `d045577eea0fab7a` | Accept `X.Y.Z` matching major version |
 | `ACS-R-020` | guardian | `spec-vendored/specification-9d4a9da.md:293` | `4aba06b38783dc57` | canonical input is REQUIRED in ACS-Core |
 | `ACS-R-021` | verifier | `spec-vendored/specification-9d4a9da.md:258` | `4c97a8c91e35a161` | Non-repudiation, proving to a third party that a specific Guardian issued a specific head, requires the asymmetric ACS-Crypto profile |
+| `ACS-R-022` | verifier | `spec-vendored/specification-9d4a9da.md:428` | `2d0f1473abc9de5c` | A required signature is missing, malformed, or fails verification |
 
 ## Families
 
@@ -76,6 +77,7 @@ Self-check: `aee-verify vectors-acs-core/` from the repository root.
 | `acs-f-7` | steps in mandate individually and out of mandate in aggregate |
 | `acs-f-8` | attributed content standing in for an authorization |
 | `acs-f-9` | a handshake or a disposition answered outside the negotiated contract |
+| `acs-f-10` | a Guardian response signed by a party other than the Guardian |
 
 ## Deliberately out of scope
 
@@ -116,6 +118,7 @@ what it tests, so each waits for its sentence and is minted from it.
 | `v412653087b92cb07` | reject | acs-f-9 | ACS-R-017 | deny | `UNSUPPORTED_VERSION` | substrate | PEER |
 | `v448a61c91554a125` | reject | acs-f-7 | ACS-R-013 | deny | `CAPABILITY_NOT_NEGOTIATED` | substrate | SELF |
 | `v4f75a079844635af` | accept | acs-f-6 | ACS-R-006, ACS-R-021 | allow | none | artifact | EXTERNAL |
+| `v53ef0aaa91303587` | accept | acs-f-10 | ACS-R-022, ACS-R-021 | allow | none | artifact | EXTERNAL |
 | `v661266c5c87cb206` | reject | acs-f-1 | ACS-R-013 | deny | `CAPABILITY_NOT_NEGOTIATED` | substrate | SELF |
 | `v699f3f41215849ca` | accept | acs-f-7 | ACS-R-013 | allow | none | substrate | SELF |
 | `v6daaec0f6f0c8a14` | accept | acs-f-6 | ACS-R-006, ACS-R-021 | allow | none | artifact | PEER |
@@ -124,6 +127,7 @@ what it tests, so each waits for its sentence and is minted from it.
 | `v82b6d110b4d68e7c` | indeterminate | acs-f-3 | ACS-R-003 | unmeasurable | none | artifact | EXTERNAL |
 | `v8557c978bf12ca55` | reject | acs-f-6 | ACS-R-016 | deny | `CHAIN_MISMATCH` | artifact | PEER |
 | `v986429a577e03404` | reject | acs-f-6 | ACS-R-006, ACS-R-021 | deny | `CHAIN_MISMATCH` | artifact | PEER |
+| `v9f011986566cb7bc` | indeterminate | acs-f-10 | ACS-R-022, ACS-R-021 | unmeasurable | none | artifact | SELF |
 | `va00ef569d09bf7d5` | reject | acs-f-6 | ACS-R-015 | deny | none | substrate | SELF |
 | `va0ee5d0830b0490b` | accept | acs-f-5 | ACS-R-005 | allow | none | substrate | SELF |
 | `va200b64093301e14` | reject | acs-f-9 | ACS-R-018 | deny | none | substrate | SELF |
@@ -136,6 +140,7 @@ what it tests, so each waits for its sentence and is minted from it.
 | `vc333473269d1b3a9` | reject | acs-f-8 | ACS-R-007 | deny | none | substrate | SELF |
 | `vd57793caa251dec6` | reject | acs-f-8 | ACS-R-008 | deny | none | substrate | SELF |
 | `vd67cd207a4eb6798` | reject | acs-f-1 | ACS-R-001 | deny | `SIGNATURE_INVALID` | substrate | PEER |
+| `vd8ac84523a5a038c` | reject | acs-f-10 | ACS-R-022, ACS-R-021 | deny | `SIGNATURE_INVALID` | artifact | EXTERNAL |
 | `vef655ce2a45f618b` | reject | acs-f-2 | ACS-R-002 | deny | `REPLAY_DETECTED` | substrate | SELF |
 | `vf3679e6ac60fd250` | accept | acs-f-1 | ACS-R-013 | allow | none | substrate | SELF |
 | `vf80a81054d3f0862` | reject | acs-f-1 | ACS-R-020 | deny | `SIGNATURE_INVALID` | substrate | PEER |

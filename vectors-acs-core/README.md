@@ -57,7 +57,9 @@ measure agreement with one of them.
 A member is `allow`, `deny`, or `unmeasurable`. The third exists because the
 specification has requirements whose violation it gives a deployment no
 conformant way to detect: the revoked-mandate member is one, since revocation
-propagation is listed as pending in the specification's own identity overview.
+propagation is listed as pending in the specification's own identity overview,
+and the HMAC wrong-signer member is another, since under the symmetric baseline
+the verification key is the signing key.
 Scoring that member as a rejection would credit an implementation for behaviour
 nothing requires. Scoring it as a pass would delete the gap from the record.
 Every `unmeasurable` member carries the reason it cannot be measured, and the
@@ -136,6 +138,24 @@ key and the heads already published to it, and `EXTERNAL` under ACS-Crypto,
 where the public key lets a third party show which heads the Guardian signed.
 The baseline stops at the peer because the Guardian holds the same key and can
 re-sign a shorter chain, so the Core half never claims a third-party witness.
+
+## A wrong signer and an undeterminable one
+
+Family `acs-f-10` carries one substitution under both profiles: the Observed
+Agent signs a chain head and presents it as the Guardian's. Here the two
+profiles do not differ only in witness scope; they give different verdicts.
+Under ACS-Crypto the signature verifies only under the Observed Agent's own key
+while its `key_id` resolves to the Guardian's, so it fails verification and is
+refused with `SIGNATURE_INVALID`, and a party holding only the Guardian's
+public key can see the wrong signer, which makes the member `EXTERNAL`. It has
+an accepting twin signed by the Guardian. Under the HMAC baseline both parties
+hold the session key, the Observed Agent's MAC verifies under the key the
+`key_id` resolves to, and nothing in the head or the public material says who
+computed it. That member is `unmeasurable`, citing the section 8.6 sentence
+that puts non-repudiation in ACS-Crypto, and `SELF`, because the only accounts
+of who signed are the two key-holders' own. A verifier has to report "the
+signer is wrong" and "the signer cannot be determined" as different outcomes,
+so the corpus does not give them one shape.
 
 Nothing here tests content filtering, model robustness, or prompt injection
 detection. The member about attributed content tests one property: that
