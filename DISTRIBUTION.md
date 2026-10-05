@@ -4,7 +4,7 @@ Use this page to choose an installation route or identify the corpus you ran. Fo
 
 ## The tag to cite
 
-`v0.17.3`, the version recorded in [CITATION.cff](CITATION.cff). Cite its signed tag or full source commit and corpus digest when reporting a result.
+`v0.17.4`, the version recorded in [CITATION.cff](CITATION.cff). Cite its signed tag or full source commit and corpus digest when reporting a result.
 
 The installation examples are pinned to the version above. The corpus table
 describes this checkout; a release tag or installed wheel identifies its own
@@ -25,15 +25,15 @@ unchanged as historical evidence.
 After both the signed tag and PyPI wheel are published, install matching versions:
 
 ```bash
-go install github.com/probityai/agent-evidence-vectors/cmd/aee-verify@v0.17.3
-uvx agent-evidence-vectors==0.17.3 --verifier "aee-verify --json"
+go install github.com/probityai/agent-evidence-vectors/cmd/aee-verify@v0.17.4
+uvx agent-evidence-vectors==0.17.4 --verifier "aee-verify --json"
 ```
 
 After the signed tag is published, run the same harness from its checkout:
 
 ```bash
 git clone https://github.com/probityai/agent-evidence-vectors
-cd agent-evidence-vectors && git checkout v0.17.3
+cd agent-evidence-vectors && git checkout v0.17.4
 python3 packaging/run_vectors.py --verifier "aee-verify --json"
 ```
 
@@ -47,7 +47,7 @@ After the signed tag is published, recompute the corpus digests, then check the 
 
 ```bash
 git clone https://github.com/probityai/agent-evidence-vectors && cd agent-evidence-vectors
-git checkout v0.17.3
+git checkout v0.17.4
 
 # 1. the digest list is what the vector files on disk hash to, recomputed
 python3 scripts/release-digests.py --check
