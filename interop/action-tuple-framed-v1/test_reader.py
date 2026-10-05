@@ -164,8 +164,9 @@ class ProcessTests(unittest.TestCase):
         return subprocess.run([sys.executable, str(self.copy / "reader.py"), *args],
                               text=True, capture_output=True, check=False, timeout=20)
 
-    def run_corpus(self, output: Path, pin: str | None = None) -> subprocess.CompletedProcess[str]:
-        manifest = self.copy / "MANIFEST.json"
+    def run_corpus(self, output: Path, pin: str | None = None,
+                   manifest: Path | None = None) -> subprocess.CompletedProcess[str]:
+        manifest = manifest or self.copy / "MANIFEST.json"
         return self.command("corpus", str(manifest), "--manifest-sha256",
                             pin or reader.sha256(manifest.read_bytes()),
                             "--output-dir", str(output))
@@ -197,6 +198,28 @@ class ProcessTests(unittest.TestCase):
         empty.mkdir()
         self.assert_output_exists(self.run_corpus(empty))
         self.assertFalse((empty / "report.json").exists())
+
+    def test_symlinked_directory_above_the_corpus_is_not_refused(self) -> None:
+        # The directories above the manifest are where a checkout lives, not
+        # corpus members: macOS /tmp, a linked home or a linked TMPDIR. The
+        # test makes that ancestor a symlink itself instead of relying on
+        # whatever the ambient temporary directory happens to be.
+        linked = self.root / "linked"
+        linked.symlink_to(self.root, target_is_directory=True)
+        output = self.root / "through-link"
+        result = self.run_corpus(output, manifest=linked / "candidate" / "MANIFEST.json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads((output / "report.json").read_bytes())
+        self.assertEqual(report["matched"], report["planned"])
+
+    def test_symlinked_directory_inside_the_corpus_refuses(self) -> None:
+        cases = self.copy / "cases"
+        moved = self.root / "cases-elsewhere"
+        cases.rename(moved)
+        cases.symlink_to(moved, target_is_directory=True)
+        output = self.root / "linked-cases"
+        self.assert_refused(self.run_corpus(output), "pin-symlink")
+        self.assertFalse((output / "report.json").exists())
 
     def test_wrong_selected_pin_and_changed_reader_refuse_without_report(self) -> None:
         output = self.root / "wrong-pin"

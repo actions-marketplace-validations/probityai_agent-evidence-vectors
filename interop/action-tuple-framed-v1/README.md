@@ -16,7 +16,7 @@ For a corpus run, select the manifest SHA-256 from your reviewed, immutable chec
 
 ```sh
 python interop/action-tuple-framed-v1/reader.py corpus interop/action-tuple-framed-v1/MANIFEST.json \
-  --manifest-sha256 b77fb91733b21710e183553e95af3ce552d578e35d600d56f056ca5a8007ae39 \
+  --manifest-sha256 86d4974c7fa9372783ad62b704920c915d0b8a305598d08514a388c22736d641 \
   --output-dir /tmp/action-tuple-first-attempt
 ```
 

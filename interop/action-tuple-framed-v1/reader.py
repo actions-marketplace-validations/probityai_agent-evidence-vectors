@@ -160,9 +160,12 @@ def pinned_bytes(root: Path, item: dict[str, Any]) -> bytes:
     relative = Path(item["path"])
     if relative.is_absolute() or ".." in relative.parts or not relative.parts:
         raise Refusal("pin-path")
+    # Only the components the manifest names are corpus members. The
+    # directories above the manifest are where the checkout happens to live.
+    for depth in range(1, len(relative.parts) + 1):
+        if root.joinpath(*relative.parts[:depth]).is_symlink():
+            raise Refusal("pin-symlink")
     path = root / relative
-    if any(part.is_symlink() for part in [path, *path.parents]):
-        raise Refusal("pin-symlink")
     data = read_bounded(path)
     if sha256(data) != item["sha256"]:
         raise Refusal("pin-digest")

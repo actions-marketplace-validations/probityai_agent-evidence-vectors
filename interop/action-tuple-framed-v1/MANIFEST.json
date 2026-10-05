@@ -331,7 +331,7 @@
   "sources": [
     {
       "path": "reader.py",
-      "sha256": "1c07488ced7838cd226dff33579317cd45411f78d2b09d5a16577fef5f3cee2f"
+      "sha256": "cefd86ff138e7373a4129fa1a87b336b7277d2a3447046f82b619b6cb05710c8"
     },
     {
       "path": "PROFILE.md",
