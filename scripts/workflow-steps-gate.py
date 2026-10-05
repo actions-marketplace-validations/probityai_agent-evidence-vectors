@@ -851,6 +851,12 @@ PROVIDES: dict[str, tuple[str, ...]] = {
 }
 COMMAND_NOT_FOUND = re.compile(r"(?:^|: )([A-Za-z0-9_.+-]+): command not found\s*$", re.MULTILINE)
 NO_PIP = re.compile(r"^(\S+): No module named pip\s*$", re.MULTILINE)
+# A Python script that runs the tool through subprocess dies with this instead
+# of the shell's exit 127.
+NO_SUCH_PROGRAM = re.compile(
+    r"^FileNotFoundError: \[Errno 2\] No such file or directory: '([A-Za-z0-9_.+-]+)'\s*$",
+    re.MULTILINE,
+)
 
 
 def missing_tool(
@@ -860,9 +866,10 @@ def missing_tool(
 
     Two absences are recognised, and each is verified before it is believed:
 
-    * exit 127 naming a command that a runner-only step of THIS job provides
-      (cosign from sigstore/cosign-installer, for one), when that command is
-      not on the step's PATH here;
+    * exit 127, or a Python FileNotFoundError, naming a command that a
+      runner-only step of THIS job provides (cosign from
+      sigstore/cosign-installer, for one), when that command is not on the
+      step's PATH here;
     * `<python>: No module named pip`, when that interpreter really cannot
       import pip. Every runner image's Python carries pip; a workstation's or a
       gate box's system Python often does not.
@@ -872,14 +879,17 @@ def missing_tool(
     let this gate pass a push the remote fails.
     """
     stderr = proc.stderr or ""
+    patterns = [NO_SUCH_PROGRAM]
     if proc.returncode == 127:
-        for name in COMMAND_NOT_FOUND.findall(stderr):
-            provider = job.provided.get(name)
-            if provider and shutil.which(name, path=env.get("PATH")) is None:
-                line = next(ln for ln in stderr.splitlines() if f"{name}: command not found" in ln)
+        patterns.insert(0, COMMAND_NOT_FOUND)
+    for line in stderr.splitlines():
+        for pattern in patterns:
+            found = pattern.search(line)
+            provider = job.provided.get(found.group(1)) if found else None
+            if found and provider and shutil.which(found.group(1), path=env.get("PATH")) is None:
                 return (
-                    f"`{name}` is not installed here and {provider} provides it on the "
-                    f"runner; the step stopped with: {line.strip()}"
+                    f"`{found.group(1)}` is not installed here and {provider} provides it "
+                    f"on the runner; the step stopped with: {line.strip()}"
                 )
     for interpreter in NO_PIP.findall(stderr):
         probe = subprocess.run(  # noqa: S603 -- asking the named interpreter whether pip imports

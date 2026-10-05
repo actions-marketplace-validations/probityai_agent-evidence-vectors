@@ -767,6 +767,22 @@ def a_tool_a_runner_step_provides_is_not_run_when_absent() -> None:
     assert "ran 0 steps" in log, f"a step that could not run was counted as run:\n{log}"
 
 
+def a_script_that_cannot_spawn_the_tool_is_not_run() -> None:
+    """release-gate.py runs cosign through subprocess, so a missing cosign is a
+    FileNotFoundError traceback rather than the shell's exit 127."""
+    tool = "aee-gate-test-absent-tool"
+    spawn = f"import subprocess; subprocess.run(['{tool}', 'version'])"
+    workflow = (
+        "jobs:\n  j:\n    steps:\n"
+        "      - uses: sigstore/cosign-installer@v3\n"
+        f'      - run: python3 -c "{spawn}"\n'
+    )
+    with _provides("sigstore/cosign-installer", tool):
+        rc, log = _execute(workflow)
+    assert "NOT RUN  j[1]" in log and "FileNotFoundError" in log, log
+    assert rc == 0, log
+
+
 def a_missing_command_nothing_provides_still_fails() -> None:
     """The balance: a command no step of the job provides is a real failure."""
     workflow = "jobs:\n  j:\n    steps:\n      - run: aee-gate-test-typo-tool --version\n"
@@ -892,6 +908,10 @@ def main() -> int:
     check(
         "a tool a runner step provides is not run when absent",
         a_tool_a_runner_step_provides_is_not_run_when_absent,
+    )
+    check(
+        "a script that cannot spawn the tool is not run",
+        a_script_that_cannot_spawn_the_tool_is_not_run,
     )
     check(
         "a missing command nothing provides still fails",
