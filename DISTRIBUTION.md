@@ -6,13 +6,30 @@ Use this page to choose an installation route or identify the corpus you ran. Fo
 
 `v0.17.0`, also recorded in [CITATION.cff](CITATION.cff). Use a release tag or commit and the corpus digest when reporting a result.
 
+The installation examples are pinned to the version above. The corpus table
+describes this checkout; a release tag or installed wheel identifies its own
+population.
+
+PyPI v0.17.0 was unavailable on 2026-10-05. The example below builds from the
+source commit associated with the signed v0.17.0 tag. A source pin identifies
+the selected bytes. From that checkout, verify the tag's signer and the selected
+objects:
+
+```bash
+python3 scripts/verify-release-tag.py v0.17.0 \
+  --expected-commit 906dca103e2fe2e1e719dc58f8337b1b90b6562d \
+  --expected-tag-object 6a11d534cc06ca2f58071aca0a0aa66edd383253
+```
+
+The checks below verify the corpus signature and timestamp proofs.
+
 ## The one-command run
 
-Install the Go verifier, then run the packaged harness:
+Install the tagged Go verifier, then build and run the harness from its source:
 
 ```bash
 go install github.com/probityai/agent-evidence-vectors/cmd/aee-verify@v0.17.0
-uvx agent-evidence-vectors==0.17.0 --verifier "aee-verify --json"
+uvx --from git+https://github.com/probityai/agent-evidence-vectors@906dca103e2fe2e1e719dc58f8337b1b90b6562d agent-evidence-vectors --verifier "aee-verify --json"
 ```
 
 Or run the same harness from a checkout:
@@ -80,7 +97,7 @@ Choose a corpus for the format your verifier supports. Each has its own manifest
 | `vectors-scitt-cose/` | `scitt-cose-carriage-conformance` | carriage of the predicate over SCITT and COSE receipts |
 | `vectors-source-coverage/` | `source-text-coverage/v1` | selected source passages against a consumer-pinned capture, report, and time window |
 | `vectors-self-reported-record/` | `self-reported-record-conformance` | a self-reported agent record: turn signatures under the named key, memory-read digests over the bytes at the named path, an attesting key outside the observed runtime's reach, ledgers that name one change set, and covering signatures on declared substrate coverage |
-| `vectors-w3c-report/` | `w3c-report-v01-conformance` | the v0.1 per-check report of the W3C public-agent-conformance group: the five states, the cause rule, the twelve rejection rows and the two late additions, as whole reports |
+| `vectors-w3c-report/` | `w3c-report-v01-conformance` | the W3C public-agent-conformance group's v0.1 per-check report: five states, the cause vocabulary, fourteen rejection rows and roll-up claims (including a declared no-void claim), as whole reports |
 
 The distribution gate checks the directory and suite names against the tracked manifests. Read vector counts and digests from those manifests or [release/CORPUS-DIGESTS.txt](release/CORPUS-DIGESTS.txt). The [corpus guide](docs/guides/corpora.md) describes the formats and packaged readers.
 

@@ -28,11 +28,13 @@ Exit 0 when every case holds; 1 on the first summary of failures.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 from collections.abc import Callable
 from pathlib import Path
 
@@ -106,9 +108,9 @@ def tag(root: Path, name: str) -> None:
 
 
 def head_date(root: Path) -> str:
-    """The committer date of the staged copy's one commit, as UTC YYYY-MM-DD."""
+    """The staged commit's stored calendar date, as YYYY-MM-DD."""
     done = subprocess.run(
-        ["git", "show", "-s", "--format=%cd", "--date=format-local:%Y-%m-%d", "HEAD"],
+        ["git", "show", "-s", "--format=%cs", "HEAD"],
         cwd=root,
         capture_output=True,
         text=True,
@@ -121,11 +123,12 @@ def set_release_date(root: Path, value: str) -> None:
     reword(root, CFF, r'date-released: "[^"]+"', f'date-released: "{value}"')
 
 
-def run(root: Path) -> tuple[int, str]:
+def run(root: Path, timezone: str | None = None) -> tuple[int, str]:
     proc = subprocess.run(
         [sys.executable, str(GATE), "--root", str(root)],
         capture_output=True,
         text=True,
+        env={**os.environ, "TZ": timezone} if timezone is not None else None,
         check=False,
     )
     return proc.returncode, proc.stdout + proc.stderr
@@ -375,8 +378,48 @@ DATE_CASES: list[Case] = [
 
 def released_at_its_tag(root: Path) -> None:
     """The state the rule prescribes: a tag, and the date of that tag's commit."""
-    tag(root, "v0.10.0")
     set_release_date(root, head_date(root))
+    fixture_commit(root, "date the historical release")
+    tag(root, f"v{source_version(root)}")
+
+
+def source_version(root: Path) -> str:
+    project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    return str(project["project"]["version"])
+
+
+def fixture_commit(root: Path, message: str) -> None:
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.email=citation-gate-test@example.invalid", "-c",
+         "user.name=citation gate test", "-c", "commit.gpgsign=false", "commit",
+         "--allow-empty", "-qm", message],
+        cwd=root, check=True, capture_output=True,
+    )
+
+
+def newer_divergent_release(root: Path, *, advance: bool) -> None:
+    """A newer release on another branch, with an exact old or advanced HEAD."""
+    released_at_its_tag(root)
+    historical = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root,
+                                check=True, capture_output=True, text=True).stdout.strip()
+    fixture_commit(root, "a release cut separately from the default branch")
+    major, minor, patch = (int(part) for part in source_version(root).split("."))
+    tag(root, f"v{major}.{minor + 1}.{patch}")
+    # Reset is confined to this disposable fixture, never a real source checkout.
+    subprocess.run(["git", "reset", "--hard", historical], cwd=root,
+                   check=True, capture_output=True)
+    if advance:
+        fixture_commit(root, "default branch advances without release metadata")
+
+
+IDENTITY_CASES: list[Case] = [
+    (
+        "advanced source metadata misses a divergent newer release",
+        lambda root: newer_divergent_release(root, advance=True),
+        ("source metadata still names", "not the exact cited historical checkout"),
+    ),
+]
 
 
 ACCEPT_CASES: list[Case] = [
@@ -385,6 +428,11 @@ ACCEPT_CASES: list[Case] = [
         "the version is tagged and the date is that tag's commit date",
         released_at_its_tag,
         ("release date consistent with the tag",),
+    ),
+    (
+        "an exact historical release remains valid with a newer divergent tag",
+        lambda root: newer_divergent_release(root, advance=False),
+        ("are accounted for",),
     ),
     (
         "an ordinary number that stands for nothing about the corpus",
@@ -418,6 +466,81 @@ def check(group: str, cases: list[Case], want_refusal: bool, tmp: Path) -> list[
     return failures
 
 
+TIMEZONES = ("UTC", "America/New_York", "Pacific/Kiritimati")
+DATED_CUTS = (
+    ("2026-10-04T20:23:15-0400", "2026-10-05T00:23:15+0000", "2026-10-04", "2026-10-05"),
+    ("2026-10-05T00:23:15+1400", "2026-10-04T10:23:15+0000", "2026-10-05", "2026-10-04"),
+)
+
+
+def commit_with_dates(root: Path, committer: str, author: str) -> None:
+    subprocess.run(
+        ["git", "-c", "user.name=citation gate test", "-c",
+         "user.email=citation-gate-test@example.invalid", "-c", "commit.gpgsign=false",
+         "commit", "--quiet", "--allow-empty", "-m", "dated release"],
+        cwd=root, env={**os.environ, "GIT_COMMITTER_DATE": committer,
+                       "GIT_AUTHOR_DATE": author}, check=True, capture_output=True,
+    )
+
+
+def timezone_date_checks(tmp: Path) -> list[str]:
+    """Bind to the committer's date across midnight, rather than the observer's.
+
+    The author uses the same instant with a different calendar date. Both the
+    author-date shortcut and conversion to the runner's date must fail these
+    controls. An adjacent wrong date must still be refused in every timezone.
+    """
+    failures: list[str] = []
+    for index, (committer, author, expected, wrong) in enumerate(DATED_CUTS):
+        root = tmp / f"timezone{index}"
+        root.mkdir()
+        stage(root)
+        commit_with_dates(root, committer, author)
+        version = re.search(r"^version: (\S+)$", (root / CFF).read_text(), re.MULTILINE)
+        assert version is not None, "the staged citation has no version to tag"
+        tag(root, f"v{version.group(1)}")
+        for timezone in TIMEZONES:
+            set_release_date(root, expected)
+            code, output = run(root, timezone)
+            if code != 0:
+                failures.append(f"stored committer date {expected} under {timezone}:\n{output}")
+            set_release_date(root, wrong)
+            code, output = run(root, timezone)
+            if code == 0 or f"commit dated {expected}" not in output:
+                failures.append(f"wrong release date {wrong} under {timezone}:\n{output}")
+    return failures
+
+
+def release_order_checks(tmp: Path) -> list[str]:
+    """A newer instant can carry an earlier date label; keep the fallback bound."""
+    root = tmp / "release-order"
+    root.mkdir()
+    stage(root)
+    cuts = (
+        ("v0.14.0", "2026-10-05T00:30:00+1400", "2026-10-04T10:30:00+0000"),
+        ("v0.15.0", "2026-10-04T22:30:00-0400", "2026-10-05T02:30:00+0000"),
+    )
+    for name, committer, author in cuts:
+        commit_with_dates(root, committer, author)
+        subprocess.run(
+            ["git", "-c", "user.name=citation gate test", "-c",
+             "user.email=citation-gate-test@example.invalid", "-c", "tag.gpgsign=false",
+             "tag", "-a", name, "-m", name], cwd=root, check=True, capture_output=True,
+        )
+    commit_with_dates(root, "2026-10-05T03:00:00+0000", "2026-10-05T03:00:00+0000")
+    failures: list[str] = []
+    for timezone in TIMEZONES:
+        set_release_date(root, "2026-10-04")
+        code, output = run(root, timezone)
+        if code != 0:
+            failures.append(f"newest release by instant under {timezone}:\n{output}")
+        set_release_date(root, "2026-10-03")
+        code, output = run(root, timezone)
+        if code == 0 or "earlier than tag v0.15.0 on 2026-10-04" not in output:
+            failures.append(f"wrong fallback date under {timezone}:\n{output}")
+    return failures
+
+
 def main() -> int:
     failures: list[str] = []
     with tempfile.TemporaryDirectory() as raw:
@@ -427,21 +550,27 @@ def main() -> int:
         failures.extend(check("drift", DRIFT_CASES, True, tmp))
         failures.extend(check("source", SOURCE_CASES, True, tmp))
         failures.extend(check("date", DATE_CASES, True, tmp))
+        failures.extend(check("identity", IDENTITY_CASES, True, tmp))
         failures.extend(check("accept", ACCEPT_CASES, False, tmp))
+        failures.extend(timezone_date_checks(tmp))
+        failures.extend(release_order_checks(tmp))
     total = (
         len(STALE_CASES)
         + len(CENSUS_CASES)
         + len(DRIFT_CASES)
         + len(SOURCE_CASES)
         + len(DATE_CASES)
+        + len(IDENTITY_CASES)
         + len(ACCEPT_CASES)
+        + 2 * len(DATED_CUTS) * len(TIMEZONES)
+        + 2 * len(TIMEZONES)
     )
     if failures:
         print(f"FAIL: {len(failures)} of {total} case(s) do not hold:", file=sys.stderr)
         for failure in failures:
             print(f"  {failure}", file=sys.stderr)
         return 1
-    refusals = total - len(ACCEPT_CASES)
+    refusals = total - len(ACCEPT_CASES) - (len(DATED_CUTS) + 1) * len(TIMEZONES)
     print(
         f"OK: {total} case(s), of which {refusals} assert a refusal the gate makes "
         "and name the figure it makes it about."

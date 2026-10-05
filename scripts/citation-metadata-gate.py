@@ -332,6 +332,7 @@ def check_version(cff: dict[str, Any]) -> list[str]:
 
 
 DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+RELEASE_VERSION = re.compile(r"^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 
 
 def _git(root: Path, *arguments: str) -> str | None:
@@ -348,14 +349,57 @@ def _git(root: Path, *arguments: str) -> str | None:
 
 
 def commit_date(root: Path, ref: str) -> str | None:
-    """The committer date of what `ref` points at, as UTC `YYYY-MM-DD`."""
+    """The stored committer calendar date, independent of the runner timezone."""
     return _git(
-        root, "show", "-s", "--format=%cd", "--date=format-local:%Y-%m-%d",
-        f"{ref}^{{commit}}")
+        root, "show", "-s", "--format=%cs", f"{ref}^{{commit}}")
+
+
+def commit_epoch(root: Path, ref: str) -> int | None:
+    """The committer's instant, for ordering dates carrying different offsets."""
+    value = _git(root, "show", "-s", "--format=%ct", f"{ref}^{{commit}}")
+    try:
+        return int(value) if value is not None else None
+    except ValueError:
+        return None
+
+
+def check_release_identity(cff: dict[str, Any]) -> list[str]:
+    """Catch an advanced source tree retaining metadata older than a release.
+
+    Tags can be on another branch, so ancestry alone misses a release cut away
+    from main. Exact historical tagged checkouts remain valid. This reads local
+    stable release tags; it does not authenticate tags or inspect a registry.
+    """
+    version = fold(cff.get("version"))
+    parsed = RELEASE_VERSION.fullmatch(version)
+    listed = _git(REPO_ROOT, "for-each-ref", "--format=%(refname:short)", "refs/tags/v*")
+    if parsed is None or not listed:
+        return []
+    head = _git(REPO_ROOT, "rev-parse", "HEAD^{commit}")
+    cited = _git(REPO_ROOT, "rev-parse", f"v{version}^{{commit}}")
+    if head is not None and head == cited:
+        return []
+    declared = tuple(int(part) for part in parsed.groups())
+    newer: list[tuple[tuple[int, ...], str]] = []
+    for name in listed.splitlines():
+        candidate = RELEASE_VERSION.fullmatch(name)
+        if candidate is not None:
+            numbers = tuple(int(part) for part in candidate.groups())
+            if numbers > declared:
+                newer.append((numbers, name))
+    if not newer:
+        return []
+    latest = max(newer)[1]
+    return [
+        f"source metadata still names {version}, but release tag {latest} exists "
+        "and this is not the exact cited historical checkout. Reconcile the "
+        "current source version and install guidance with the existing release; "
+        "do not rewrite release tags or signed artifacts."
+    ]
 
 
 def newest_release_tag(root: Path) -> tuple[str, str] | None:
-    """The most recently dated `v*` tag, as (name, date), or None if there is none."""
+    """The newest committer instant, with its stored calendar date and tag name."""
     listed = _git(root, "for-each-ref", "--format=%(refname:short)", "refs/tags/v*")
     if not listed:
         return None
@@ -364,11 +408,13 @@ def newest_release_tag(root: Path) -> tuple[str, str] | None:
     # checked is about the released contents rather than about when somebody ran
     # `git tag`. Resolving each one separately costs a handful of git calls over
     # a handful of tags and removes a whole class of off-by-a-day disagreement.
-    rows = [(name, commit_date(root, name)) for name in listed.split()]
-    dated = [(name, date) for name, date in rows if date]
+    rows = [(name, commit_date(root, name), commit_epoch(root, name)) for name in listed.split()]
+    dated = [(name, date, epoch) for name, date, epoch in rows
+             if date is not None and epoch is not None]
     if not dated:
         return None
-    return max(dated, key=lambda row: row[1])
+    name, date, _ = max(dated, key=lambda row: row[2])
+    return name, date
 
 
 def check_release_date(cff: dict[str, Any]) -> list[str]:
@@ -760,6 +806,7 @@ def main() -> int:
         errors += check_identifiers(zenodo, cff)
         errors += check_agreement(zenodo, cff)
         errors += check_version(cff)
+        errors += check_release_identity(cff)
         errors += check_release_date(cff)
     corpus, corpus_errors = read_corpus(REPO_ROOT)
     errors += corpus_errors

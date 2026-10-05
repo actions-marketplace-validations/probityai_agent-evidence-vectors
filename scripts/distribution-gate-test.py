@@ -87,7 +87,8 @@ def _staged_copy(tmp: Path) -> Path:
     (root / "scripts").mkdir(parents=True)
     (root / FORM_REL.parent).mkdir(parents=True)
     shutil.copy2(REPO_ROOT / GATE_REL, root / GATE_REL)
-    for rel in (RECIPE_REL, PAGE_REL, CITATION_REL, FORM_REL, GOMOD_REL):
+    for rel in (RECIPE_REL, PAGE_REL, CITATION_REL, FORM_REL, GOMOD_REL,
+                Path("README.md"), Path("docs/guides/runner.md")):
         (root / rel.parent).mkdir(parents=True, exist_ok=True)
         shutil.copy2(REPO_ROOT / rel, root / rel)
     for manifest in sorted(REPO_ROOT.glob("vectors*/MANIFEST.json")):
@@ -111,6 +112,14 @@ def _staged_copy(tmp: Path) -> Path:
     # that pair is exactly what the gate reads: the module path a consumer is
     # told to fetch, at the version they are told to pin it to.
     _git(root, "tag", _install_of(root)[1])
+    selected = subprocess.check_output(
+        ["git", "-C", str(root), "rev-parse", "HEAD"], text=True,
+    ).strip()
+    for rel in (PAGE_REL, Path("README.md"), Path("docs/guides/runner.md")):
+        path = root / rel
+        path.write_text(re.sub(
+            r"(uvx --from git\+https://github.com/probityai/agent-evidence-vectors@)\S+",
+            rf"\g<1>{selected}", path.read_text(encoding="utf-8")), encoding="utf-8")
     return root
 
 
@@ -379,7 +388,77 @@ def case_recipe_pin_stale(root: Path) -> str:
     return "the recipe's `git checkout` names v99.0.0"
 
 
+def stale_consumer_pin(rel: str, route: str) -> Callable[[Path], str]:
+    """Mutate an actual install command while other entry points stay correct."""
+    def mutate(root: Path) -> str:
+        patterns = {
+            "Go install": r"(go install \S+@)v[^\s]+",
+            "Python install": r"(uvx --from \S+ agent-evidence-vectors)",
+            "GitHub Action": r"(- uses: probityai/agent-evidence-vectors@)v[^\s]+",
+        }
+        if route == "Python install":
+            _edit(root, Path(rel), lambda text: re.sub(patterns[route],
+                  "uvx agent-evidence-vectors==99.0.0", text, count=1))
+            return f"{rel}: {route} pin"
+        prefix = "v"
+        _edit(root, Path(rel), lambda text: re.sub(patterns[route],
+              rf"\g<1>{prefix}99.0.0", text, count=1))
+        return f"{rel}: {route} pin"
+    return mutate
+
+
+def missing_python_command(root: Path) -> str:
+    _edit(root, Path("README.md"), lambda text: re.sub(
+        r"^uvx --from [^\n]+\n", "", text, count=1, flags=re.MULTILINE))
+    return "README.md has no pinned Python install command"
+
+
+def missing_runner_page(root: Path) -> str:
+    (root / "docs/guides/runner.md").unlink()
+    return "docs/guides/runner.md does not exist"
+
+
+def wrong_source_pin(pin: str) -> Callable[[Path], str]:
+    """A present source command can still fetch the wrong owner, ref or bytes."""
+    def mutate(root: Path) -> str:
+        _edit(root, Path("README.md"), lambda text: re.sub(
+            r"(uvx --from )\S+( agent-evidence-vectors)",
+            rf"\g<1>{pin}\g<2>", text, count=1))
+        return "README.md: Python install pin"
+    return mutate
+
+
+def conflicting_source_pins(root: Path) -> str:
+    _edit(root, Path("README.md"), lambda text: text +
+          "\nuvx --from git+https://github.com/probityai/agent-evidence-vectors@main "
+          "agent-evidence-vectors --self-test\n")
+    return "README.md: Python install pin"
+
+
+def wrong_source_entry_point(root: Path) -> str:
+    version = _install_of(root)[1][1:]
+    _edit(root, Path("README.md"), lambda text: re.sub(
+        r"(uvx --from \S+ )agent-evidence-vectors", r"\g<1>wrong-entry-point",
+        text, count=1) + f"\nuvx agent-evidence-vectors=={version} --self-test\n")
+    return "README.md: unrecognized Python install command"
+
+
 CASES: tuple[tuple[str, Callable[[Path], str]], ...] = (
+    ("a source command fetching another owner", wrong_source_pin(
+        "git+https://github.com/other-owner/agent-evidence-vectors@" + "0" * 40)),
+    ("a source command following a branch", wrong_source_pin(
+        "git+https://github.com/probityai/agent-evidence-vectors@main")),
+    ("a source command naming different immutable bytes", wrong_source_pin(
+        "git+https://github.com/probityai/agent-evidence-vectors@" + "0" * 40)),
+    ("a valid source pin beside a conflicting pin", conflicting_source_pins),
+    ("a wrong source executable beside a valid registry pin", wrong_source_entry_point),
+    *((f"{rel} retains a stale {route} pin", stale_consumer_pin(rel, route))
+      for rel in ("README.md", "DISTRIBUTION.md", "docs/guides/runner.md")
+      for route in ("Go install", "Python install")),
+    ("runner retains a stale Action pin",
+     stale_consumer_pin("docs/guides/runner.md", "GitHub Action")),
+    ("README Python command disappears", missing_python_command),
+    ("runner guide disappears", missing_runner_page),
     ("a command fixed in one copy of the recipe and not the other", case_recipe_drift),
     ("the citation file released ahead of the prose", case_tag_behind),
     ("a version token in prose left behind by a release", case_stale_tag_in_prose),
@@ -411,8 +490,25 @@ CASES: tuple[tuple[str, Callable[[Path], str]], ...] = (
 )
 
 
+def registry_control_failures() -> list[str]:
+    """A current registry pin remains valid metadata without asserting availability."""
+    with tempfile.TemporaryDirectory() as raw:
+        registry = _staged_copy(Path(raw))
+        version = _install_of(registry)[1][1:]
+        for rel in (PAGE_REL, Path("README.md"), Path("docs/guides/runner.md")):
+            path = registry / rel
+            path.write_text(re.sub(
+                r"uvx --from \S+ agent-evidence-vectors",
+                "uvx agent-evidence-vectors==" + version,
+                path.read_text(encoding="utf-8")), encoding="utf-8")
+        code, output = _run_gate(registry)
+        if code != 0:
+            return [f"the current registry-pin control failed:\n{output}"]
+    return []
+
+
 def main() -> int:
-    failures: list[str] = []
+    failures = registry_control_failures()
 
     with tempfile.TemporaryDirectory() as raw:
         control = _staged_copy(Path(raw))
