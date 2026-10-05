@@ -50,20 +50,19 @@ documentation change are all patch-level.
 
 ### Where the version is written
 
-Every one of these has to say the same thing, and a gate refuses each
-disagreement rather than trusting the person cutting the release. The lock is
-the fifth and it was the one nobody listed: the 0.12.0 bump edited the four
-above, left the lock at the previous version, and the mismatch surfaced only
-because a site build happened to invoke uv, which rewrote the line as a side
-effect. A version carried by a file no gate reads is a version that travels by
-accident, so `scripts/citation-metadata-gate.py` now reads it too.
+These files must agree. The 0.12.0 bump omitted the lock's root-package version;
+a site build later invoked uv and rewrote it as a side effect. The citation
+gate now checks that entry explicitly. The distribution gate checks the
+installation pins and both copies of the verification recipe.
 
 | File | What carries the version |
 | --- | --- |
 | `pyproject.toml` | `[project] version` — what the wheel is built as |
 | `CITATION.cff` | `version:` — what an archive deposit and GitHub's citation panel read |
-| `DISTRIBUTION.md` | the tag-to-cite section, the `go install` pin, the `git checkout` lines, and the releases row |
-| `README.md` | the action pin, the `git checkout` in the verification recipe, and the citation block |
+| `DISTRIBUTION.md` | the tag-to-cite section and the pinned Go, Python and checkout commands |
+| `README.md` | the pinned Go and Python commands for the published release |
+| `docs/guides/runner.md` | the action pin and the pinned Go and Python commands |
+| `docs/reference/release-verification.md` | the checkout pin in the verification recipe |
 | `uv.lock` | the `version` of the one `[[package]]` whose source is `virtual = "."` |
 
 `scripts/distribution-gate.py` holds the inbound page and `CITATION.cff` to each
