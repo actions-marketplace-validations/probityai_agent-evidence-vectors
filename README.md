@@ -6,16 +6,28 @@ Test an agent-evidence verifier against saved records with known outcomes. The c
 
 ## Try it
 
-Install the Go verifier from the source tag, then run the harness from the same source commit. You need Go 1.24+, Python 3.13+ and [uv](https://docs.astral.sh/uv/), with Go's executable directory on your PATH.
+From a reviewed source checkout, build the Go verifier and a wheel, then run the installed harness outside the checkout. You need Go 1.24+, Python 3.13+ and [uv](https://docs.astral.sh/uv/). Record the checkout's full commit ID with your report.
 
 ```bash
-go install github.com/probityai/agent-evidence-vectors/cmd/aee-verify@v0.17.0
-uvx --from git+https://github.com/probityai/agent-evidence-vectors@906dca103e2fe2e1e719dc58f8337b1b90b6562d agent-evidence-vectors --verifier "aee-verify --json"
+git rev-parse HEAD
+run_dir="$(mktemp -d)"
+GOWORK=off go build -o "$run_dir/aee-verify" ./cmd/aee-verify
+uv build --wheel --out-dir "$run_dir"
+wheel="$(find "$run_dir" -maxdepth 1 -name 'agent_evidence_vectors-*.whl')"
+cd "$run_dir"
+uv run --no-project --with "$wheel" agent-evidence-vectors --verifier "$run_dir/aee-verify --json"
 ```
 
 Open `conformance-report.json` for the per-vector results. A complete external run has `rail: external`, `verifier.vectorsExecuted` equal to `totals.vectors`, and zero `totals.suiteRefusals`. The report separates conformance from reason-code agreement.
 
 See [installation routes and release identity](DISTRIBUTION.md) for package availability and signature checks.
+
+After the signed tag and PyPI wheel are published, install the matching release (with Go's executable directory on your PATH):
+
+```bash
+go install github.com/probityai/agent-evidence-vectors/cmd/aee-verify@v0.17.1
+uvx agent-evidence-vectors==0.17.1 --verifier "aee-verify --json"
+```
 
 <a name="what-a-conformance-claim-must-show"></a>
 <a name="the-verification-pipeline"></a>

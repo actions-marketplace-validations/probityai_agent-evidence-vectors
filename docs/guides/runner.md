@@ -1,19 +1,19 @@
 # Run the suite in CI
 
-Build a verifier, then pass its command to the harness. This example uses the repository's Go CLI; replace the command with your implementation when comparing it.
+Build a verifier, then pass its command to the harness. After the signed release tag is available, this example uses the repository's Go CLI; replace the command with your implementation when comparing it.
 
 ```yaml
 - run: GOWORK=off go build -o aee-verify ./cmd/aee-verify
-- uses: probityai/agent-evidence-vectors@v0.17.0
+- uses: probityai/agent-evidence-vectors@v0.17.1
   with:
     verifier: ./aee-verify --json
 ```
 
-For a shell run with the tagged Go verifier and the source-built harness:
+For a shell run before publication, use the [source-wheel recipe](../../README.md#try-it) from a reviewed checkout. After the tag and PyPI wheel are published, install the matching release:
 
 ```sh
-go install github.com/probityai/agent-evidence-vectors/cmd/aee-verify@v0.17.0
-uvx --from git+https://github.com/probityai/agent-evidence-vectors@906dca103e2fe2e1e719dc58f8337b1b90b6562d agent-evidence-vectors --verifier "aee-verify --json"
+go install github.com/probityai/agent-evidence-vectors/cmd/aee-verify@v0.17.1
+uvx agent-evidence-vectors==0.17.1 --verifier "aee-verify --json"
 ```
 
 The command invokes your verifier for each vector using the [external-verifier contract](../reference/verifier-contract.md). Reports keep normative conformance and reason-code agreement separate. Both still affect row status and the command's exit status.
