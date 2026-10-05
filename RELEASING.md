@@ -50,20 +50,19 @@ documentation change are all patch-level.
 
 ### Where the version is written
 
-Every one of these has to say the same thing, and a gate refuses each
-disagreement rather than trusting the person cutting the release. The lock is
-the fifth and it was the one nobody listed: the 0.12.0 bump edited the four
-above, left the lock at the previous version, and the mismatch surfaced only
-because a site build happened to invoke uv, which rewrote the line as a side
-effect. A version carried by a file no gate reads is a version that travels by
-accident, so `scripts/citation-metadata-gate.py` now reads it too.
+These files must agree. The 0.12.0 bump omitted the lock's root-package version;
+a site build later invoked uv and rewrote it as a side effect. The citation
+gate now checks that entry explicitly. The distribution gate checks the
+installation pins and both copies of the verification recipe.
 
 | File | What carries the version |
 | --- | --- |
 | `pyproject.toml` | `[project] version` — what the wheel is built as |
 | `CITATION.cff` | `version:` — what an archive deposit and GitHub's citation panel read |
-| `DISTRIBUTION.md` | the tag-to-cite section, the `go install` pin, the `git checkout` lines, and the releases row |
-| `README.md` | the action pin, the `git checkout` in the verification recipe, and the citation block |
+| `DISTRIBUTION.md` | the tag-to-cite section and the pinned Go, Python and checkout commands |
+| `README.md` | the pinned Go and Python commands for the published release |
+| `docs/guides/runner.md` | the action pin and the pinned Go and Python commands |
+| `docs/reference/release-verification.md` | the checkout pin in the verification recipe |
 | `uv.lock` | the `version` of the one `[[package]]` whose source is `virtual = "."` |
 
 `scripts/distribution-gate.py` holds the inbound page and `CITATION.cff` to each
@@ -86,6 +85,17 @@ new path takes over. Do not "fix" that inconsistency; it is the honest one.
 
 ## The steps
 
+Preserve existing release tags, including failed publication attempts. Repair
+the source on a clean branch and cut a new patch version; do not move, replace
+or delete an earlier tag.
+
+For a new cut, capture one UTC instant before updating the metadata. Set
+`CITATION.cff`'s `date-released` to its UTC calendar date, and use that same
+instant with a `+0000` offset for the release commit's author and committer
+dates. The citation gate reads the stored committer calendar date; it does not
+reinterpret that date in the runner's time zone. Recheck the UTC date before
+the final commit if preparation crosses midnight.
+
 Run them in this order. The order matters three times. The digest list must be
 written before it is signed, and the signature must exist before it is stamped,
 because the stamps cover the signature bytes rather than the list. And the tag
@@ -93,6 +103,9 @@ must exist before the mirror runs, because one gate resolves the page's install
 pin through it.
 
 ```sh
+release_epoch="$(date -u +%s)"
+date -u -d "@$release_epoch" +%F # use for CITATION.cff date-released
+
 # 1. The digest list is what the corpora on disk hash to. A generator writes it;
 #    nobody types those lines.
 uv run python scripts/release-digests.py
@@ -114,7 +127,9 @@ scripts/release-timestamps.sh stamp
 #    stamps, is a half-published release.
 git add release/CORPUS-DIGESTS.txt release/CORPUS-DIGESTS.txt.sig \
         release/CORPUS-DIGESTS.txt.sig.tsr release/CORPUS-DIGESTS.txt.sig.ots
-git commit -m "chore(release): cut vX.Y.Z"
+test "$(date -u +%F)" = "$(date -u -d "@$release_epoch" +%F)"
+GIT_AUTHOR_DATE="$release_epoch +0000" GIT_COMMITTER_DATE="$release_epoch +0000" \
+  git commit -m "chore(release): cut vX.Y.Z"
 
 # 5. Tag the bump commit LOCALLY, before pushing anything. The tag is not
 #    optional at this point and it is not early: the bump in step 4 made the
@@ -135,10 +150,16 @@ python3 scripts/verify-release-tag.py vX.Y.Z
 #    come from here instead. Nothing is pushed until this is green.
 python3 scripts/workflow-steps-gate.py
 
-# 7. Push the commit and the tag in ONE push. Two pushes leave a window in
-#    which the default branch carries a page pinned to a tag the remote does
-#    not have, which is the same refusal as step 5 seen from the runner.
-git push origin <branch>:main tag vX.Y.Z
+# 7. Publish the owned feature branch and the new tag atomically. The feature
+#    branch's installation pin and signed tag arrive together. The default
+#    branch stays at its reviewed revision until the source pull request lands.
+git push --atomic origin <branch> refs/tags/vX.Y.Z:refs/tags/vX.Y.Z
+
+# 8. Open a source pull request from <branch> into main. Review its exact head
+#    and require all hosted checks to pass, including the release tag run.
+#    Merge through the normal protected landing procedure. Read back the
+#    merged source tree, main checks and actual package publication before
+#    reporting the release as delivered.
 ```
 
 A tag that precedes its remote run cannot publish a bad release, and that is
@@ -146,8 +167,9 @@ why the order above is safe rather than merely convenient: `release.yml`'s
 `publish` job declares `needs: verify`, so the tag triggers a verification
 first and PyPI is reached only if the digest list, the signature, the
 timestamps and the manifest all hold. If `ci` on the default branch then fails
-anyway, the tag is deleted on both sides before anything can cite it -- the
-release the tag would have produced never published.
+anyway, retain its tag and failed run as evidence. Repair the source and use a
+new patch version for the next cut. A failed verification is not evidence of a
+published PyPI distribution.
 
 A stranger checks a tag the same way the workflow does, against the key file
 rather than their own keyring:

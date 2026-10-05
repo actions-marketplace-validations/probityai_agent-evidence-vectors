@@ -4,39 +4,36 @@ Use this page to choose an installation route or identify the corpus you ran. Fo
 
 ## The tag to cite
 
-`v0.17.0`, also recorded in [CITATION.cff](CITATION.cff). Use a release tag or commit and the corpus digest when reporting a result.
+`v0.17.4`, the version recorded in [CITATION.cff](CITATION.cff). Cite its signed tag or full source commit and corpus digest when reporting a result.
 
 The installation examples are pinned to the version above. The corpus table
 describes this checkout; a release tag or installed wheel identifies its own
 population.
 
-PyPI v0.17.0 was unavailable on 2026-10-05. The example below builds from the
-source commit associated with the signed v0.17.0 tag. A source pin identifies
-the selected bytes. From that checkout, verify the tag's signer and the selected
-objects:
+This version packages the criterion documents for AI generation, MCP record
+contract and MCP response phase. These files were missing from the prior wheel
+and source archive. Use the published route after both artifacts are available,
+or build from a reviewed source checkout.
+The [source-wheel recipe](README.md#try-it) builds the verifier and harness
+from a reviewed checkout, then runs the installed harness outside it. Record
+that checkout's full commit ID. A source pin identifies selected bytes; it
+does not authenticate their author. The failed prior release tag is retained
+unchanged as historical evidence.
+
+## Install the published release
+
+After both the signed tag and PyPI wheel are published, install matching versions:
 
 ```bash
-python3 scripts/verify-release-tag.py v0.17.0 \
-  --expected-commit 906dca103e2fe2e1e719dc58f8337b1b90b6562d \
-  --expected-tag-object 6a11d534cc06ca2f58071aca0a0aa66edd383253
+go install github.com/probityai/agent-evidence-vectors/cmd/aee-verify@v0.17.4
+uvx agent-evidence-vectors==0.17.4 --verifier "aee-verify --json"
 ```
 
-The checks below verify the corpus signature and timestamp proofs.
-
-## The one-command run
-
-Install the tagged Go verifier, then build and run the harness from its source:
-
-```bash
-go install github.com/probityai/agent-evidence-vectors/cmd/aee-verify@v0.17.0
-uvx --from git+https://github.com/probityai/agent-evidence-vectors@906dca103e2fe2e1e719dc58f8337b1b90b6562d agent-evidence-vectors --verifier "aee-verify --json"
-```
-
-Or run the same harness from a checkout:
+After the signed tag is published, run the same harness from its checkout:
 
 ```bash
 git clone https://github.com/probityai/agent-evidence-vectors
-cd agent-evidence-vectors && git checkout v0.17.0
+cd agent-evidence-vectors && git checkout v0.17.4
 python3 packaging/run_vectors.py --verifier "aee-verify --json"
 ```
 
@@ -46,11 +43,11 @@ If your verifier disagrees with a vector, [report the run](docs/guides/report-ru
 
 ## Verify a release without trusting us
 
-Recompute the corpus digests, then check the signature and timestamp proofs:
+After the signed tag is published, recompute the corpus digests, then check the signature and timestamp proofs:
 
 ```bash
 git clone https://github.com/probityai/agent-evidence-vectors && cd agent-evidence-vectors
-git checkout v0.17.0
+git checkout v0.17.4
 
 # 1. the digest list is what the vector files on disk hash to, recomputed
 python3 scripts/release-digests.py --check

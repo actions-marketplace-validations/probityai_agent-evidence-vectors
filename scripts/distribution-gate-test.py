@@ -117,9 +117,18 @@ def _staged_copy(tmp: Path) -> Path:
     ).strip()
     for rel in (PAGE_REL, Path("README.md"), Path("docs/guides/runner.md")):
         path = root / rel
+        # Exercise the supported source route even when the public pages use
+        # registry pins. The independent registry control below restores those
+        # commands; changing presentation must not remove source-pin refusals.
+        text = re.sub(
+            r"uvx agent-evidence-vectors==\S+",
+            "uvx --from git+https://github.com/probityai/agent-evidence-vectors@"
+            + selected + " agent-evidence-vectors",
+            path.read_text(encoding="utf-8"),
+        )
         path.write_text(re.sub(
             r"(uvx --from git\+https://github.com/probityai/agent-evidence-vectors@)\S+",
-            rf"\g<1>{selected}", path.read_text(encoding="utf-8")), encoding="utf-8")
+            rf"\g<1>{selected}", text), encoding="utf-8")
     return root
 
 

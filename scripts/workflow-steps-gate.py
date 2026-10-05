@@ -16,16 +16,19 @@ step order, and it is deliberately noisy about the ones it cannot run.
     python3 scripts/workflow-steps-gate.py --list     # show the plan, run nothing
     python3 scripts/workflow-steps-gate.py --only no-internal-drafts
 
-Exit 0 only when every runnable step exited 0. Any step failure, any workflow
-that will not parse, and any absent dependency is a non-zero exit -- never a
-skip. A gate that quietly skips what it cannot check reports a clean result for
-a check that did not run, which is the same defect in a different costume.
+Exit 0 only when every runnable step exited 0. Any native step failure, unknown
+action or expression, invalid source binding,
+or workflow parse failure returns non-zero. Runner-only actions and unavailable
+provisioned capabilities are explicit NOT_RUN records, never reported as passed.
+A native process that actually fails keeps its original status and output.
 """
 
 from __future__ import annotations
 
 import argparse
 import fnmatch
+import hashlib
+import json
 import os
 import pathlib
 import re
@@ -34,6 +37,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Callable, Iterator, Mapping
 from typing import Any, NamedTuple
 
@@ -43,6 +47,202 @@ from _lockfile import single_instance  # noqa: E402
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 WORKFLOWS = REPO / ".github" / "workflows"
+
+
+def git(root: pathlib.Path, *args: str) -> bytes:
+    """Read or change only the Git repository explicitly named by the caller."""
+    return subprocess.run(  # noqa: S603 -- fixed Git commands, explicit repository
+        ["git", "-C", str(root), *args], capture_output=True, check=True
+    ).stdout
+
+
+def write_json(path: pathlib.Path, value: Any) -> None:
+    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def optional_git(root: pathlib.Path, *args: str) -> str:
+    proc = subprocess.run(  # noqa: S603 -- read an optional local Git binding
+        ["git", "-C", str(root), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
+def tags(root: pathlib.Path) -> dict[str, str]:
+    return dict(
+        line.split(" ", 1)
+        for line in git(root, "for-each-ref", "--format=%(refname) %(objectname)", "refs/tags")
+        .decode()
+        .splitlines()
+    )
+
+
+def inventory(root: pathlib.Path) -> dict[str, dict[str, str]]:
+    """Record tracked bytes, including symlink text rather than its target."""
+    files: dict[str, dict[str, str]] = {}
+    for row in git(root, "ls-files", "--stage", "-z").split(b"\0"):
+        if not row:
+            continue
+        metadata, name = row.split(b"\t", 1)
+        mode, _, stage = metadata.decode().split()
+        if stage != "0" or mode == "160000":
+            raise ValueError("unmerged entries and submodules need an explicit checkout contract")
+        relative = os.fsdecode(name)
+        path = root / relative
+        if not path.exists() and not path.is_symlink():
+            files[relative] = {"mode": mode, "state": "missing"}
+            continue
+        data = os.fsencode(os.readlink(path)) if path.is_symlink() else path.read_bytes()
+        actual_mode = (
+            "120000"
+            if path.is_symlink()
+            else ("100755" if path.stat().st_mode & 0o111 else "100644")
+        )
+        files[relative] = {"mode": actual_mode, "sha256": hashlib.sha256(data).hexdigest()}
+    return files
+
+
+def committed_inventory(root: pathlib.Path, revision: str) -> dict[str, dict[str, str]]:
+    """Hash every selected Git blob, including files omitted by sparse checkout."""
+    entries = []
+    for row in git(root, "ls-tree", "-rz", revision).split(b"\0"):
+        if row:
+            metadata, name = row.split(b"\t", 1)
+            mode, kind, identity = metadata.decode().split()
+            if kind != "blob":
+                raise ValueError("submodules need an explicit checkout contract")
+            entries.append((mode, identity, os.fsdecode(name)))
+    proc = subprocess.run(  # noqa: S603 -- read precisely the selected tree's Git blobs
+        ["git", "-C", str(root), "cat-file", "--batch"],
+        input="".join(f"{identity}\n" for _, identity, _ in entries).encode(),
+        capture_output=True,
+        check=True,
+    )
+    cursor = 0
+    files = {}
+    for mode, identity, relative in entries:
+        end = proc.stdout.index(b"\n", cursor)
+        header = proc.stdout[cursor:end].decode().split()
+        if header[:2] != [identity, "blob"]:
+            raise ValueError("Git batch response does not identify the selected blob")
+        size = int(header[2])
+        data = proc.stdout[end + 1 : end + 1 + size]
+        if len(data) != size or proc.stdout[end + 1 + size : end + 2 + size] != b"\n":
+            raise ValueError("Git batch response is incomplete")
+        files[relative] = {"mode": mode, "sha256": hashlib.sha256(data).hexdigest()}
+        cursor = end + 2 + size
+    if cursor != len(proc.stdout):
+        raise ValueError("unexpected trailing Git batch response")
+    return files
+
+
+class Source:
+    """An immutable input revision; every job gets its own Git database and files."""
+
+    def __init__(self, root: pathlib.Path) -> None:
+        self.root = root.resolve()
+        self.head = git(root, "rev-parse", "HEAD").decode().strip()
+        self.tree = git(root, "rev-parse", "HEAD^{tree}").decode().strip()
+        self.tags = tags(root)
+        self.input_files = inventory(root)
+        self.files = committed_inventory(root, self.head)
+        if any(
+            value.get("state") != "missing" and value != self.files.get(path)
+            for path, value in self.input_files.items()
+        ):
+            raise ValueError("present input bytes differ from the selected Git tree")
+        if git(root, "status", "--porcelain", "--untracked-files=no"):
+            raise ValueError("input tracked bytes differ from the selected commit")
+        for key in ("GITHUB_SHA", "GITHUB_HEAD_SHA"):
+            if os.environ.get(key) and os.environ[key] != self.head:
+                raise ValueError(f"{key} does not identify the selected source commit")
+        if os.environ.get("GITHUB_EVENT_NAME", "push") != "push":
+            raise ValueError("this mirror only supports its declared local push simulation")
+        self.ref = optional_git(root, "symbolic-ref", "-q", "HEAD")
+        self.origin = optional_git(root, "remote", "get-url", "origin")
+        match = re.fullmatch(
+            r"(?:https://github\.com/|git@github\.com:)([^/]+/[^/]+?)(?:\.git)?", self.origin
+        )
+        self.repository = match.group(1) if match else ""
+        self.default_branch = optional_git(
+            root, "symbolic-ref", "-q", "refs/remotes/origin/HEAD"
+        ).removeprefix("refs/remotes/origin/")
+
+    def verify(self) -> None:
+        if (
+            git(self.root, "rev-parse", "HEAD").decode().strip() != self.head
+            or git(self.root, "rev-parse", "HEAD^{tree}").decode().strip() != self.tree
+            or tags(self.root) != self.tags
+            or inventory(self.root) != self.input_files
+            or git(self.root, "status", "--porcelain", "--untracked-files=no")
+        ):
+            raise ValueError("the input source or tag refs changed during the mirror")
+
+    def checkout(self, destination: pathlib.Path) -> None:
+        self.verify()
+        subprocess.run(  # noqa: S603 -- independent clone of the verified local input
+            [
+                "git",
+                "clone",
+                "--quiet",
+                "--no-hardlinks",
+                "--dissociate",
+                "--no-checkout",
+                str(self.root),
+                str(destination),
+            ],
+            capture_output=True,
+            check=True,
+        )
+        git(
+            destination,
+            "fetch",
+            "--quiet",
+            str(self.root),
+            "+refs/tags/*:refs/tags/*",
+            "+refs/remotes/origin/*:refs/remotes/origin/*",
+        )
+        git(destination, "checkout", "--quiet", "--detach", self.head)
+        alternates = destination / ".git" / "objects" / "info" / "alternates"
+        if alternates.exists() and alternates.read_bytes().strip():
+            raise ValueError("job checkout still depends on another repository's object store")
+        if self.origin:
+            git(destination, "remote", "set-url", "origin", self.origin)
+        if (
+            git(destination, "rev-parse", "HEAD^{tree}").decode().strip() != self.tree
+            or tags(destination) != self.tags
+            or inventory(destination) != self.files
+        ):
+            raise ValueError("job checkout does not reproduce the selected source and tags")
+
+    def context(self, temp: pathlib.Path) -> dict[str, str]:
+        return {
+            "github.sha": self.head,
+            "github.event.pull_request.head.sha || github.sha": self.head,
+            "github.ref": self.ref,
+            "github.repository": self.repository,
+            "github.server_url": "https://github.com" if self.repository else "",
+            "github.event.repository.default_branch": self.default_branch,
+            "runner.temp": str(temp),
+            **LOCAL_ABSENT,
+        }
+
+
+# These fields have no value in a local push mirror. Unknown contexts are faults.
+LOCAL_ABSENT = dict.fromkeys(
+    (
+        "github.event.before",
+        "github.event.pull_request.base.sha",
+        "github.event.pull_request.head.sha",
+        "github.event.pull_request.title",
+        "github.event.pull_request.number",
+        "github.token",
+        "github.run_id",
+    ),
+    "",
+)
 
 # A marketplace step is one with `uses:` and no shell body. Every one of them
 # used to be printed as SKIP and left at that, and on 2026-09-11 that cost three
@@ -316,12 +516,8 @@ class Step(NamedTuple):
     workdir: str = ""
     # The step's `if:` expression, verbatim, or "" when it has none.
     condition: str = ""
-    # The job's matrix combination, as `matrix.<key>` reads it. Empty for a job
-    # with no matrix. A matrix job runs once per combination on the runner, and
-    # each combination is its own job here too, with its own label.
+
     matrix: dict[str, str] = {}
-    # Set when the job's matrix cannot be expanded here; every step of the job
-    # is then NOT RUN with this reason rather than run with `matrix.*` empty.
     unexpanded: str = ""
 
     @property
@@ -336,45 +532,6 @@ def scalar(value: Any) -> str:
     return str(value)
 
 
-def matrix_combinations(job: Any) -> tuple[list[dict[str, str]], str]:
-    """Every combination of a job's `strategy.matrix`, or the reason there are none.
-
-    The runner starts one job per combination and `matrix.<key>` reads that
-    combination's value. Before this, `matrix.*` resolved to the empty string,
-    so a job pinning `python-version: ${{ matrix.python }}` asked setup-python
-    for no version at all and none of its steps ever ran here.
-
-    The expansion follows the documented rules: the cross product of the list
-    keys, then each `include` entry is merged into every combination whose
-    ORIGINAL keys it agrees with (it may add keys, never overwrite an original
-    one) or appended as a combination of its own when it agrees with none, then
-    every combination matching an `exclude` entry on all of its keys is dropped.
-    A matrix built from an expression (`fromJSON(...)`) is not guessed: the
-    reason comes back instead and the job's steps are NOT RUN.
-    """
-    matrix = ((job or {}).get("strategy") or {}).get("matrix")
-    if matrix is None:
-        return [{}], ""
-    if not isinstance(matrix, dict):
-        return [], f"its matrix is the expression {matrix!r}, which this gate does not evaluate"
-    axes = {k: v for k, v in matrix.items() if k not in ("include", "exclude")}
-    for key, values in axes.items():
-        if not isinstance(values, list):
-            return [], (
-                f"its matrix key `{key}` is {values!r}, not a list, which this gate "
-                "does not evaluate"
-            )
-    combos = _cross(axes)
-    for entry in matrix.get("include") or []:
-        _include(combos, {str(k): scalar(v) for k, v in (entry or {}).items()}, set(axes))
-    for entry in matrix.get("exclude") or []:
-        drop = {str(k): scalar(v) for k, v in (entry or {}).items()}
-        combos = [c for c in combos if not all(c.get(k) == v for k, v in drop.items())]
-    if not combos:
-        return [], "its matrix expands to no combination"
-    return combos, ""
-
-
 def _cross(axes: dict[str, list[Any]]) -> list[dict[str, str]]:
     """The cross product of the matrix's list keys; empty when there are none."""
     if not axes:
@@ -385,105 +542,9 @@ def _cross(axes: dict[str, list[Any]]) -> list[dict[str, str]]:
     return combos
 
 
-def _include(combos: list[dict[str, str]], entry: dict[str, str], axes: set[str]) -> None:
-    """Merge one `include` entry, or append it when no combination agrees with it."""
-    matched = False
-    for combo in combos:
-        if all(combo.get(k) == v for k, v in entry.items() if k in axes):
-            combo.update({k: v for k, v in entry.items() if k not in axes})
-            matched = True
-    if not matched:
-        combos.append(dict(entry))
-
-
-def steps_of(doc: Any, path: pathlib.Path) -> Iterator[Step]:
-    """Yield every step, in declaration order, once per matrix combination."""
-    jobs = (doc or {}).get("jobs") or {}
-    if not jobs:
-        sys.exit(f"workflow-steps-gate: {path.name} declares no jobs. Refusing to call it covered.")
-    workflow_dir = default_directory(doc)
-    for job_name, job in jobs.items():
-        job_dir = default_directory(job) or workflow_dir
-        combos, unexpanded = matrix_combinations(job)
-        for combo in combos or [{}]:
-            label = job_name
-            if combo:
-                label = f"{job_name} ({', '.join(f'{k}={v}' for k, v in combo.items())})"
-            for i, step in enumerate(job.get("steps") or []):
-                name = step.get("name") or f"step {i}"
-                yield Step(
-                    job=label,
-                    position=i,
-                    name=name,
-                    run=None if step.get("run") is None else scalar(step.get("run")),
-                    uses=str(step.get("uses") or ""),
-                    inputs=step.get("with") or {},
-                    ident=str(step.get("id") or ""),
-                    env=step.get("env") or {},
-                    continue_on_error=step.get("continue-on-error") is True,
-                    workdir=str(step.get("working-directory") or job_dir),
-                    condition=str(step.get("if") or ""),
-                    matrix=combo,
-                    unexpanded=unexpanded,
-                )
-
-
-def default_directory(node: Any) -> str:
-    """`defaults.run.working-directory` of a workflow or a job, or ""."""
-    defaults = (node or {}).get("defaults") or {}
-    return str((defaults.get("run") or {}).get("working-directory") or "")
-
-
-# The runner's default shell is bash, and workflow steps rely on it: `set -o pipefail`
-# is a bashism that dash rejects outright, so running a step under /bin/sh reports a
-# failure the remote would never see. A local gate that fails differently from the gate
-# it mirrors is worse than none, because it trains its reader to ignore it.
-SHELL = "/bin/bash"
-
-# GitHub Actions runs every `run:` block under `bash -e {0}` -- its own logs print
-# that line above each step. Without `-e`, a multi-command block reports only the
-# LAST command's status, so a step whose first command fails and whose remaining
-# commands pass exits 0 here and non-zero on the remote. That is not a cosmetic
-# divergence: it is this gate reporting a clean mirror of a workflow that is
-# about to go red, which is the exact failure the gate was written to prevent,
-# one level up. Origin 2026-08-07: the four-command forcing step failed its first
-# command, passed the other three, and this gate passed the push.
-#
-# `pipefail` is NOT added. Actions does not set it, and a mirror stricter than
-# the thing it mirrors fails pushes the remote would have accepted -- the job is
-# to match, not to improve. scripts/workflow-steps-gate-test.py pins both halves.
-SHELL_FLAGS = ("-e",)
-
-
-# `${{ ... }}`. Actions substitutes it in `env:` values, in `with:` inputs and in
-# the text of a `run:` block before bash ever sees the block.
-EXPRESSION = re.compile(r"\$\{\{(.+?)\}\}", re.DOTALL)
-STEP_OUTPUT = re.compile(r"^steps\.([A-Za-z0-9_-]+)\.outputs\.([A-Za-z0-9_-]+)$")
-STEP_STATUS = re.compile(r"^steps\.([A-Za-z0-9_-]+)\.(outcome|conclusion)$")
-REFERENCE = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_*-]+)*$")
-# Contexts Actions defines. A reference into one of these that this gate has no
-# value for resolves to the empty string, as Actions yields for an absent value.
-# Anything else (a function call, an index, a name outside these) is not
-# guessed: the step is NOT RUN with the expression named.
-KNOWN_CONTEXTS = (
-    "github",
-    "env",
-    "vars",
-    "job",
-    "jobs",
-    "steps",
-    "runner",
-    "secrets",
-    "strategy",
-    "matrix",
-    "needs",
-    "inputs",
-)
-
-
 def _literal(text: str) -> tuple[bool, Any]:
     """(is a literal, its value) for one operand of an expression."""
-    if len(text) >= 2 and text[0] == text[-1] == "'":
+    if re.fullmatch(r"'(?:[^']|'')*'", text):
         return True, text[1:-1].replace("''", "'")
     if text in ("true", "false"):
         return True, text == "true"
@@ -501,6 +562,27 @@ def _rendered(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     return str(value)
+
+
+def expression_number(value: Any) -> float:
+    """Actions loose comparisons coerce unlike scalar types to JSON numbers."""
+    if value is None or value == "":
+        return 0.0
+    if isinstance(value, (bool, int, float)):
+        return float(value)
+    try:
+        number = json.loads(value)
+    except (TypeError, ValueError):
+        return float("nan")
+    return float(number) if type(number) in (int, float) else float("nan")
+
+
+def expression_equal(left: Any, right: Any) -> bool:
+    if isinstance(left, str) and isinstance(right, str):
+        return left.lower() == right.lower()
+    if type(left) is type(right):
+        return bool(left == right)
+    return expression_number(left) == expression_number(right)
 
 
 def _split_top(expression: str, operator: str) -> list[str]:
@@ -544,12 +626,12 @@ class _Evaluator:
         self.expression = expression
         self.outputs = outputs
         self.statuses = statuses or {}
-        self.context = context or {}
+        self.context = {**LOCAL_ABSENT, **(context or {})}
         self.where = where
         self.shown = f"${{{{ {expression.strip()} }}}}"
 
     def run(self) -> tuple[Any, str]:
-        if "(" in self.expression or "[" in self.expression:
+        if len(_split_top(self.expression, "(")) > 1 or len(_split_top(self.expression, "[")) > 1:
             return None, (
                 f"{self.where} {self.shown}, which calls a function or indexes a value; "
                 "this gate evaluates references, literals, ==, !=, !, && and || only "
@@ -580,7 +662,7 @@ class _Evaluator:
                 right, missing_right = self.operand(sides[1])
                 if missing or missing_right:
                     return None, missing or missing_right
-                same = _rendered(left).lower() == _rendered(right).lower()
+                same = expression_equal(left, right)
                 return (same if operator == "==" else not same), ""
         return self.operand(text)
 
@@ -605,9 +687,9 @@ class _Evaluator:
             return self.step_reference(text)
         if text in self.context:
             return self.context[text], ""
-        if text.split(".", 1)[0] in KNOWN_CONTEXTS:
-            return "", ""
-        return None, f"{self.where} {self.shown}, and `{text}` names no context Actions defines"
+        return None, (
+            f"unsupported expression {self.shown}: `{text}` has no verified local context"
+        )
 
     def step_reference(self, text: str) -> tuple[Any, str]:
         """A step's outcome or output, as recorded when this gate ran the step.
@@ -654,6 +736,156 @@ def evaluate(
     return _Evaluator(expression, outputs, statuses, context, where).run()
 
 
+def trigger_excludes(doc: Any, tags: list[str]) -> str:
+    """The reason a workflow never runs for this revision, or "" when it may.
+
+    Only one case is decided: a workflow whose sole automatic trigger is a push
+    of matching TAGS (release.yml: `push: tags: ['v*']`, plus manual dispatch).
+    The remote runs it when a release tag is pushed and at no other time, so
+    running it on an untagged commit verifies a release that does not exist:
+    the signed digest list legitimately changes between releases and is signed
+    again when the next one is cut. Every other trigger shape runs as before,
+    because skipping a workflow the remote does run would be the silent gap
+    this gate exists to close.
+    """
+    on = (doc or {}).get("on", (doc or {}).get(True))
+    if not isinstance(on, dict):
+        return ""
+    automatic = {k: v for k, v in on.items() if k not in ("workflow_dispatch",)}
+    push = automatic.get("push")
+    if set(automatic) != {"push"} or not isinstance(push, dict):
+        return ""
+    if set(push) != {"tags"}:
+        return ""
+    patterns = [str(t) for t in (push.get("tags") or [])]
+    if any(fnmatch.fnmatchcase(tag, pattern) for tag in tags for pattern in patterns):
+        return ""
+    return (
+        f"the workflow runs only on a push of tags {patterns}, and no such tag "
+        "points at the revision under test"
+    )
+
+
+def matrix_combinations(job: Any) -> tuple[list[dict[str, str]], str]:
+    """Expand static axes, exclude first, and apply includes to original rows."""
+    matrix = ((job or {}).get("strategy") or {}).get("matrix")
+    if matrix is None:
+        return [{}], ""
+    if not isinstance(matrix, dict):
+        return [], f"its matrix is the expression {matrix!r}, which is not evaluated"
+    axes = {k: v for k, v in matrix.items() if k not in ("include", "exclude")}
+    if any(
+        not isinstance(v, list) or any(isinstance(x, (dict, list)) for x in v)
+        for v in axes.values()
+    ):
+        return [], "matrix axes must be lists of scalar values"
+    for key in ("include", "exclude"):
+        if not matrix_entries(matrix.get(key, [])):
+            return [], f"matrix {key} must be a list of scalar-valued objects"
+    original = _cross(axes)
+    for entry in matrix.get("exclude") or []:
+        drop = {str(k): scalar(v) for k, v in entry.items()}
+        original = [c for c in original if not all(c.get(k) == v for k, v in drop.items())]
+    added = []
+    for entry in matrix.get("include") or []:
+        row = {str(k): scalar(v) for k, v in entry.items()}
+        if not include_original(original, row, set(axes)):
+            added.append(row)
+    combos = original + added
+    return (combos, "") if combos else ([], "its matrix expands to no combination")
+
+
+def matrix_entries(entries: Any) -> bool:
+    """Reject dynamic or nested matrix entries instead of inventing scalar values."""
+    return isinstance(entries, list) and all(
+        isinstance(e, dict) and all(not isinstance(v, (dict, list)) for v in e.values())
+        for e in entries
+    )
+
+
+def include_original(original: list[dict[str, str]], entry: dict[str, str], axes: set[str]) -> bool:
+    matched = False
+    for combo in original:
+        if all(combo.get(k) == v for k, v in entry.items() if k in axes):
+            combo.update({k: v for k, v in entry.items() if k not in axes})
+            matched = True
+    return matched
+
+
+def steps_of(doc: Any, path: pathlib.Path) -> Iterator[Step]:
+    """Yield every step, in declaration order, once per matrix combination."""
+    jobs = (doc or {}).get("jobs") or {}
+    if not jobs:
+        sys.exit(f"workflow-steps-gate: {path.name} declares no jobs. Refusing to call it covered.")
+    workflow_dir = default_directory(doc)
+    for job_name, job in jobs.items():
+        job_dir = default_directory(job) or workflow_dir
+        combos, unexpanded = matrix_combinations(job)
+        seen: set[str] = set()
+        for index, combo in enumerate(combos or [{}]):
+            label = job_name
+            if combo:
+                label = f"{job_name} ({', '.join(f'{k}={v}' for k, v in combo.items())})"
+            if label in seen:
+                label += f" [combination {index}]"
+            seen.add(label)
+            for i, step in enumerate(job.get("steps") or []):
+                name = step.get("name") or f"step {i}"
+                yield Step(
+                    job=label,
+                    position=i,
+                    name=name,
+                    run=None if step.get("run") is None else scalar(step.get("run")),
+                    uses=str(step.get("uses") or ""),
+                    inputs=step.get("with") or {},
+                    ident=str(step.get("id") or ""),
+                    env={
+                        **((doc or {}).get("env") or {}),
+                        **(job.get("env") or {}),
+                        **(step.get("env") or {}),
+                    },
+                    continue_on_error=step.get("continue-on-error") is True,
+                    workdir=str(step.get("working-directory") or job_dir),
+                    condition=str(step.get("if") or ""),
+                    matrix=combo,
+                    unexpanded=unexpanded,
+                )
+
+
+def default_directory(node: Any) -> str:
+    """`defaults.run.working-directory` of a workflow or a job, or ""."""
+    defaults = (node or {}).get("defaults") or {}
+    return str((defaults.get("run") or {}).get("working-directory") or "")
+
+
+# The runner's default shell is bash, and workflow steps rely on it: `set -o pipefail`
+# is a bashism that dash rejects outright, so running a step under /bin/sh reports a
+# failure the remote would never see. A local gate that fails differently from the gate
+# it mirrors is worse than none, because it trains its reader to ignore it.
+SHELL = "/bin/bash"
+
+# GitHub Actions runs every `run:` block under `bash -e {0}` -- its own logs print
+# that line above each step. Without `-e`, a multi-command block reports only the
+# LAST command's status, so a step whose first command fails and whose remaining
+# commands pass exits 0 here and non-zero on the remote. That is not a cosmetic
+# divergence: it is this gate reporting a clean mirror of a workflow that is
+# about to go red, which is the exact failure the gate was written to prevent,
+# one level up. Origin 2026-08-07: the four-command forcing step failed its first
+# command, passed the other three, and this gate passed the push.
+#
+# `pipefail` is NOT added. Actions does not set it, and a mirror stricter than
+# the thing it mirrors fails pushes the remote would have accepted -- the job is
+# to match, not to improve. scripts/workflow-steps-gate-test.py pins both halves.
+SHELL_FLAGS = ("-e",)
+
+
+# `${{ ... }}`, the only interpolation Actions performs in an `env:` value.
+EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
+REFERENCE = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_*-]+)*$")
+STEP_OUTPUT = re.compile(r"^steps\.([A-Za-z0-9_-]+)\.outputs\.([A-Za-z0-9_-]+)$")
+STEP_STATUS = re.compile(r"^steps\.([A-Za-z0-9_-]+)\.(outcome|conclusion)$")
+
+
 def expand(
     value: str,
     outputs: dict[str, dict[str, str]],
@@ -661,49 +893,19 @@ def expand(
     context: Mapping[str, str] | None = None,
     where: str = "its env reads",
 ) -> tuple[str, str]:
-    """Resolve the expressions in one string. Returns (expanded, reason it could not be).
-
-    Three kinds of reference appear in these workflows and they are not treated
-    alike.
-
-    A reference to ANOTHER STEP'S OUTPUT is answered from what that step wrote
-    to $GITHUB_OUTPUT when this gate ran it. If the named step was not run here,
-    or ran and never wrote that name, the value is NOT guessed: the step is
-    declared NOT RUN and the reason says which output was missing. Substituting
-    an empty string instead is how this hole opened -- `test "$RESULT" = pass`
-    against an unset RESULT fails, and a gate that fails a push the remote would
-    accept is a gate its reader learns to bypass.
-
-    A context value this gate KNOWS is supplied: `github.sha` is the revision
-    under test, `github.repository` is read from the origin remote,
-    `runner.temp` is the job's scratch directory, `matrix.*` is the job's
-    combination, and `github.event_name` is `push`, the event a pre-push gate
-    stands for. Before, every one of these was the empty string, so a reader
-    step passing `--reader-revision "${{ github.sha }}"` was handed no revision.
-
-    ANY OTHER CONTEXT -- `github.event.before`, `github.ref`, `secrets.*` --
-    resolves to the empty string, which is what Actions itself yields for a
-    context value that is absent. The steps here that read one are written for
-    it: the commit-message lint falls back to the unpublished range when
-    `github.ref` is empty, and the crosswalk filer prints its body and exits when
-    `$GITHUB_ACTIONS` is not true. Supplying an invented value instead would
-    steer those fallbacks wrong.
-    """
+    """Resolve bounded expressions; unknown context refuses before the shell."""
     missing = ""
 
     def one(match: re.Match[str]) -> str:
         nonlocal missing
         result, reason = evaluate(match.group(1), outputs, statuses, context, where)
-        if reason and not missing:
-            missing = reason
+        missing = missing or reason
         return _rendered(result)
 
-    return EXPRESSION.sub(one, value), missing
-
-
-def file_safe(label: str) -> str:
-    """A job label (which carries a matrix combination) as a file name part."""
-    return re.sub(r"[^A-Za-z0-9_.-]+", "_", label)
+    expanded = EXPRESSION.sub(one, value)
+    if "${{" in expanded and not missing:
+        missing = "unterminated or unresolved GitHub expression; no shell was run"
+    return expanded, missing
 
 
 def step_environment(
@@ -719,12 +921,11 @@ def step_environment(
     the runner does, so a step that writes outputs can be read by the next one
     and a step that writes a summary is not writing to a variable that is unset.
     """
-    stem = f"{file_safe(step.job)}-{step.position}"
     env: dict[str, str] = {
-        "GITHUB_OUTPUT": str(pathlib.Path(scratch) / f"output-{stem}"),
-        "GITHUB_STEP_SUMMARY": str(pathlib.Path(scratch) / f"summary-{stem}"),
-        "GITHUB_ENV": str(pathlib.Path(scratch) / f"env-{stem}"),
-        "GITHUB_PATH": str(pathlib.Path(scratch) / f"path-{stem}"),
+        "GITHUB_OUTPUT": str(pathlib.Path(scratch) / f"output-{step.job}-{step.position}"),
+        "GITHUB_STEP_SUMMARY": str(pathlib.Path(scratch) / f"summary-{step.job}-{step.position}"),
+        "GITHUB_ENV": str(pathlib.Path(scratch) / f"env-{step.job}-{step.position}"),
+        "GITHUB_PATH": str(pathlib.Path(scratch) / f"path-{step.job}-{step.position}"),
     }
     for key, raw in step.env.items():
         value, missing = expand(str(raw), outputs, statuses, context)
@@ -759,38 +960,6 @@ def read_github_env(text: str) -> dict[str, str]:
     return found
 
 
-# Directories the workspace snapshot does not descend into: the repository's
-# own metadata and tool caches that a job may reuse but never reads as input.
-UNWATCHED = frozenset(
-    {
-        ".git",
-        ".venv",
-        "node_modules",
-        "target",
-        "__pycache__",
-        ".mypy_cache",
-        ".ruff_cache",
-        ".pytest_cache",
-    }
-)
-
-
-def workspace_paths() -> set[pathlib.Path]:
-    """Every path in the workspace, outside the directories in UNWATCHED.
-
-    A new directory and the new paths under it are all listed; `finish`
-    removes them in sorted order, so the directory goes first and its
-    children are already gone when their turn comes.
-    """
-    found: set[pathlib.Path] = set()
-    for directory, subdirectories, files in os.walk(REPO):
-        subdirectories[:] = [d for d in subdirectories if d not in UNWATCHED]
-        base = pathlib.Path(directory)
-        found.update(base / name for name in subdirectories)
-        found.update(base / name for name in files)
-    return found
-
-
 class JobState:
     """What one job carries between its steps on a runner and nowhere else.
 
@@ -801,50 +970,82 @@ class JobState:
     and the steps that read the variable failed after it.
     """
 
-    def __init__(self, scratch: str, label: str) -> None:
-        self.label = label
-        self.temp = pathlib.Path(scratch) / f"runner-temp-{file_safe(label)}"
+    def __init__(self, scratch: str, label: str, root: pathlib.Path | None = None) -> None:
+        self.root = root or REPO
+        self.temp = pathlib.Path(scratch) / f"runner-temp-{label}"
         self.temp.mkdir(parents=True, exist_ok=True)
         self.env: dict[str, str] = {}
         self.path: list[str] = []
         # Set when a step that provisions the job's toolchain could not run;
         # every later step of the job is then NOT RUN with this reason.
         self.blocked = ""
-        # Tools a runner-only step of this job would have put on PATH (cosign
-        # from sigstore/cosign-installer, node from actions/setup-node), keyed by
-        # the action that provides them. A later step that dies because one is
-        # absent here is NOT RUN with the error, never a failure and never a pass.
-        self.provided: dict[str, str] = {}
-        # Directories this job fetched for a foreign checkout, removed when the
-        # job ends: every job starts from a fresh workspace on the runner.
-        self.fetched: list[pathlib.Path] = []
-        # Every workspace path before the job's first step, so what the job
-        # writes can be removed when it ends.
-        self.before = workspace_paths()
-
-    def finish(self) -> None:
-        """Remove what this job wrote and fetched, as the runner discards the workspace.
-
-        On the runner each job, and each matrix combination, starts from a fresh
-        checkout. Here they share one, so a job that writes into the workspace
-        left its output for the next: the second REMORA combination refused to
-        overwrite the qualification the first had written and failed a push the
-        remote accepts. Paths that existed before the job are never touched.
-        """
-        for directory in reversed(self.fetched):
-            shutil.rmtree(directory, ignore_errors=True)
-        self.fetched.clear()
-        for path in sorted(workspace_paths() - self.before):
-            if path.is_dir() and not path.is_symlink():
-                shutil.rmtree(path, ignore_errors=True)
-            else:
-                path.unlink(missing_ok=True)
+        self.outputs: dict[str, dict[str, str]] = {}
+        self.statuses: dict[str, dict[str, str]] = {}
+        self.ran = 0
+        self.failed = 0
+        self.not_run: list[str] = []
+        self.provider_probes: list[dict[str, Any]] = []
+        self.repository = ""
+        self.foreign: dict[str, dict[str, Any]] = {}
 
     def environment(self, base: dict[str, str]) -> dict[str, str]:
-        env = {**base, **self.env, "RUNNER_TEMP": str(self.temp), "GITHUB_WORKSPACE": str(REPO)}
+        project_env = str(self.temp / "project-env")
+        env = {
+            **base,
+            **self.env,
+            "RUNNER_TEMP": str(self.temp),
+            "GITHUB_WORKSPACE": str(self.root),
+            "UV_PROJECT_ENVIRONMENT": project_env,
+        }
+        env.pop("VIRTUAL_ENV", None)
+        if (self.temp / "setup-python").is_dir():
+            env["VIRTUAL_ENV"] = str(self.temp / "setup-python")
+            env["UV_PYTHON"] = str(self.temp / "setup-python" / "bin" / "python")
+        elif pathlib.Path(project_env).is_dir():
+            env["VIRTUAL_ENV"] = project_env
+        elif (self.temp / "baseline-python").is_dir():
+            env["VIRTUAL_ENV"] = str(self.temp / "baseline-python")
         if self.path:
             env["PATH"] = os.pathsep.join([*reversed(self.path), env.get("PATH", "")])
+        if pathlib.Path(project_env).is_dir() and not (self.temp / "setup-python").is_dir():
+            env["PATH"] = os.pathsep.join(
+                [str(pathlib.Path(project_env) / "bin"), env.get("PATH", "")]
+            )
         return env
+
+    def provision_baseline(self, evidence: pathlib.Path) -> None:
+        """Isolate the actual local interpreter, including fallback pip installs."""
+        retained = evidence / "baseline-python"
+        retained.mkdir()
+        command = [
+            "uv",
+            "venv",
+            "--seed",
+            "--python",
+            sys.executable,
+            str(self.temp / "baseline-python"),
+        ]
+        with (retained / "stdout").open("wb") as stdout, (retained / "stderr").open("wb") as stderr:
+            proc = subprocess.run(  # noqa: S603 -- seed only this job's baseline environment
+                command,
+                stdout=stdout,
+                stderr=stderr,
+                check=False,
+            )
+        write_json(
+            retained / "result.json",
+            {
+                "command": command,
+                "returncode": proc.returncode,
+                "selected_local_python": sys.version,
+                "hosted_provisioning": False,
+            },
+        )
+        if proc.returncode:
+            raise ValueError(
+                "job-owned baseline Python could not be provisioned; see retained output"
+            )
+        self.path.append(str(self.temp / "baseline-python" / "bin"))
 
     def absorb(self, env: dict[str, str]) -> None:
         """Carry what the step just wrote to $GITHUB_ENV and $GITHUB_PATH forward."""
@@ -868,169 +1069,157 @@ def record_outputs(step: Step, env: dict[str, str], outputs: dict[str, dict[str,
     outputs[step.ident] = written
 
 
-def run_step(run: str, env: dict[str, str], workdir: str = "") -> subprocess.CompletedProcess[str]:
-    """Run one block from its directory, or report the directory as missing.
-
-    A `working-directory` that does not exist used to raise FileNotFoundError
-    out of subprocess and kill the whole gate, so one job reading bytes this
-    gate never fetched refused every push. The runner fails that step and goes
-    on; so does this.
-    """
-    cwd = REPO / workdir
-    if not cwd.is_dir():
+def run_step(
+    run: str,
+    env: dict[str, str],
+    workdir: str = "",
+    root: pathlib.Path | None = None,
+    evidence: pathlib.Path | None = None,
+) -> subprocess.CompletedProcess[str]:
+    workspace = (root or REPO).resolve()
+    directory = (workspace / workdir).resolve()
+    if not directory.is_relative_to(workspace):
+        raise ValueError("working-directory escapes the job checkout")
+    if not directory.is_dir():
+        raise ValueError(f"working-directory {workdir!r} does not exist in the job checkout")
+    if evidence is not None:
+        with (evidence / "stdout").open("wb") as stdout, (evidence / "stderr").open("wb") as stderr:
+            proc = subprocess.run(  # noqa: S603 -- retained original workflow process bytes
+                [SHELL, *SHELL_FLAGS, "-c", run],
+                cwd=directory,
+                env=env,
+                stdout=stdout,
+                stderr=stderr,
+                check=False,
+            )
         return subprocess.CompletedProcess(
-            [SHELL], 1, "", f"working-directory {workdir!r} does not exist in {REPO}\n"
+            proc.args,
+            proc.returncode,
+            (evidence / "stdout").read_bytes().decode("utf-8", "replace"),
+            (evidence / "stderr").read_bytes().decode("utf-8", "replace"),
         )
     return subprocess.run(  # noqa: S603 -- running the repo's own workflow steps is the point
         [SHELL, *SHELL_FLAGS, "-c", run],
-        cwd=cwd,
+        cwd=directory,
         env=env,
         capture_output=True,
         text=True,
     )
 
 
-# What a runner-only provisioning step puts on PATH for the rest of its job.
 PROVIDES: dict[str, tuple[str, ...]] = {
     "sigstore/cosign-installer": ("cosign",),
     "actions/setup-go": ("go", "gofmt"),
-    "actions/setup-node": ("node", "npm", "npx", "corepack"),
+    "actions/setup-node": ("node", "npm", "npx"),
     "astral-sh/setup-uv": ("uv", "uvx"),
 }
-COMMAND_NOT_FOUND = re.compile(r"(?:^|: )([A-Za-z0-9_.+-]+): command not found\s*$", re.MULTILINE)
-NO_PIP = re.compile(r"^(\S+): No module named pip\s*$", re.MULTILINE)
-# A Python script that runs the tool through subprocess dies with this instead
-# of the shell's exit 127.
-NO_SUCH_PROGRAM = re.compile(
-    r"^FileNotFoundError: \[Errno 2\] No such file or directory: '([A-Za-z0-9_.+-]+)'\s*$",
-    re.MULTILINE,
-)
-
-
-def missing_tool(
-    proc: subprocess.CompletedProcess[str], env: Mapping[str, str], job: JobState
-) -> str:
-    """Why a failed step failed for want of a tool the runner has, or "".
-
-    Two absences are recognised, and each is verified before it is believed:
-
-    * exit 127, or a Python FileNotFoundError, naming a command that a
-      runner-only step of THIS job provides (cosign from
-      sigstore/cosign-installer, for one), when that command is not on the
-      step's PATH here;
-    * `<python>: No module named pip`, when that interpreter really cannot
-      import pip. Every runner image's Python carries pip; a workstation's or a
-      gate box's system Python often does not.
-
-    Anything else stays a failure. A command that no step of the job provides
-    is a typo or a real dependency the remote lacks too, and excusing it would
-    let this gate pass a push the remote fails.
-    """
-    stderr = proc.stderr or ""
-    patterns = [NO_SUCH_PROGRAM]
-    if proc.returncode == 127:
-        patterns.insert(0, COMMAND_NOT_FOUND)
-    for line in stderr.splitlines():
-        for pattern in patterns:
-            found = pattern.search(line)
-            provider = job.provided.get(found.group(1)) if found else None
-            if found and provider and shutil.which(found.group(1), path=env.get("PATH")) is None:
-                return (
-                    f"`{found.group(1)}` is not installed here and {provider} provides it "
-                    f"on the runner; the step stopped with: {line.strip()}"
-                )
-    for interpreter in NO_PIP.findall(stderr):
-        probe = subprocess.run(  # noqa: S603 -- asking the named interpreter whether pip imports
-            [interpreter, "-c", "import pip"],
-            env=dict(env),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if probe.returncode != 0:
-            return (
-                f"{interpreter} has no pip here, and the runner image's Python does; "
-                f"the step stopped with: {interpreter}: No module named pip"
-            )
-    return ""
-
-
-# Where actions/checkout fetches from. A module constant so the tests can point
-# it at a local repository instead of the network.
 CHECKOUT_BASE = "https://github.com"
 
 
-def _git_head(git: str, directory: pathlib.Path) -> str:
-    """The commit a checkout is at, or "" when it is not one."""
-    proc = subprocess.run(  # noqa: S603 -- reading the commit a checkout is at
-        [git, "-C", str(directory), "rev-parse", "HEAD"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return proc.stdout.strip() if proc.returncode == 0 else ""
-
-
-def _fetch_into(git: str, url: str, ref: str, target: pathlib.Path) -> str:
-    """Shallow-fetch `ref` from `url` into a new checkout at `target`; "" on success."""
-    commands = (
-        [git, "init", "-q", str(target)],
-        [git, "-C", str(target), "fetch", "-q", "--depth", "1", url, ref or "HEAD"],
-        [git, "-C", str(target), "checkout", "-q", "--detach", "FETCH_HEAD"],
-    )
-    for command in commands:
-        try:
-            proc = subprocess.run(  # noqa: S603 -- fetching a pinned public checkout
-                command, capture_output=True, text=True, check=False, timeout=900
-            )
-        except subprocess.TimeoutExpired:
-            return f"fetching {url} at {ref} did not finish in 900 s"
-        if proc.returncode != 0:
-            detail = (proc.stderr or proc.stdout).strip().splitlines()
-            return f"fetching {url} at {ref} failed: {detail[-1] if detail else proc.returncode}"
-    return ""
+def interpolate_inputs(step: Step, job: JobState, context: Mapping[str, str]) -> tuple[Step, str]:
+    inputs = {}
+    for key, raw in step.inputs.items():
+        if isinstance(raw, str):
+            raw, missing = expand(raw, job.outputs, job.statuses, context, f"its with:{key} reads")
+            if missing:
+                return step, missing
+        inputs[key] = raw
+    return step._replace(inputs=inputs), ""
 
 
 def fetch_checkout(repository: str, ref: str, path: str, job: JobState) -> str:
-    """Fetch another repository into the workspace, as actions/checkout does.
-
-    Returns "" when `path` now holds `repository` at `ref`, else the reason it
-    does not. The fetch is a shallow fetch of exactly `ref`; a full commit SHA
-    is then checked against what arrived, so a ref that moved or a fetch that
-    landed elsewhere is caught rather than run against.
-
-    An existing directory is used only when it is already a checkout at `ref`,
-    and is then left in place at the end; anything else there is refused
-    rather than overwritten. A directory this function creates is removed when
-    the job ends.
-    """
-    root = REPO.resolve()
-    target = (REPO / path).resolve()
-    if root not in target.parents:
-        return f"the checkout path {path!r} is not inside the workspace"
-    git = shutil.which("git")
-    if git is None:
-        return "git is not on PATH, so the checkout cannot be fetched"
-    full_sha = re.fullmatch(r"[0-9a-f]{40}", ref) is not None
+    """Fetch selected foreign bytes inside the job; retain identity before disposal."""
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+        return "repository must be a concrete owner/name"
+    target = (job.root / path).resolve()
+    if target == job.root.resolve() or not target.is_relative_to(job.root.resolve()):
+        return "checkout path must be a contained non-root job subdirectory"
     if target.exists():
-        if full_sha and _git_head(git, target) == ref:
-            return ""
-        return (
-            f"{path} already exists and is not a checkout of {repository} at {ref}; "
-            "this gate does not overwrite it"
-        )
-    created = target
-    while not created.parent.exists():
-        created = created.parent
+        return "checkout destination already exists; it is not overwritten"
+    target.mkdir(parents=True)
     url = f"{CHECKOUT_BASE}/{repository}.git"
-    problem = _fetch_into(git, url, ref, target)
+    fetch_evidence = job.temp / "foreign-fetch" / str(len(job.foreign))
+    problem = _fetch_into("git", url, ref, target, fetch_evidence)
     if problem:
-        shutil.rmtree(created, ignore_errors=True)
         return problem
-    job.fetched.append(created)
-    landed = _git_head(git, target)
-    if full_sha and landed != ref:
-        return f"the fetch of {url} landed at {landed}, not at {ref}"
+    landed = git(target, "rev-parse", "HEAD").decode().strip()
+    if re.fullmatch(r"[0-9a-f]{40}", ref) and landed != ref:
+        return f"fetch landed at {landed}, not the selected {ref}"
+    path = str(target.relative_to(job.root.resolve()))
+    job.foreign[path] = {
+        "repository": repository,
+        "requested_ref": ref or "HEAD",
+        "origin": url,
+        "head": landed,
+        "tree": git(target, "rev-parse", "HEAD^{tree}").decode().strip(),
+        "files": inventory(target),
+    }
+    return ""
+
+
+def retain_foreign(job: JobState, evidence: pathlib.Path) -> None:
+    """Retain selected and final foreign bytes, including added/deleted tracked files."""
+    faults = []
+    for path, selected in job.foreign.items():
+        root = job.root / path
+        destination = evidence / "foreign" / path
+        destination.mkdir(parents=True)
+        final = inventory(root)
+        final_head = git(root, "rev-parse", "HEAD").decode().strip()
+        write_json(
+            destination / "identity.json",
+            {"selected": selected, "final_files": final, "final_head": final_head},
+        )
+        (destination / "tracked.diff").write_bytes(git(root, "diff", "--binary", selected["head"]))
+        for name in selected["files"]:
+            original = git(root, "show", f"{selected['head']}:{name}")
+            copy = destination / "selected" / name
+            copy.parent.mkdir(parents=True, exist_ok=True)
+            copy.write_bytes(original)
+        retain_foreign_final(root, destination, final)
+        if final_head != selected["head"]:
+            faults.append(path)
+    if faults:
+        raise ValueError(f"foreign selected commits changed in {faults}; evidence retained")
+
+
+def retain_foreign_final(
+    root: pathlib.Path, destination: pathlib.Path, files: dict[str, dict[str, str]]
+) -> None:
+    for name, metadata in files.items():
+        if metadata.get("state") == "missing":
+            continue
+        present = root / name
+        data = os.fsencode(os.readlink(present)) if present.is_symlink() else present.read_bytes()
+        copy = destination / "final" / name
+        copy.parent.mkdir(parents=True, exist_ok=True)
+        copy.write_bytes(data)
+
+
+def _fetch_into(
+    git_binary: str, url: str, ref: str, target: pathlib.Path, evidence: pathlib.Path
+) -> str:
+    """Fetch a selected foreign checkout and retain all auxiliary process bytes."""
+    evidence.mkdir(parents=True)
+    commands = (
+        [git_binary, "init", "-q", str(target)],
+        [git_binary, "-C", str(target), "fetch", "-q", "--depth", "1", url, ref or "HEAD"],
+        [git_binary, "-C", str(target), "checkout", "-q", "--detach", "FETCH_HEAD"],
+    )
+    for index, command in enumerate(commands):
+        try:
+            proc = subprocess.run(command, capture_output=True, check=False, timeout=900)  # noqa: S603 -- selected foreign checkout
+        except subprocess.TimeoutExpired as exc:
+            (evidence / f"{index}.stdout.txt").write_bytes(exc.stdout or b"")
+            (evidence / f"{index}.stderr.txt").write_bytes(exc.stderr or b"")
+            write_json(evidence / f"{index}.json", {"command": command, "status": "TIMEOUT"})
+            return "the selected checkout fetch timed out after 900 seconds"
+        (evidence / f"{index}.stdout.txt").write_bytes(proc.stdout)
+        (evidence / f"{index}.stderr.txt").write_bytes(proc.stderr)
+        write_json(evidence / f"{index}.json", {"command": command, "returncode": proc.returncode})
+        if proc.returncode:
+            detail = proc.stderr.decode("utf-8", "replace").strip()
+            return f"fetching {url} at {ref or 'HEAD'} failed: {detail}"
     return ""
 
 
@@ -1045,6 +1234,11 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--list", action="store_true", help="print the plan and run nothing")
     ap.add_argument("--only", metavar="NAME", help="run one workflow, by file stem")
+    ap.add_argument(
+        "--evidence-dir",
+        type=pathlib.Path,
+        help="retain job source, mutations and process bytes here",
+    )
     args = ap.parse_args()
 
     if not WORKFLOWS.is_dir():
@@ -1066,38 +1260,16 @@ def main() -> int:
     # lock is taken here rather than left to the individual steps so the refusal
     # arrives before any work starts, instead of partway through a long run.
     with single_instance("aee-workflow-steps-gate"):
-        return execute(files)
+        return execute(files, args.evidence_dir)
 
 
 def plan(files: list[pathlib.Path]) -> int:
     planned = 0
     not_run: list[str] = []
-    known = run_context()
-    tags = revision_tags()
     for path in files:
         doc = load_yaml(path)
         print(f"\n=== {path.name} ===")
-        excluded = trigger_excludes(doc, tags)
         for step in steps_of(doc, path):
-            if excluded:
-                not_run.append(f"{step.label}  ({excluded})")
-                print(f"  NOT RUN  {step.label}  ({excluded})")
-                continue
-            if step.unexpanded:
-                not_run.append(f"{step.label}  ({step.unexpanded})")
-                print(f"  NOT RUN  {step.label}  ({step.unexpanded})")
-                continue
-            # Inputs are shown as the run would see them; a step output is not
-            # known until the run, so a step that reads one keeps its raw text.
-            context = {**known, **{f"matrix.{k}": v for k, v in step.matrix.items()}}
-            interpolated, unknown = interpolate(step, {}, {}, context)
-            if not unknown:
-                step = interpolated
-            foreign = step.inputs.get("repository")
-            if step.uses.split("@", 1)[0] == "actions/checkout" and foreign:
-                planned += 1
-                print(f"  PLAN  {step.label}  (checkout of {foreign}, fetched locally)")
-                continue
             if step.run is not None:
                 planned += 1
                 print(f"  PLAN  {step.label}")
@@ -1131,259 +1303,454 @@ def step_base_environment(ambient: Mapping[str, str]) -> dict[str, str]:
     return base
 
 
-def origin_repository() -> str:
-    """`owner/name` of the origin remote on github.com, or "" when there is none."""
-    proc = subprocess.run(  # noqa: S603 -- reading this checkout's own remote
-        ["git", "-C", str(REPO), "remote", "get-url", "origin"],  # noqa: S607
-        capture_output=True,
-        text=True,
-        check=False,
+def retain_job(job: JobState, source: Source, evidence: pathlib.Path) -> None:
+    """Preserve mutations and small native reports before deleting the checkout."""
+    write_json(evidence / "provider-probes.json", job.provider_probes)
+    final = inventory(job.root)
+    final_tags = tags(job.root)
+    write_json(
+        evidence / "source-final.json",
+        {
+            "head": git(job.root, "rev-parse", "HEAD").decode().strip(),
+            "tree": git(job.root, "rev-parse", "HEAD^{tree}").decode().strip(),
+            "tags": final_tags,
+            "files": final,
+            "event_scope": local_context_scope(),
+        },
     )
-    found = re.search(r"github\.com[:/]([^/\s]+/[^/\s]+?)(?:\.git)?/?$", proc.stdout.strip())
-    return found.group(1) if found else ""
+    (evidence / "tracked.diff").write_bytes(git(job.root, "diff", "--binary", source.head, "--"))
+    (evidence / "status.raw").write_bytes(git(job.root, "status", "--porcelain", "-z"))
+    retain_tracked_changes(job, source, evidence, final)
+    retain_reports(job, evidence)
+    retain_foreign(job, evidence)
+    if (
+        git(job.root, "rev-parse", "HEAD").decode().strip() != source.head
+        or final_tags != source.tags
+    ):
+        raise ValueError("job changed its source commit or selected tag refs; evidence retained")
+    source.verify()
 
 
-def run_context() -> dict[str, str]:
-    """The context values this gate knows for the revision under test.
+def retain_tracked_changes(
+    job: JobState,
+    source: Source,
+    evidence: pathlib.Path,
+    final: dict[str, dict[str, str]],
+) -> None:
+    for relative in sorted(source.files.keys() | final.keys()):
+        if source.files.get(relative) == final.get(relative):
+            continue
+        path = job.root / relative
+        if relative in source.files:
+            original = evidence / "original-tracked" / relative
+            original.parent.mkdir(parents=True, exist_ok=True)
+            original.write_bytes(git(source.root, "show", f"{source.head}:{relative}"))
+        if path.is_file() or path.is_symlink():
+            target = evidence / "changed-tracked" / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(
+                os.fsencode(os.readlink(path)) if path.is_symlink() else path.read_bytes()
+            )
 
-    Only values that are TRUE here are supplied. `github.ref`, `github.run_id`
-    and `github.event.before` describe a run on the remote that has not
-    happened, so they stay absent and resolve to the empty string, which the
-    steps that read them are written to handle.
-    """
-    context = {
-        "github.event_name": LOCAL_EVENT,
-        "github.workspace": str(REPO),
-        "github.server_url": "https://github.com",
-        "runner.os": "Linux",
+
+def retain_reports(job: JobState, evidence: pathlib.Path) -> None:
+    for label, directory in (
+        ("workspace", job.root / ".build"),
+        ("runner-temp", job.temp),
+        ("release", job.root / "release"),
+    ):
+        if not directory.is_dir():
+            continue
+        for path in directory.rglob("*"):
+            relative = path.relative_to(directory)
+            if (
+                path.is_symlink()
+                or not path.is_file()
+                or any(
+                    part
+                    in {
+                        "project-env",
+                        "setup-python",
+                        "baseline-python",
+                        "node_modules",
+                        "target",
+                        ".git",
+                        "__pycache__",
+                    }
+                    for part in relative.parts
+                )
+            ):
+                continue
+            if path.suffix not in {
+                ".json",
+                ".jsonl",
+                ".txt",
+                ".log",
+                ".md",
+                ".csv",
+                ".xml",
+                ".ots",
+                ".bak",
+            }:
+                continue
+            target = evidence / "reports" / label / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(path.read_bytes())
+
+
+def resolve_inputs(
+    step: Step, job: JobState, context: Mapping[str, str]
+) -> tuple[Step, str | None, str, bool]:
+    action = step.uses.split("@", 1)[0]
+    # Remote-only inputs cannot affect a command this mirror never runs.
+    # Checkout and providers still need their local source/tool bindings.
+    if (
+        step.run is None
+        and action in CANNOT_RUN
+        and action not in PROVIDES
+        and action != "actions/checkout"
+    ):
+        return step, *resolve_in_job(step, job)
+    selected, problem = interpolate_inputs(step, job, context)
+    if problem:
+        if step.uses.split("@", 1)[0] == "actions/checkout":
+            job.blocked = problem
+        return selected, None, problem, True
+    block, suffix, fault = resolve_in_job(selected, job)
+    return selected, block, suffix, fault
+
+
+def local_context_scope() -> dict[str, Any]:
+    """A declared local simulation, distinct from an observed hosted event."""
+    return {
+        "event_name": LOCAL_EVENT,
+        "event_origin": "declared_local_push_simulation",
+        "hosted_event_verified": False,
     }
-    proc = subprocess.run(  # noqa: S603 -- the commit this gate runs on
-        ["git", "-C", str(REPO), "rev-parse", "HEAD"],  # noqa: S607
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if proc.returncode == 0:
-        context["github.sha"] = proc.stdout.strip()
-    repository = origin_repository()
-    if repository:
-        context["github.repository"] = repository
-        context["github.repository_owner"] = repository.split("/", 1)[0]
+
+
+def job_context(steps: list[Step], job: JobState, source: Source) -> dict[str, str]:
+    context = {
+        **source.context(job.temp),
+        "github.workspace": str(job.root),
+        "github.event_name": LOCAL_EVENT,
+        "runner.os": {"linux": "Linux", "darwin": "macOS", "win32": "Windows"}.get(
+            sys.platform, sys.platform
+        ),
+        **{f"matrix.{k}": v for k, v in steps[0].matrix.items()},
+    }
+    if steps[0].unexpanded:
+        job.blocked = steps[0].unexpanded
+        job.failed += 1
     return context
 
 
-def interpolate(
-    step: Step,
-    outputs: dict[str, dict[str, str]],
-    statuses: dict[str, dict[str, str]],
-    context: Mapping[str, str],
-) -> tuple[Step, str]:
-    """The step with `${{ }}` substituted in its run block and its inputs.
-
-    Actions does this before the shell starts, so `--revision "${{ github.sha }}"`
-    reaches bash as a SHA. Left in place, bash read `${{` as a bad substitution
-    and the step failed here and nowhere else.
-    """
-    run = step.run
-    if run is not None:
-        run, missing = expand(run, outputs, statuses, context, "its run block reads")
-        if missing:
-            return step, missing
-    inputs: dict[str, Any] = {}
-    for key, raw in step.inputs.items():
-        if isinstance(raw, str):
-            raw, missing = expand(raw, outputs, statuses, context, f"its `with: {key}` reads")
+def execute_job(
+    steps: list[Step],
+    job: JobState,
+    source: Source,
+    evidence: pathlib.Path,
+    base: dict[str, str],
+) -> None:
+    context = job_context(steps, job, source)
+    for step in steps:
+        retained = evidence / "steps" / str(step.position)
+        retained.mkdir(parents=True)
+        write_json(
+            retained / "input.json",
+            {"uses": step.uses, "with": step.inputs, "if": step.condition},
+        )
+        step, block, suffix, fault = resolve_inputs(step, job, context)
+        env: dict[str, str] = {}
+        directory = ""
+        if block is not None:
+            env, missing = step_environment(step, job.outputs, str(job.temp), job.statuses, context)
+            block, unresolved = expand(block, job.outputs, job.statuses, context)
+            directory, missing_directory = expand(step.workdir, job.outputs, job.statuses, context)
+            missing = missing or unresolved or missing_directory
             if missing:
-                return step, missing
-        inputs[key] = raw
-    return step._replace(run=run, inputs=inputs), ""
-
-
-class _Run:
-    """The state one execution of the gate carries across workflows and jobs."""
-
-    def __init__(self, scratch: str) -> None:
-        self.scratch = scratch
-        self.ran = self.failed = 0
-        self.not_run: list[str] = []
-        self.base = step_base_environment(os.environ)
-        # What each step with an `id:` wrote to $GITHUB_OUTPUT, so a later step
-        # that names it gets the value the runner would have given it.
-        self.outputs: dict[str, dict[str, str]] = {}
-        # Each step with an `id:` also has an outcome and a conclusion, which a
-        # later step reads as steps.<id>.outcome; they differ only under
-        # continue-on-error.
-        self.statuses: dict[str, dict[str, str]] = {}
-        self.known = run_context()
-
-    def skip(self, step: Step, reason: str) -> None:
-        self.not_run.append(f"{step.label}  ({reason})")
-        print(f"  NOT RUN  {step.label}  ({reason})")
-
-    def context(self, step: Step, job: JobState) -> dict[str, str]:
-        return {
-            **self.known,
-            "runner.temp": str(job.temp),
-            **{f"matrix.{k}": v for k, v in step.matrix.items()},
-        }
-
-    def step(self, step: Step, job: JobState) -> None:
-        """Resolve, run and record one step of `job`."""
-        context = self.context(step, job)
-        if not job.blocked:
-            step, missing = interpolate(step, self.outputs, self.statuses, context)
-            if missing:
-                self.skip(step, missing)
-                return
-        block, suffix, fault = resolve_in_job(step, job)
-        if fault:
-            self.failed += 1
+                block, suffix, fault = None, missing, True
         if block is None:
-            self.skip(step, suffix)
-            return
-        env, missing = step_environment(step, self.outputs, self.scratch, self.statuses, context)
-        if missing:
-            self.skip(step, missing)
-            return
+            job.failed += int(fault)
+            job.not_run.append(f"{step.label}  ({suffix})")
+            write_json(
+                retained / "result.json",
+                {"label": step.label, "status": "NOT_RUN", "reason": suffix, "fault": fault},
+            )
+            print(f"  NOT RUN  {step.label}  ({suffix})")
+            continue
         print(f"  RUN   {step.label}{suffix}")
-        # A `working-directory` applies to `run:` blocks only; a mirrored
-        # action's shell starts at the root, as the action itself does.
-        workdir = step.workdir if step.run is not None else ""
-        step_env = {**job.environment(self.base), **env}
-        proc = run_step(block, step_env, workdir)
-        absent = missing_tool(proc, step_env, job) if proc.returncode else ""
-        if absent:
-            # Not a failure and not a pass: the step could not do its work
-            # here, and the rest of the job reads what it would have made.
-            self.skip(step, absent)
-            job.blocked = f"an earlier step of the job was not run: {absent}"
-            return
-        self.ran += 1
-        self.record(step, env, job, proc)
-
-    def record(
-        self, step: Step, env: dict[str, str], job: JobState, proc: subprocess.CompletedProcess[str]
-    ) -> None:
+        (retained / "command.sh").write_text(block, encoding="utf-8")
+        try:
+            proc = run_step(
+                block,
+                {**job.environment(base), **env},
+                directory if step.run is not None else "",
+                job.root,
+                retained,
+            )
+        except (OSError, ValueError) as exc:
+            job.failed += 1
+            write_json(
+                retained / "result.json",
+                {"label": step.label, "status": "NOT_RUN", "reason": str(exc), "fault": True},
+            )
+            job.not_run.append(f"{step.label}  ({exc})")
+            print(f"  NOT RUN  {step.label}  ({exc})")
+            continue
+        job.ran += 1
+        job.failed += int(proc.returncode != 0 and not step.continue_on_error)
         outcome = "success" if proc.returncode == 0 else "failure"
+        write_json(
+            retained / "result.json",
+            {
+                "label": step.label,
+                "status": "EXECUTED",
+                "returncode": proc.returncode,
+                "continue_on_error": step.continue_on_error,
+                "stdout_sha256": hashlib.sha256((retained / "stdout").read_bytes()).hexdigest(),
+                "stderr_sha256": hashlib.sha256((retained / "stderr").read_bytes()).hexdigest(),
+            },
+        )
         if proc.returncode != 0 and step.continue_on_error:
             print(f"  FAILED, continue-on-error  {step.label}  (exit {proc.returncode})")
         elif proc.returncode != 0:
-            self.failed += 1
             report_failure(step.label, proc)
-        record_outputs(step, env, self.outputs)
+        for key in ("GITHUB_OUTPUT", "GITHUB_STEP_SUMMARY", "GITHUB_ENV", "GITHUB_PATH"):
+            (retained / key).write_bytes(pathlib.Path(env[key]).read_bytes())
+        record_outputs(step, env, job.outputs)
         job.absorb(env)
         if step.ident:
-            self.statuses[step.ident] = {
+            job.statuses[step.ident] = {
                 "outcome": outcome,
                 "conclusion": "success" if step.continue_on_error else outcome,
             }
 
 
-def revision_tags() -> list[str]:
-    """The tags that point at the revision under test, or [] when there are none."""
-    proc = subprocess.run(  # noqa: S603 -- reading which tags name this commit
-        ["git", "-C", str(REPO), "tag", "--points-at", "HEAD"],  # noqa: S607
-        capture_output=True,
-        text=True,
-        check=False,
+def execute_owned_job(
+    source: Source,
+    scratch: str,
+    label: str,
+    steps: list[Step],
+    evidence: pathlib.Path,
+    base: dict[str, str],
+) -> tuple[int, int, list[str]]:
+    """Run and retain one independent job even when another job failed."""
+    retained = evidence / label
+    retained.mkdir()
+    root = pathlib.Path(scratch) / label / "checkout"
+    setup_start = time.monotonic()
+    source.checkout(root)
+    setup_seconds = time.monotonic() - setup_start
+    job = JobState(scratch, label, root)
+    job.repository = source.repository
+    git_bytes = sum(p.stat().st_size for p in (root / ".git").rglob("*") if p.is_file())
+    print(
+        f"JOB_SOURCE {label} HEAD {source.head} TREE {source.tree} FILES {len(source.files)} "
+        f"TAGS {len(source.tags)} GIT_BYTES {git_bytes} CHECKOUT_SECONDS {setup_seconds:.6f}"
     )
-    return proc.stdout.split() if proc.returncode == 0 else []
-
-
-def trigger_excludes(doc: Any, tags: list[str]) -> str:
-    """The reason a workflow never runs for this revision, or "" when it may.
-
-    Only one case is decided: a workflow whose sole automatic trigger is a push
-    of matching TAGS (release.yml: `push: tags: ['v*']`, plus manual dispatch).
-    The remote runs it when a release tag is pushed and at no other time, so
-    running it on an untagged commit verifies a release that does not exist:
-    the signed digest list legitimately changes between releases and is signed
-    again when the next one is cut. Every other trigger shape runs as before,
-    because skipping a workflow the remote does run would be the silent gap
-    this gate exists to close.
-    """
-    on = (doc or {}).get("on", (doc or {}).get(True))
-    if not isinstance(on, dict):
-        return ""
-    automatic = {k: v for k, v in on.items() if k not in ("workflow_dispatch",)}
-    push = automatic.get("push")
-    if set(automatic) != {"push"} or not isinstance(push, dict):
-        return ""
-    if set(push) != {"tags"}:
-        return ""
-    patterns = [str(t) for t in (push.get("tags") or [])]
-    if any(fnmatch.fnmatchcase(tag, pattern) for tag in tags for pattern in patterns):
-        return ""
-    return (
-        f"the workflow runs only on a push of tags {patterns}, and no such tag "
-        "points at the revision under test"
+    write_json(
+        retained / "source-initial.json",
+        {
+            "head": source.head,
+            "tree": source.tree,
+            "tags": tags(root),
+            "files": inventory(root),
+            "event_scope": local_context_scope(),
+            "checkout_seconds": setup_seconds,
+            "git_directory_bytes": git_bytes,
+        },
     )
-
-
-def execute(files: list[pathlib.Path]) -> int:
-    with tempfile.TemporaryDirectory(prefix="aee-workflow-steps-") as scratch:
-        run = _Run(scratch)
-        job: JobState | None = None
-        tags = revision_tags()
+    try:
+        job.provision_baseline(retained)
+        execute_job(steps, job, source, retained, base)
+    except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+        job.failed += 1
+        print(f"FAULT: {label}: {exc}")
+        write_json(retained / "fault.json", {"reason": str(exc)})
+        for step in steps:
+            if not (retained / "steps" / str(step.position) / "result.json").exists():
+                stopped = f"{step.label}  (job stopped: {exc})"
+                job.not_run.append(stopped)
+    finally:
         try:
+            retain_job(job, source, retained)
+        except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+            job.failed += 1
+            print(f"FAULT: {label}: {exc}")
+            write_json(retained / "retention-fault.json", {"reason": str(exc)})
+        shutil.rmtree(root.parent)
+        shutil.rmtree(job.temp)
+    source.verify()
+    return job.ran, job.failed, job.not_run
+
+
+def execute(files: list[pathlib.Path], evidence_dir: pathlib.Path | None = None) -> int:
+    ran = failed = 0
+    not_run: list[str] = []
+    base = step_base_environment(os.environ)
+    evidence = (
+        evidence_dir or pathlib.Path(tempfile.mkdtemp(prefix="aee-workflow-evidence-"))
+    ).resolve()
+    if evidence.is_relative_to(REPO.resolve()):
+        print("FAULT: evidence-dir must be outside the input checkout")
+        return 1
+    evidence.mkdir(parents=True, exist_ok=True)
+    if any(evidence.iterdir()):
+        print("FAULT: evidence-dir must be empty; existing evidence will not be overwritten")
+        return 1
+    print(f"Evidence retained at {evidence}")
+    try:
+        source = Source(REPO)
+        print("CONTEXT_SCOPE declared_local_push_simulation event=push hosted_event_verified=false")
+        write_json(
+            evidence / "source-input.json",
+            {
+                "head": source.head,
+                "tree": source.tree,
+                "tags": source.tags,
+                "files": source.files,
+                "input_files": source.input_files,
+                "event": LOCAL_EVENT,
+                "event_scope": local_context_scope(),
+            },
+        )
+        with tempfile.TemporaryDirectory(prefix="aee-workflow-steps-") as scratch:
+            ordinal = 0
             for path in files:
+                relative = path.resolve().relative_to(source.root)
+                if str(relative) not in source.files:
+                    raise ValueError("workflow must be a tracked file of the selected source")
                 doc = load_yaml(path)
                 print(f"\n=== {path.name} ===")
-                excluded = trigger_excludes(doc, tags)
+                selected_tags = git(source.root, "tag", "--points-at", source.head).decode().split()
+                excluded = trigger_excludes(doc, selected_tags)
+                grouped: dict[str, list[Step]] = {}
                 for step in steps_of(doc, path):
                     if excluded:
-                        run.skip(step, excluded)
-                        continue
-                    if job is None or job.label != f"{path.stem}-{step.job}":
-                        if job is not None:
-                            job.finish()
-                        job = JobState(scratch, f"{path.stem}-{step.job}")
-                        if step.unexpanded:
-                            job.blocked = f"the job was not expanded: {step.unexpanded}"
-                    run.step(step, job)
-        finally:
-            if job is not None:
-                job.finish()
-    return summarise("ran", run.ran, run.failed, run.not_run)
+                        reason = f"{step.label}  ({excluded})"
+                        not_run.append(reason)
+                        skipped = (
+                            evidence
+                            / "trigger-excluded"
+                            / path.stem
+                            / re.sub(r"[^A-Za-z0-9_.-]", "_", step.job)
+                        )
+                        skipped.mkdir(parents=True, exist_ok=True)
+                        write_json(
+                            skipped / f"{step.position}.json",
+                            {
+                                "label": step.label,
+                                "status": "NOT_RUN",
+                                "reason": excluded,
+                                "fault": False,
+                            },
+                        )
+                        print(f"  NOT RUN  {reason}")
+                    else:
+                        grouped.setdefault(step.job, []).append(step)
+                for job_name, steps in grouped.items():
+                    ordinal += 1
+                    label = re.sub(r"[^A-Za-z0-9_.-]", "_", f"{ordinal:03d}-{path.stem}-{job_name}")
+                    count, faults, missing = execute_owned_job(
+                        source,
+                        scratch,
+                        label,
+                        steps,
+                        evidence,
+                        base,
+                    )
+                    ran += count
+                    failed += faults
+                    not_run.extend(missing)
+        source.verify()
+    except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+        failed += 1
+        print(f"FAULT: {exc}")
+        write_json(evidence / "fault.json", {"reason": str(exc)})
+    write_json(evidence / "result.json", {"ran": ran, "failed": failed, "not_run": not_run})
+    return summarise("ran", ran, failed, not_run)
 
 
 def resolve_in_job(step: Step, job: JobState) -> tuple[str | None, str, bool]:
-    """`resolve`, inside a job whose earlier steps may not have run.
-
-    Once setup-python cannot be mirrored, every later step of the job is NOT RUN
-    rather than run on an interpreter the remote job never has. A checkout of
-    another repository is fetched here, as the runner fetches it; when the
-    fetch fails, the rest of the job is NOT RUN with the reason, because its
-    later steps read those bytes. A runner-only step that provisions a tool
-    records the tool, so a later step that needs it and finds it absent is
-    reported as not run rather than as failed.
-    """
+    """Resolve only this job's source, inputs and actual toolchain capabilities."""
     if job.blocked:
         return None, job.blocked, False
     action = step.uses.split("@", 1)[0]
     foreign = str(step.inputs.get("repository") or "") if action == "actions/checkout" else ""
-    if foreign and event_excludes(step.condition) == "":
-        ref = str(step.inputs.get("ref") or "")
-        where = str(step.inputs.get("path") or ".")
-        problem = fetch_checkout(foreign, ref, where, job)
-        if problem:
-            job.blocked = (
-                f"the job checks out {foreign} at {ref or 'its default branch'} into "
-                f"{where}, and {problem}"
-            )
-            return None, job.blocked, False
-        return (
-            ":",
-            f"  (checked out {foreign} at {ref or 'its default branch'} into {where})",
-            False,
-        )
+    if action == "actions/checkout" and not event_excludes(step.condition):
+        if not foreign or foreign == job.repository:
+            problem = self_checkout_problem(step, job)
+            if problem:
+                job.blocked = problem
+                return None, problem, True
+        else:
+            ref, where = str(step.inputs.get("ref", "")), str(step.inputs.get("path") or ".")
+            problem = fetch_checkout(foreign, ref, where, job)
+            if problem:
+                job.blocked = problem
+                return None, problem, True
+            return ":", f"  (checked out {foreign} at {ref or 'HEAD'} into {where})", False
     block, suffix, fault = resolve(step)
     if block is None and action == "actions/setup-python":
         job.blocked = f"the job's interpreter was not provisioned: {suffix}"
-    if block is None:
-        for tool in PROVIDES.get(action, ()):
-            job.provided[tool] = action
+    if block is None and action in PROVIDES and not event_excludes(step.condition):
+        job.blocked = provider_problem(step, job)
     return block, suffix, fault
+
+
+def self_checkout_problem(step: Step, job: JobState) -> str:
+    if str(step.inputs.get("path") or ".") != ".":
+        return "self checkout into another path is not mirrored by the job root"
+    ref = str(step.inputs.get("ref", ""))
+    if not ref:
+        return ""
+    try:
+        target = git(job.root, "rev-parse", "--verify", f"{ref}^{{commit}}").decode().strip()
+    except subprocess.CalledProcessError:
+        target = ""
+    selected = git(job.root, "rev-parse", "HEAD").decode().strip()
+    return "" if target == selected else "checkout ref does not select the frozen source commit"
+
+
+def provider_problem(step: Step, job: JobState) -> str:
+    """Probe declared runner tools before any dependent shell starts."""
+    action = step.uses.split("@", 1)[0]
+    env = job.environment(step_base_environment(os.environ))
+    tools = {tool: shutil.which(tool, path=env.get("PATH")) for tool in PROVIDES[action]}
+    probe: dict[str, Any] = {"action": action, "tools": tools, "hosted_provisioning": False}
+    job.provider_probes.append(probe)
+    if not all(tools.values()):
+        return f"{action} supplies tools not installed here: {tools}; no dependent shell ran"
+    selector = {
+        "actions/setup-node": ("node-version", ["node", "--version"]),
+        "actions/setup-go": ("go-version", ["go", "version"]),
+    }.get(action)
+    if selector is None or not step.inputs.get(selector[0]):
+        return ""
+    wanted = str(step.inputs[selector[0]]).removesuffix(".x")
+    proc = subprocess.run(selector[1], env=env, capture_output=True, check=False)  # noqa: S603 -- declared tool version probe
+    raw = job.temp / "provider-probes"
+    raw.mkdir(exist_ok=True)
+    index = len(job.provider_probes) - 1
+    (raw / f"{index}.stdout.txt").write_bytes(proc.stdout)
+    (raw / f"{index}.stderr.txt").write_bytes(proc.stderr)
+    job.failed += int(proc.returncode != 0)
+    probe.update(
+        command=selector[1],
+        returncode=proc.returncode,
+        stdout=proc.stdout.decode("utf-8", "replace"),
+        stderr=proc.stderr.decode("utf-8", "replace"),
+    )
+    installed = re.search(r"(?:go|v)([0-9]+(?:\.[0-9]+)+)", probe["stdout"])
+    if proc.returncode or not re.fullmatch(r"[0-9]+(?:\.[0-9]+)*", wanted) or not installed:
+        return f"{action} version {wanted!r} could not be bound to an actual local tool"
+    if installed.group(1).split(".")[: len(wanted.split("."))] != wanted.split("."):
+        return (
+            f"{action} asks for {wanted}, actual local tool is {installed.group(1)}; "
+            "dependent steps not run"
+        )
+    return ""
 
 
 # The event a local run stands for. The pre-push hook mirrors a push, so a step

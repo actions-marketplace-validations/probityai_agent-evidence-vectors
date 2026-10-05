@@ -144,11 +144,15 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
 
       - name: build the wheel and the sdist
         run: |
           rm -rf dist
           uv build
+          go build -o "$RUNNER_TEMP/aee-verify-release" ./cmd/aee-verify
 
       # The wheel is exercised from a directory that is not the checkout, so a
       # path that only resolves inside the repository is caught here and not
@@ -161,19 +165,35 @@ jobs:
       # here. A third state -- a verdict printed by a rail that does not
       # implement the suite -- fails the release; the harness produced exactly
       # that for eight corpora until it learned to refuse them. The refused
-      # suites are judged by the Go readers, which CI runs over every
-      # committed corpus (corpora.TestEveryCommittedCorpusIsClean).
+      # suites also run through the Go directory readers against the installed
+      # wheel data below. SCITT-COSE explicitly needs a CBOR reader.
       - name: the wheel runs from outside the checkout and replays every corpus
         run: |
           wheel="$(ls "$PWD"/dist/agent_evidence_vectors-*.whl)"
-          scratch="$(mktemp -d)"
+          scratch="$(mktemp -d "$RUNNER_TEMP/installed-wheel.XXXXXX")"
           cd "$scratch"
           uv run --no-project --with "$wheel" agent-evidence-vectors --list-corpora > corpora.txt
           test -s corpora.txt
           uv run --no-project --with "$wheel" agent-evidence-vectors --self-test
           uv run --no-project --with "$wheel" agent-evidence-vectors --report report.json
           python3 -c "import json; t = json.load(open('report.json'))['totals']; assert t['fail'] == 0 and t['suiteRefusals'] == 0, t; print(t)"
+          corpus_root="$(uv run --no-project --with "$wheel" python -c 'import pathlib, agent_evidence_vectors; print(pathlib.Path(agent_evidence_vectors.__file__).parent / "corpora")')"
           while read -r corpus; do
+            # Exercise the advertised directory route against installed data.
+            # Repository-only criterion files must not hide a broken wheel.
+            if "$RUNNER_TEMP/aee-verify-release" "$corpus_root/$corpus" > "directory-$corpus.txt" 2>&1; then
+              echo "$corpus: judged clean by the installed directory route"
+            else
+              directory_rc=$?
+              if [ "$corpus" = vectors-scitt-cose ] && [ "$directory_rc" = 2 ] && \
+                 grep -q 'no reader here carries a CBOR decoder' "directory-$corpus.txt"; then
+                echo "$corpus: explicitly requires a CBOR reader"
+              else
+                cat "directory-$corpus.txt"
+                echo "::error::installed directory route for $corpus exited $directory_rc"
+                exit 1
+              fi
+            fi
             if [ "$corpus" = vectors-source-coverage ]; then
               if uv run --no-project --with "$wheel" agent-evidence-vectors \
                    --corpus "$corpus" --report "report-$corpus.json" > "out-$corpus.txt" 2>&1; then
