@@ -1219,6 +1219,31 @@ FROZEN: tuple[Frozen, ...] = (
             ("the Gemara license-only test boundary", "the 32 pytest tests were not repeated."),
         )
     ),
+    # ---- three figures that came to collide with the ACS-Core reject count when
+    # the sealed-session witness pair added two reject members. Each records a
+    # past measurement of an unrelated thing, so the corpus growing does not
+    # make any of them wrong.
+    Frozen(
+        ".github/workflows/ci.yml",
+        "the historical unpinned-emission count in the CI comment",
+        "24 unpinned emissions between them",
+        "A measurement of the main corpus taken before ok-055 and bad-986 "
+        "pinned their emissions. It counts emissions, not ACS-Core members.",
+    ),
+    Frozen(
+        "docs/reference/verifier-contract.md",
+        "the historical unpinned-emission count in the verifier contract",
+        "counted nineteen vectors with 24 unpinned emissions",
+        "The same pre-closure measurement as the CI comment, quoted in the "
+        "verifier contract. It counts emissions, not ACS-Core members.",
+    ),
+    Frozen(
+        "TODO.md",
+        "the quantifier operator's taken-branch DEAD-site count",
+        "and 24 of them carry",
+        "A mutation-run figure for the quantifier operator: DEAD sites that "
+        "carry branch: taken. It counts mutation sites, not ACS-Core members.",
+    ),
     # The W3C v0.1 text's own count of the delta-related pairs re-cut against it.
     # It is a figure of that text (section 10, list message 2026Sep/0087), and it
     # came to equal the audit record corpus's reject count when revision 02 of

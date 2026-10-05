@@ -121,6 +121,22 @@ vector is written against any of them. `MANIFEST.json` lists them with the
 reason. The list is the part of a corpus a reader cannot reconstruct from the
 corpus, so it is recorded rather than left implicit.
 
+A second list, `awaitingText` in `MANIFEST.json`, holds cases raised on the
+specification's tracker that no sentence at the pinned commit says. A member
+for one of them would cite a requirement that does not say what it tests, so
+each waits for its sentence and is minted from that sentence when it lands.
+
+## The same property at two witness scopes
+
+The sealed-session members in `acs-f-6` come in a pair per profile. A seal that
+drops a head the Guardian already published is refused with `CHAIN_MISMATCH`
+under both the HMAC baseline and ACS-Crypto, and only the witness scope
+differs: `PEER` under the baseline, where the Observed Agent holds the session
+key and the heads already published to it, and `EXTERNAL` under ACS-Crypto,
+where the public key lets a third party show which heads the Guardian signed.
+The baseline stops at the peer because the Guardian holds the same key and can
+re-sign a shorter chain, so the Core half never claims a third-party witness.
+
 Nothing here tests content filtering, model robustness, or prompt injection
 detection. The member about attributed content tests one property: that
 provenance establishes lineage and confers no authority. A suite that reached
