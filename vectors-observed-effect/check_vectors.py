@@ -68,6 +68,9 @@ def _predicate_type_from_spec() -> str:
 
 
 PREDICATE_TYPE = _predicate_type_from_spec()
+#: An Ed25519 signature is 64 bytes, so priorCommitment.sig is 128 hex characters.
+SIGNATURE_BYTES = 64
+CODE_DIGEST_PROFILE = os.path.join(HERE, "..", "interop", "observed-code-digest-candidate")
 #: RFC 3339, UTC, Z designator, no fractional second. The grammar is fixed so that
 #: a lexical comparison of two timestamps IS a comparison of two instants. While it
 #: was not, a commitment stamped 2026-09-18T20:00:00-05:00 sorted before an interval
@@ -621,6 +624,24 @@ def rule_keyid_form(pred: dict[str, Any]) -> None:
         raise Malformed("keyid-not-lowercase-hex")
 
 
+def rule_commitment_signature_form(pred: dict[str, Any]) -> None:
+    """The commitment signature has one spelling: 128 lowercase hex characters.
+
+    The spec's schema block said base64 while the generator wrote hex and every
+    verifier decoded hex. Decoding was lenient on top of that: bytes.fromhex skips
+    whitespace and accepts uppercase, and Go's hex.DecodeString accepts uppercase
+    and refuses whitespace, so one signed record read valid on the Python rails and
+    malformed on the Go rail. Fixing the spelling in stage one makes the bytes
+    decide, not the decoder.
+    """
+    commitment = pred["observation"].get("priorCommitment")
+    if commitment is None:
+        return
+    sig = commitment.get("sig")
+    if not (isinstance(sig, str) and _lower_hex(sig) and len(sig) == 2 * SIGNATURE_BYTES):
+        raise Malformed("commitment-signature-malformed")
+
+
 def rule_commitment_signature(pred: dict[str, Any], observer_public_key: str) -> None:
     """The prior commitment is signed, and the signature is CHECKED.
 
@@ -761,6 +782,7 @@ RULES: list[tuple[str, Callable[..., None]]] = [
     ("rule_prior_commitment_present", rule_prior_commitment_present),
     ("rule_commitment_digest", rule_commitment_digest),
     ("rule_keyid_form", rule_keyid_form),
+    ("rule_commitment_signature_form", rule_commitment_signature_form),
     ("rule_agreement_derivable", rule_agreement_derivable),
     ("rule_dual_value_recomputes", rule_dual_value_recomputes),
     ("rule_commitment_signature", rule_commitment_signature),
@@ -976,6 +998,120 @@ def check_parents(manifest: dict[str, Any]) -> None:
             FAILURES.append(f"{entry['id']}: parent {entry['parent']} is not a member")
 
 
+def _schema_from_spec() -> dict[str, Any]:
+    """The statement shape the predicate document shows under its Schema heading."""
+    spec = os.path.join(HERE, "..", PREDICATE_SPEC_PATH)
+    with open(spec, encoding="utf-8") as fh:
+        text = fh.read()
+    found = re.search(r"^## Schema\n\n```jsonc\n(.*?)\n```", text, re.S | re.M)
+    if found is None:
+        raise SystemExit(f"{PREDICATE_SPEC_PATH} carries no Schema block to check against")
+    schema: dict[str, Any] = json.loads(found.group(1))
+    return schema
+
+
+def _declared_spelling(placeholder: str) -> tuple[str, int | None] | None:
+    """The encoding a schema placeholder states, as (kind, width), or None."""
+    sized = re.search(r"\b(\d+)(?:-| lowercase )hex\b", placeholder)
+    if sized:
+        return "hex", int(sized.group(1))
+    if re.search(r"\bhex\b", placeholder):
+        return "hex", None
+    if re.search(r"\bbase64\b", placeholder):
+        return "base64", None
+    return None
+
+
+def _spelling_holds(value: Any, kind: str, width: int | None) -> bool:
+    if not isinstance(value, str) or value == "":
+        return False
+    is_hex = all(c in "0123456789abcdef" for c in value)
+    if kind == "hex":
+        return is_hex and (width is None or len(value) == width)
+    # A string of lowercase hex characters also decodes as base64, which is how a
+    # schema saying base64 sat over a corpus written in hex without anything
+    # noticing. A value that reads as hex is therefore not taken as base64.
+    try:
+        decoded = base64.b64decode(value, validate=True)
+    except ValueError:
+        return False
+    return not is_hex and base64.b64encode(decoded).decode() == value
+
+
+def _walk_spellings(
+    schema: Any, value: Any, path: str, seen: set[str], failures: list[str], slug: str
+) -> None:
+    if isinstance(schema, dict) and isinstance(value, dict):
+        for key, sub in schema.items():
+            if key in value:
+                _walk_spellings(sub, value[key], f"{path}.{key}", seen, failures, slug)
+    elif isinstance(schema, list) and isinstance(value, list) and schema:
+        for item in value:
+            _walk_spellings(schema[0], item, f"{path}[]", seen, failures, slug)
+    elif isinstance(schema, str) and schema.startswith("<") and schema.endswith(">"):
+        declared = _declared_spelling(schema)
+        if declared is None:
+            return
+        seen.add(path)
+        if not _spelling_holds(value, *declared):
+            failures.append(
+                f"{slug}: {path} is {value!r:.40}, and the spec's Schema block "
+                f"declares {schema}"
+            )
+
+
+def check_schema_spellings(manifest: dict[str, Any]) -> None:
+    """Every member that must be accepted spells each member the way the spec says.
+
+    The Schema block in the predicate document gave priorCommitment.sig as base64
+    while the generator wrote hex, every verifier decoded hex, and all three agreed
+    with one another and disagreed with the document. Nothing compared the two. This
+    walks the Schema block beside every accept and indeterminate statement, and for
+    each placeholder that names an encoding, requires the carried value to have it.
+    A placeholder that names an encoding and that no member reaches is a failure
+    too, so the check cannot pass by matching nothing.
+    """
+    schema = _schema_from_spec()
+    declared_paths: set[str] = set()
+    _collect_declared(schema, "$", declared_paths)
+    accepted = [
+        (entry["slug"], os.path.join(HERE, entry["file"]))
+        for entry in manifest["vectors"]
+        if entry["kind"] != "reject"
+    ]
+    # The optional codeDigest member's cases live in the interop profile rather
+    # than in this corpus, and the Schema block governs them all the same.
+    with open(os.path.join(CODE_DIGEST_PROFILE, "MANIFEST.json"), encoding="utf-8") as fh:
+        profile = json.load(fh)
+    accepted += [
+        (f"code-digest/{entry['id']}", os.path.join(CODE_DIGEST_PROFILE, entry["file"]))
+        for entry in profile["vectors"]
+        if entry["expected"]["verdict"] == "valid"
+    ]
+    seen: set[str] = set()
+    for slug, path in accepted:
+        with open(path, encoding="utf-8") as fh:
+            envelope = json.load(fh)
+        statement = json.loads(base64.b64decode(envelope["payload"]))
+        _walk_spellings(schema, statement, "$", seen, FAILURES, slug)
+    for path in sorted(declared_paths - seen):
+        FAILURES.append(
+            f"the spec's Schema block declares an encoding at {path} and no accept "
+            "member carries that member, so the declaration is checked against nothing"
+        )
+
+
+def _collect_declared(schema: Any, path: str, out: set[str]) -> None:
+    if isinstance(schema, dict):
+        for key, sub in schema.items():
+            _collect_declared(sub, f"{path}.{key}", out)
+    elif isinstance(schema, list) and schema:
+        _collect_declared(schema[0], f"{path}[]", out)
+    elif isinstance(schema, str) and schema.startswith("<") and schema.endswith(">"):
+        if _declared_spelling(schema) is not None:
+            out.add(path)
+
+
 def check_counts(manifest: dict[str, Any]) -> None:
     actual = {"accept": 0, "reject": 0, "indeterminate": 0}
     for entry in manifest["vectors"]:
@@ -984,6 +1120,9 @@ def check_counts(manifest: dict[str, Any]) -> None:
         FAILURES.append(f"counts declare {manifest['counts']} and the members are {actual}")
     if manifest["predicateType"] != PREDICATE_TYPE:
         FAILURES.append("the manifest's predicateType is not the URI this verifier enforces")
+    published = {digest: text.encode("ascii") for digest, text in manifest["blobs"].items()}
+    if published != BLOBS:
+        FAILURES.append("the manifest's published blob is not the one this verifier states")
     if manifest["emptyTree"] != EMPTY_TREE:
         FAILURES.append("the manifest's empty-tree constants are not the computed ones")
     recomputed = corpus_digest(manifest)
@@ -1001,6 +1140,7 @@ def main() -> None:
     check_twins(manifest)
     check_parents(manifest)
     check_counts(manifest)
+    check_schema_spellings(manifest)
 
     if FAILURES:
         for failure in FAILURES:

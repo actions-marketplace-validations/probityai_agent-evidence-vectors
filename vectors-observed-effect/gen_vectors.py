@@ -411,6 +411,10 @@ CONDITIONS: dict[str, str] = {
         "priorCommitment: the signature is verified against the anchored observer "
         "key (attack A27)"
     ),
+    "oe-commitment-signature-form": (
+        "priorCommitment: sig is spelled one way, 128 lowercase hex, so every rail "
+        "reads the same bytes (attack A32)"
+    ),
     "oe-dual-recompute": (
         "dualValues: for a fact the statement can compute about itself, the observed "
         "side is that value (attack A28)"
@@ -461,6 +465,13 @@ def _typed_statement(predicate_type: str) -> dict[str, Any]:
     stmt = statement(predicate(intervalId="iv-0202"))
     stmt["predicateType"] = predicate_type
     return stmt
+
+
+def _respelled_commitment(interval_id: str, respell: Any) -> dict[str, Any]:
+    """A correctly signed commitment whose sig is written in another spelling."""
+    out = commitment(interval_id=interval_id)
+    out["sig"] = respell(out["sig"])
+    return out
 
 
 def _unsigned_commitment(interval_id: str) -> dict[str, Any]:
@@ -554,6 +565,7 @@ add(
         "oe-coverage-named",
         "oe-keyid-form",
         "oe-commitment-signature",
+        "oe-commitment-signature-form",
         "oe-dual-recompute",
         "oe-dual-values-absent",
         "oe-origin-vantage",
@@ -1911,6 +1923,59 @@ add(
 )
 
 add(
+    "commitment-signature-in-uppercase-hex",
+    "reject",
+    statement(
+        predicate(
+            intervalId="iv-0406",
+            observation={
+                "vantage": "below-observed",
+                "origin": "first-hand",
+                "coverage": {"scopeComplete": True, "gaps": []},
+                "observedSigners": [OBSERVED_KEYID],
+                "priorCommitment": _respelled_commitment("iv-0406", str.upper),
+            },
+        )
+    ),
+    ["oe-commitment-signature-form"],
+    "malformed",
+    ["commitment-signature-malformed"],
+    "A correct commitment signature written in uppercase hexadecimal. Every decoder "
+    "in this repository accepted it and it verified, so one signed commitment had "
+    "two spellings and the record carrying it had two byte strings, while the "
+    "predicate fixes one spelling for every other hexadecimal member.",
+    parent=BASELINE,
+)
+
+add(
+    "commitment-signature-with-a-space",
+    "reject",
+    statement(
+        predicate(
+            intervalId="iv-0407",
+            observation={
+                "vantage": "below-observed",
+                "origin": "first-hand",
+                "coverage": {"scopeComplete": True, "gaps": []},
+                "observedSigners": [OBSERVED_KEYID],
+                "priorCommitment": _respelled_commitment(
+                    "iv-0407", lambda sig: sig[:64] + " " + sig[64:]
+                ),
+            },
+        )
+    ),
+    ["oe-commitment-signature-form"],
+    "malformed",
+    ["commitment-signature-malformed"],
+    "A correct commitment signature with one space between its two halves. Python's "
+    "bytes.fromhex skips the space and the signature verifies; Go's hex.DecodeString "
+    "refuses it. The two reference verifiers in this repository returned valid and "
+    "malformed for the same signed bytes, which is the divergence a conformance "
+    "corpus exists to remove.",
+    parent=BASELINE,
+)
+
+add(
     "dual-value-the-record-refutes",
     "reject",
     statement(
@@ -2248,6 +2313,16 @@ def emit() -> None:
             "observedParty key signs nothing in this corpus: it exists so that "
             "observedSigners names a real key identifier and the disjointness check "
             "has something to be disjoint from."
+        ),
+        "blobs": {BLOB_DIGEST: BLOB.decode("ascii")},
+        "blobNote": (
+            "The one blob the read rows in this corpus narrate, keyed by its sha256 "
+            "and given as its ASCII text. The expected verdicts assume a consumer "
+            "that holds it, the way they assume one that holds the observer key: "
+            "range-digest-over-bytes-alone is malformed only to a verifier that "
+            "recomputes the range digest from these bytes, and a verifier configured "
+            "without them accepts it. read-row-nobody-can-check reads a different "
+            "blob that is published nowhere, and is accepted for that reason."
         ),
         "emptyTree": EMPTY_TREE,
         "counts": counts,

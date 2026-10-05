@@ -25,8 +25,8 @@ See [installation routes and release identity](DISTRIBUTION.md) for package avai
 After the signed tag and PyPI wheel are published, install the matching release (with Go's executable directory on your PATH):
 
 ```bash
-go install github.com/probityai/agent-evidence-vectors/cmd/aee-verify@v0.17.2
-uvx agent-evidence-vectors==0.17.2 --verifier "aee-verify --json"
+go install github.com/probityai/agent-evidence-vectors/cmd/aee-verify@v0.17.3
+uvx agent-evidence-vectors==0.17.3 --verifier "aee-verify --json"
 ```
 
 <a name="what-a-conformance-claim-must-show"></a>

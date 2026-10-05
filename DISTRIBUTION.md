@@ -4,13 +4,16 @@ Use this page to choose an installation route or identify the corpus you ran. Fo
 
 ## The tag to cite
 
-`v0.17.2`, the planned release recorded in [CITATION.cff](CITATION.cff). Until its signed tag is published, cite the full source commit and corpus digest when reporting a result.
+`v0.17.3`, the version recorded in [CITATION.cff](CITATION.cff). Cite its signed tag or full source commit and corpus digest when reporting a result.
 
 The installation examples are pinned to the version above. The corpus table
 describes this checkout; a release tag or installed wheel identifies its own
 population.
 
-The tag and PyPI wheel for this version were unavailable on 2026-10-05.
+This version packages the criterion documents for AI generation, MCP record
+contract and MCP response phase. These files were missing from the prior wheel
+and source archive. Use the published route after both artifacts are available,
+or build from a reviewed source checkout.
 The [source-wheel recipe](README.md#try-it) builds the verifier and harness
 from a reviewed checkout, then runs the installed harness outside it. Record
 that checkout's full commit ID. A source pin identifies selected bytes; it
@@ -22,15 +25,15 @@ unchanged as historical evidence.
 After both the signed tag and PyPI wheel are published, install matching versions:
 
 ```bash
-go install github.com/probityai/agent-evidence-vectors/cmd/aee-verify@v0.17.2
-uvx agent-evidence-vectors==0.17.2 --verifier "aee-verify --json"
+go install github.com/probityai/agent-evidence-vectors/cmd/aee-verify@v0.17.3
+uvx agent-evidence-vectors==0.17.3 --verifier "aee-verify --json"
 ```
 
 After the signed tag is published, run the same harness from its checkout:
 
 ```bash
 git clone https://github.com/probityai/agent-evidence-vectors
-cd agent-evidence-vectors && git checkout v0.17.2
+cd agent-evidence-vectors && git checkout v0.17.3
 python3 packaging/run_vectors.py --verifier "aee-verify --json"
 ```
 
@@ -44,7 +47,7 @@ After the signed tag is published, recompute the corpus digests, then check the 
 
 ```bash
 git clone https://github.com/probityai/agent-evidence-vectors && cd agent-evidence-vectors
-git checkout v0.17.2
+git checkout v0.17.3
 
 # 1. the digest list is what the vector files on disk hash to, recomputed
 python3 scripts/release-digests.py --check

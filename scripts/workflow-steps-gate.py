@@ -16,15 +16,17 @@ step order, and it is deliberately noisy about the ones it cannot run.
     python3 scripts/workflow-steps-gate.py --list     # show the plan, run nothing
     python3 scripts/workflow-steps-gate.py --only no-internal-drafts
 
-Exit 0 only when every runnable step exited 0. Any step failure, any workflow
-that will not parse, and any absent dependency is a non-zero exit -- never a
-skip. A gate that quietly skips what it cannot check reports a clean result for
-a check that did not run, which is the same defect in a different costume.
+Exit 0 only when every runnable step exited 0. Any native step failure, unknown
+action or expression, invalid source binding,
+or workflow parse failure returns non-zero. Runner-only actions and unavailable
+provisioned capabilities are explicit NOT_RUN records, never reported as passed.
+A native process that actually fails keeps its original status and output.
 """
 
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import hashlib
 import json
 import os
@@ -157,7 +159,7 @@ class Source:
             if os.environ.get(key) and os.environ[key] != self.head:
                 raise ValueError(f"{key} does not identify the selected source commit")
         if os.environ.get("GITHUB_EVENT_NAME", "push") != "push":
-            raise ValueError("this mirror has only a verified local push context")
+            raise ValueError("this mirror only supports its declared local push simulation")
         self.ref = optional_git(root, "symbolic-ref", "-q", "HEAD")
         self.origin = optional_git(root, "remote", "get-url", "origin")
         match = re.fullmatch(
@@ -355,7 +357,12 @@ def own_action(inputs: dict[str, Any]) -> Local:
 
 
 def uv_python_available(version: str) -> bool:
-    """Whether uv can provide exactly this CPython release, installed or downloadable."""
+    """Whether uv can provide a CPython release the pin accepts, installed or downloadable.
+
+    A three-part pin (3.13.15) accepts that release and nothing else. A two-part
+    pin (3.12) is what setup-python reads as "the newest 3.12", so any 3.12.x
+    satisfies it, on the runner and here alike.
+    """
     if shutil.which("uv") is None:
         return False
     proc = subprocess.run(  # noqa: S603 -- asking uv what it can install
@@ -364,7 +371,11 @@ def uv_python_available(version: str) -> bool:
         text=True,
         check=False,
     )
-    return proc.returncode == 0 and f"cpython-{version}-" in proc.stdout
+    if proc.returncode != 0:
+        return False
+    if re.fullmatch(r"\d+\.\d+", version):
+        return f"cpython-{version}." in proc.stdout
+    return f"cpython-{version}-" in proc.stdout
 
 
 def setup_python(inputs: dict[str, Any]) -> Local:
@@ -506,38 +517,339 @@ class Step(NamedTuple):
     # The step's `if:` expression, verbatim, or "" when it has none.
     condition: str = ""
 
+    matrix: dict[str, str] = {}
+    unexpanded: str = ""
+
     @property
     def label(self) -> str:
         return f"{self.job}[{self.position}] {self.name}"
 
 
+def scalar(value: Any) -> str:
+    """A YAML scalar as an expression reads it: booleans are `true`/`false`."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def _cross(axes: dict[str, list[Any]]) -> list[dict[str, str]]:
+    """The cross product of the matrix's list keys; empty when there are none."""
+    if not axes:
+        return []
+    combos: list[dict[str, str]] = [{}]
+    for key, values in axes.items():
+        combos = [{**combo, key: scalar(value)} for combo in combos for value in values]
+    return combos
+
+
+def _literal(text: str) -> tuple[bool, Any]:
+    """(is a literal, its value) for one operand of an expression."""
+    if re.fullmatch(r"'(?:[^']|'')*'", text):
+        return True, text[1:-1].replace("''", "'")
+    if text in ("true", "false"):
+        return True, text == "true"
+    if text == "null":
+        return True, None
+    if re.fullmatch(r"-?\d+(?:\.\d+)?", text):
+        return True, float(text) if "." in text else int(text)
+    return False, None
+
+
+def _rendered(value: Any) -> str:
+    """An expression value as Actions writes it into text."""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def expression_number(value: Any) -> float:
+    """Actions loose comparisons coerce unlike scalar types to JSON numbers."""
+    if value is None or value == "":
+        return 0.0
+    if isinstance(value, (bool, int, float)):
+        return float(value)
+    try:
+        number = json.loads(value)
+    except (TypeError, ValueError):
+        return float("nan")
+    return float(number) if type(number) in (int, float) else float("nan")
+
+
+def expression_equal(left: Any, right: Any) -> bool:
+    if isinstance(left, str) and isinstance(right, str):
+        return left.lower() == right.lower()
+    if type(left) is type(right):
+        return bool(left == right)
+    return expression_number(left) == expression_number(right)
+
+
+def _split_top(expression: str, operator: str) -> list[str]:
+    """Split on an operator outside single-quoted strings."""
+    parts: list[str] = []
+    depth_quote = False
+    current = ""
+    i = 0
+    while i < len(expression):
+        ch = expression[i]
+        if ch == "'":
+            depth_quote = not depth_quote
+        if not depth_quote and expression.startswith(operator, i):
+            parts.append(current)
+            current = ""
+            i += len(operator)
+            continue
+        current += ch
+        i += 1
+    parts.append(current)
+    return [part.strip() for part in parts]
+
+
+class _Evaluator:
+    """One expression body, evaluated the way Actions does for the subset used here.
+
+    Supported: references, string, number and boolean literals, `==`, `!=`, `!`,
+    `&&` and `||` with Actions' short-circuit values (`a || b` is a when a is
+    truthy, else b). A parenthesis or a function call is outside that and is
+    refused by name rather than approximated.
+    """
+
+    def __init__(
+        self,
+        expression: str,
+        outputs: dict[str, dict[str, str]],
+        statuses: dict[str, dict[str, str]] | None,
+        context: Mapping[str, str] | None,
+        where: str,
+    ) -> None:
+        self.expression = expression
+        self.outputs = outputs
+        self.statuses = statuses or {}
+        self.context = {**LOCAL_ABSENT, **(context or {})}
+        self.where = where
+        self.shown = f"${{{{ {expression.strip()} }}}}"
+
+    def run(self) -> tuple[Any, str]:
+        if len(_split_top(self.expression, "(")) > 1 or len(_split_top(self.expression, "[")) > 1:
+            return None, (
+                f"{self.where} {self.shown}, which calls a function or indexes a value; "
+                "this gate evaluates references, literals, ==, !=, !, && and || only "
+                "and will not approximate the rest"
+            )
+        value: Any = None
+        for part in _split_top(self.expression, "||"):
+            value, missing = self.conjunction(part)
+            if missing or value:
+                return value, missing
+        return value, ""
+
+    def conjunction(self, text: str) -> tuple[Any, str]:
+        value: Any = True
+        for part in _split_top(text, "&&"):
+            value, missing = self.comparison(part)
+            if missing or not value:
+                return value, missing
+        return value, ""
+
+    def comparison(self, text: str) -> tuple[Any, str]:
+        for operator in ("==", "!="):
+            sides = _split_top(text, operator)
+            if len(sides) > 2:
+                return None, f"{self.where} {self.shown}, which chains `{operator}`; not evaluated"
+            if len(sides) == 2:
+                left, missing = self.operand(sides[0])
+                right, missing_right = self.operand(sides[1])
+                if missing or missing_right:
+                    return None, missing or missing_right
+                same = expression_equal(left, right)
+                return (same if operator == "==" else not same), ""
+        return self.operand(text)
+
+    def operand(self, text: str) -> tuple[Any, str]:
+        text = text.strip()
+        negate = False
+        while text.startswith("!"):
+            negate = not negate
+            text = text[1:].strip()
+        value, missing = self.atom(text)
+        return (not value if negate else value), missing
+
+    def atom(self, text: str) -> tuple[Any, str]:
+        is_literal, value = _literal(text)
+        if is_literal:
+            return value, ""
+        if not REFERENCE.match(text):
+            return None, (
+                f"{self.where} {self.shown}, and `{text}` is not an expression this gate can read"
+            )
+        if STEP_STATUS.match(text) or STEP_OUTPUT.match(text):
+            return self.step_reference(text)
+        if text in self.context:
+            return self.context[text], ""
+        return None, (
+            f"unsupported expression {self.shown}: `{text}` has no verified local context"
+        )
+
+    def step_reference(self, text: str) -> tuple[Any, str]:
+        """A step's outcome or output, as recorded when this gate ran the step.
+
+        One that was not run here, or ran without writing the name, is not
+        guessed: the reason names the step and what is missing.
+        """
+        status = STEP_STATUS.match(text)
+        if status is not None:
+            step_id, which = status.groups()
+            recorded_status = self.statuses.get(step_id)
+            if recorded_status is None:
+                return None, (
+                    f"{self.where} {self.shown}, and step `{step_id}` was not run here, so "
+                    "this gate has no outcome for it and will not invent one"
+                )
+            return recorded_status[which], ""
+        reference = STEP_OUTPUT.match(text)
+        assert reference is not None
+        step_id, name = reference.groups()
+        recorded = self.outputs.get(step_id)
+        if recorded is None:
+            return None, (
+                f"{self.where} {self.shown}, and step `{step_id}` was not run here, so "
+                "this gate has no value for it and will not invent one"
+            )
+        if name not in recorded:
+            return None, (
+                f"{self.where} {self.shown}, and step `{step_id}` ran here without writing "
+                f"`{name}` to $GITHUB_OUTPUT. Either the action declares an output its "
+                "local mirror does not produce, or the name is wrong"
+            )
+        return recorded[name], ""
+
+
+def evaluate(
+    expression: str,
+    outputs: dict[str, dict[str, str]],
+    statuses: dict[str, dict[str, str]] | None = None,
+    context: Mapping[str, str] | None = None,
+    where: str = "its env reads",
+) -> tuple[Any, str]:
+    """Evaluate one expression body. Returns (value, reason it could not be)."""
+    return _Evaluator(expression, outputs, statuses, context, where).run()
+
+
+def trigger_excludes(doc: Any, tags: list[str]) -> str:
+    """The reason a workflow never runs for this revision, or "" when it may.
+
+    Only one case is decided: a workflow whose sole automatic trigger is a push
+    of matching TAGS (release.yml: `push: tags: ['v*']`, plus manual dispatch).
+    The remote runs it when a release tag is pushed and at no other time, so
+    running it on an untagged commit verifies a release that does not exist:
+    the signed digest list legitimately changes between releases and is signed
+    again when the next one is cut. Every other trigger shape runs as before,
+    because skipping a workflow the remote does run would be the silent gap
+    this gate exists to close.
+    """
+    on = (doc or {}).get("on", (doc or {}).get(True))
+    if not isinstance(on, dict):
+        return ""
+    automatic = {k: v for k, v in on.items() if k not in ("workflow_dispatch",)}
+    push = automatic.get("push")
+    if set(automatic) != {"push"} or not isinstance(push, dict):
+        return ""
+    if set(push) != {"tags"}:
+        return ""
+    patterns = [str(t) for t in (push.get("tags") or [])]
+    if any(fnmatch.fnmatchcase(tag, pattern) for tag in tags for pattern in patterns):
+        return ""
+    return (
+        f"the workflow runs only on a push of tags {patterns}, and no such tag "
+        "points at the revision under test"
+    )
+
+
+def matrix_combinations(job: Any) -> tuple[list[dict[str, str]], str]:
+    """Expand static axes, exclude first, and apply includes to original rows."""
+    matrix = ((job or {}).get("strategy") or {}).get("matrix")
+    if matrix is None:
+        return [{}], ""
+    if not isinstance(matrix, dict):
+        return [], f"its matrix is the expression {matrix!r}, which is not evaluated"
+    axes = {k: v for k, v in matrix.items() if k not in ("include", "exclude")}
+    if any(
+        not isinstance(v, list) or any(isinstance(x, (dict, list)) for x in v)
+        for v in axes.values()
+    ):
+        return [], "matrix axes must be lists of scalar values"
+    for key in ("include", "exclude"):
+        if not matrix_entries(matrix.get(key, [])):
+            return [], f"matrix {key} must be a list of scalar-valued objects"
+    original = _cross(axes)
+    for entry in matrix.get("exclude") or []:
+        drop = {str(k): scalar(v) for k, v in entry.items()}
+        original = [c for c in original if not all(c.get(k) == v for k, v in drop.items())]
+    added = []
+    for entry in matrix.get("include") or []:
+        row = {str(k): scalar(v) for k, v in entry.items()}
+        if not include_original(original, row, set(axes)):
+            added.append(row)
+    combos = original + added
+    return (combos, "") if combos else ([], "its matrix expands to no combination")
+
+
+def matrix_entries(entries: Any) -> bool:
+    """Reject dynamic or nested matrix entries instead of inventing scalar values."""
+    return isinstance(entries, list) and all(
+        isinstance(e, dict) and all(not isinstance(v, (dict, list)) for v in e.values())
+        for e in entries
+    )
+
+
+def include_original(original: list[dict[str, str]], entry: dict[str, str], axes: set[str]) -> bool:
+    matched = False
+    for combo in original:
+        if all(combo.get(k) == v for k, v in entry.items() if k in axes):
+            combo.update({k: v for k, v in entry.items() if k not in axes})
+            matched = True
+    return matched
+
+
 def steps_of(doc: Any, path: pathlib.Path) -> Iterator[Step]:
-    """Yield every step, in declaration order."""
+    """Yield every step, in declaration order, once per matrix combination."""
     jobs = (doc or {}).get("jobs") or {}
     if not jobs:
         sys.exit(f"workflow-steps-gate: {path.name} declares no jobs. Refusing to call it covered.")
     workflow_dir = default_directory(doc)
     for job_name, job in jobs.items():
         job_dir = default_directory(job) or workflow_dir
-        for i, step in enumerate(job.get("steps") or []):
-            name = step.get("name") or f"step {i}"
-            yield Step(
-                job=job_name,
-                position=i,
-                name=name,
-                run=step.get("run"),
-                uses=str(step.get("uses") or ""),
-                inputs=step.get("with") or {},
-                ident=str(step.get("id") or ""),
-                env={
-                    **((doc or {}).get("env") or {}),
-                    **(job.get("env") or {}),
-                    **(step.get("env") or {}),
-                },
-                continue_on_error=step.get("continue-on-error") is True,
-                workdir=str(step.get("working-directory") or job_dir),
-                condition=str(step.get("if") or ""),
-            )
+        combos, unexpanded = matrix_combinations(job)
+        seen: set[str] = set()
+        for index, combo in enumerate(combos or [{}]):
+            label = job_name
+            if combo:
+                label = f"{job_name} ({', '.join(f'{k}={v}' for k, v in combo.items())})"
+            if label in seen:
+                label += f" [combination {index}]"
+            seen.add(label)
+            for i, step in enumerate(job.get("steps") or []):
+                name = step.get("name") or f"step {i}"
+                yield Step(
+                    job=label,
+                    position=i,
+                    name=name,
+                    run=None if step.get("run") is None else scalar(step.get("run")),
+                    uses=str(step.get("uses") or ""),
+                    inputs=step.get("with") or {},
+                    ident=str(step.get("id") or ""),
+                    env={
+                        **((doc or {}).get("env") or {}),
+                        **(job.get("env") or {}),
+                        **(step.get("env") or {}),
+                    },
+                    continue_on_error=step.get("continue-on-error") is True,
+                    workdir=str(step.get("working-directory") or job_dir),
+                    condition=str(step.get("if") or ""),
+                    matrix=combo,
+                    unexpanded=unexpanded,
+                )
 
 
 def default_directory(node: Any) -> str:
@@ -569,6 +881,7 @@ SHELL_FLAGS = ("-e",)
 
 # `${{ ... }}`, the only interpolation Actions performs in an `env:` value.
 EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
+REFERENCE = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_*-]+)*$")
 STEP_OUTPUT = re.compile(r"^steps\.([A-Za-z0-9_-]+)\.outputs\.([A-Za-z0-9_-]+)$")
 STEP_STATUS = re.compile(r"^steps\.([A-Za-z0-9_-]+)\.(outcome|conclusion)$")
 
@@ -578,56 +891,16 @@ def expand(
     outputs: dict[str, dict[str, str]],
     statuses: dict[str, dict[str, str]] | None = None,
     context: Mapping[str, str] | None = None,
+    where: str = "its env reads",
 ) -> tuple[str, str]:
-    """Resolve recorded outputs/status and the explicit local push context.
-
-    Missing outputs and unsupported expressions refuse execution. Only the
-    enumerated absent local-event fields resolve to an empty string.
-    """
+    """Resolve bounded expressions; unknown context refuses before the shell."""
     missing = ""
 
     def one(match: re.Match[str]) -> str:
         nonlocal missing
-        expression = " ".join(match.group(1).split())
-        status = STEP_STATUS.match(expression)
-        if status is not None:
-            # A step's outcome is recorded by this gate when it runs the step,
-            # exactly as the runner records it; one not run here is not guessed.
-            step_id, which = status.groups()
-            recorded_status = (statuses or {}).get(step_id)
-            if recorded_status is None:
-                missing = (
-                    f"its env reads ${{{{ {expression} }}}}, and step `{step_id}` was "
-                    "not run here, so this gate has no outcome for it and will not "
-                    "invent one"
-                )
-                return ""
-            return recorded_status[which]
-        reference = STEP_OUTPUT.match(expression)
-        if reference is None:
-            known = {**LOCAL_ABSENT, **(context or {})}
-            if expression in known:
-                return known[expression]
-            missing = f"unsupported expression ${{{{ {expression} }}}}; no verified local context"
-            return ""
-        step_id, name = reference.groups()
-        recorded = outputs.get(step_id)
-        if recorded is None:
-            missing = (
-                f"its env reads ${{{{ {expression} }}}}, and step `{step_id}` was "
-                "not run here, so this gate has no value for it and will not "
-                "invent one"
-            )
-            return ""
-        if name not in recorded:
-            missing = (
-                f"its env reads ${{{{ {expression} }}}}, and step `{step_id}` ran "
-                f"here without writing `{name}` to $GITHUB_OUTPUT. Either the "
-                "action declares an output its local mirror does not produce, or "
-                "the name is wrong"
-            )
-            return ""
-        return recorded[name]
+        result, reason = evaluate(match.group(1), outputs, statuses, context, where)
+        missing = missing or reason
+        return _rendered(result)
 
     expanded = EXPRESSION.sub(one, value)
     if "${{" in expanded and not missing:
@@ -711,6 +984,9 @@ class JobState:
         self.ran = 0
         self.failed = 0
         self.not_run: list[str] = []
+        self.provider_probes: list[dict[str, Any]] = []
+        self.repository = ""
+        self.foreign: dict[str, dict[str, Any]] = {}
 
     def environment(self, base: dict[str, str]) -> dict[str, str]:
         project_env = str(self.temp / "project-env")
@@ -724,6 +1000,7 @@ class JobState:
         env.pop("VIRTUAL_ENV", None)
         if (self.temp / "setup-python").is_dir():
             env["VIRTUAL_ENV"] = str(self.temp / "setup-python")
+            env["UV_PYTHON"] = str(self.temp / "setup-python" / "bin" / "python")
         elif pathlib.Path(project_env).is_dir():
             env["VIRTUAL_ENV"] = project_env
         elif (self.temp / "baseline-python").is_dir():
@@ -803,6 +1080,8 @@ def run_step(
     directory = (workspace / workdir).resolve()
     if not directory.is_relative_to(workspace):
         raise ValueError("working-directory escapes the job checkout")
+    if not directory.is_dir():
+        raise ValueError(f"working-directory {workdir!r} does not exist in the job checkout")
     if evidence is not None:
         with (evidence / "stdout").open("wb") as stdout, (evidence / "stderr").open("wb") as stderr:
             proc = subprocess.run(  # noqa: S603 -- retained original workflow process bytes
@@ -826,6 +1105,122 @@ def run_step(
         capture_output=True,
         text=True,
     )
+
+
+PROVIDES: dict[str, tuple[str, ...]] = {
+    "sigstore/cosign-installer": ("cosign",),
+    "actions/setup-go": ("go", "gofmt"),
+    "actions/setup-node": ("node", "npm", "npx"),
+    "astral-sh/setup-uv": ("uv", "uvx"),
+}
+CHECKOUT_BASE = "https://github.com"
+
+
+def interpolate_inputs(step: Step, job: JobState, context: Mapping[str, str]) -> tuple[Step, str]:
+    inputs = {}
+    for key, raw in step.inputs.items():
+        if isinstance(raw, str):
+            raw, missing = expand(raw, job.outputs, job.statuses, context, f"its with:{key} reads")
+            if missing:
+                return step, missing
+        inputs[key] = raw
+    return step._replace(inputs=inputs), ""
+
+
+def fetch_checkout(repository: str, ref: str, path: str, job: JobState) -> str:
+    """Fetch selected foreign bytes inside the job; retain identity before disposal."""
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+        return "repository must be a concrete owner/name"
+    target = (job.root / path).resolve()
+    if target == job.root.resolve() or not target.is_relative_to(job.root.resolve()):
+        return "checkout path must be a contained non-root job subdirectory"
+    if target.exists():
+        return "checkout destination already exists; it is not overwritten"
+    target.mkdir(parents=True)
+    url = f"{CHECKOUT_BASE}/{repository}.git"
+    fetch_evidence = job.temp / "foreign-fetch" / str(len(job.foreign))
+    problem = _fetch_into("git", url, ref, target, fetch_evidence)
+    if problem:
+        return problem
+    landed = git(target, "rev-parse", "HEAD").decode().strip()
+    if re.fullmatch(r"[0-9a-f]{40}", ref) and landed != ref:
+        return f"fetch landed at {landed}, not the selected {ref}"
+    path = str(target.relative_to(job.root.resolve()))
+    job.foreign[path] = {
+        "repository": repository,
+        "requested_ref": ref or "HEAD",
+        "origin": url,
+        "head": landed,
+        "tree": git(target, "rev-parse", "HEAD^{tree}").decode().strip(),
+        "files": inventory(target),
+    }
+    return ""
+
+
+def retain_foreign(job: JobState, evidence: pathlib.Path) -> None:
+    """Retain selected and final foreign bytes, including added/deleted tracked files."""
+    faults = []
+    for path, selected in job.foreign.items():
+        root = job.root / path
+        destination = evidence / "foreign" / path
+        destination.mkdir(parents=True)
+        final = inventory(root)
+        final_head = git(root, "rev-parse", "HEAD").decode().strip()
+        write_json(
+            destination / "identity.json",
+            {"selected": selected, "final_files": final, "final_head": final_head},
+        )
+        (destination / "tracked.diff").write_bytes(git(root, "diff", "--binary", selected["head"]))
+        for name in selected["files"]:
+            original = git(root, "show", f"{selected['head']}:{name}")
+            copy = destination / "selected" / name
+            copy.parent.mkdir(parents=True, exist_ok=True)
+            copy.write_bytes(original)
+        retain_foreign_final(root, destination, final)
+        if final_head != selected["head"]:
+            faults.append(path)
+    if faults:
+        raise ValueError(f"foreign selected commits changed in {faults}; evidence retained")
+
+
+def retain_foreign_final(
+    root: pathlib.Path, destination: pathlib.Path, files: dict[str, dict[str, str]]
+) -> None:
+    for name, metadata in files.items():
+        if metadata.get("state") == "missing":
+            continue
+        present = root / name
+        data = os.fsencode(os.readlink(present)) if present.is_symlink() else present.read_bytes()
+        copy = destination / "final" / name
+        copy.parent.mkdir(parents=True, exist_ok=True)
+        copy.write_bytes(data)
+
+
+def _fetch_into(
+    git_binary: str, url: str, ref: str, target: pathlib.Path, evidence: pathlib.Path
+) -> str:
+    """Fetch a selected foreign checkout and retain all auxiliary process bytes."""
+    evidence.mkdir(parents=True)
+    commands = (
+        [git_binary, "init", "-q", str(target)],
+        [git_binary, "-C", str(target), "fetch", "-q", "--depth", "1", url, ref or "HEAD"],
+        [git_binary, "-C", str(target), "checkout", "-q", "--detach", "FETCH_HEAD"],
+    )
+    for index, command in enumerate(commands):
+        try:
+            proc = subprocess.run(command, capture_output=True, check=False, timeout=900)  # noqa: S603 -- selected foreign checkout
+        except subprocess.TimeoutExpired as exc:
+            (evidence / f"{index}.stdout.txt").write_bytes(exc.stdout or b"")
+            (evidence / f"{index}.stderr.txt").write_bytes(exc.stderr or b"")
+            write_json(evidence / f"{index}.json", {"command": command, "status": "TIMEOUT"})
+            return "the selected checkout fetch timed out after 900 seconds"
+        (evidence / f"{index}.stdout.txt").write_bytes(proc.stdout)
+        (evidence / f"{index}.stderr.txt").write_bytes(proc.stderr)
+        write_json(evidence / f"{index}.json", {"command": command, "returncode": proc.returncode})
+        if proc.returncode:
+            detail = proc.stderr.decode("utf-8", "replace").strip()
+            return f"fetching {url} at {ref or 'HEAD'} failed: {detail}"
+    return ""
 
 
 def report_failure(label: str, proc: subprocess.CompletedProcess[str]) -> None:
@@ -910,6 +1305,7 @@ def step_base_environment(ambient: Mapping[str, str]) -> dict[str, str]:
 
 def retain_job(job: JobState, source: Source, evidence: pathlib.Path) -> None:
     """Preserve mutations and small native reports before deleting the checkout."""
+    write_json(evidence / "provider-probes.json", job.provider_probes)
     final = inventory(job.root)
     final_tags = tags(job.root)
     write_json(
@@ -919,12 +1315,14 @@ def retain_job(job: JobState, source: Source, evidence: pathlib.Path) -> None:
             "tree": git(job.root, "rev-parse", "HEAD^{tree}").decode().strip(),
             "tags": final_tags,
             "files": final,
+            "event_scope": local_context_scope(),
         },
     )
     (evidence / "tracked.diff").write_bytes(git(job.root, "diff", "--binary", source.head, "--"))
     (evidence / "status.raw").write_bytes(git(job.root, "status", "--porcelain", "-z"))
     retain_tracked_changes(job, source, evidence, final)
     retain_reports(job, evidence)
+    retain_foreign(job, evidence)
     if (
         git(job.root, "rev-parse", "HEAD").decode().strip() != source.head
         or final_tags != source.tags
@@ -1000,6 +1398,43 @@ def retain_reports(job: JobState, evidence: pathlib.Path) -> None:
             target.write_bytes(path.read_bytes())
 
 
+def resolve_inputs(
+    step: Step, job: JobState, context: Mapping[str, str]
+) -> tuple[Step, str | None, str, bool]:
+    selected, problem = interpolate_inputs(step, job, context)
+    if problem:
+        if step.uses.split("@", 1)[0] == "actions/checkout":
+            job.blocked = problem
+        return selected, None, problem, True
+    block, suffix, fault = resolve_in_job(selected, job)
+    return selected, block, suffix, fault
+
+
+def local_context_scope() -> dict[str, Any]:
+    """A declared local simulation, distinct from an observed hosted event."""
+    return {
+        "event_name": LOCAL_EVENT,
+        "event_origin": "declared_local_push_simulation",
+        "hosted_event_verified": False,
+    }
+
+
+def job_context(steps: list[Step], job: JobState, source: Source) -> dict[str, str]:
+    context = {
+        **source.context(job.temp),
+        "github.workspace": str(job.root),
+        "github.event_name": LOCAL_EVENT,
+        "runner.os": {"linux": "Linux", "darwin": "macOS", "win32": "Windows"}.get(
+            sys.platform, sys.platform
+        ),
+        **{f"matrix.{k}": v for k, v in steps[0].matrix.items()},
+    }
+    if steps[0].unexpanded:
+        job.blocked = steps[0].unexpanded
+        job.failed += 1
+    return context
+
+
 def execute_job(
     steps: list[Step],
     job: JobState,
@@ -1007,11 +1442,11 @@ def execute_job(
     evidence: pathlib.Path,
     base: dict[str, str],
 ) -> None:
-    context = source.context(job.temp)
+    context = job_context(steps, job, source)
     for step in steps:
         retained = evidence / "steps" / str(step.position)
         retained.mkdir(parents=True)
-        block, suffix, fault = resolve_in_job(step, job)
+        step, block, suffix, fault = resolve_inputs(step, job, context)
         env: dict[str, str] = {}
         directory = ""
         if block is not None:
@@ -1094,6 +1529,7 @@ def execute_owned_job(
     source.checkout(root)
     setup_seconds = time.monotonic() - setup_start
     job = JobState(scratch, label, root)
+    job.repository = source.repository
     git_bytes = sum(p.stat().st_size for p in (root / ".git").rglob("*") if p.is_file())
     print(
         f"JOB_SOURCE {label} HEAD {source.head} TREE {source.tree} FILES {len(source.files)} "
@@ -1106,6 +1542,7 @@ def execute_owned_job(
             "tree": source.tree,
             "tags": tags(root),
             "files": inventory(root),
+            "event_scope": local_context_scope(),
             "checkout_seconds": setup_seconds,
             "git_directory_bytes": git_bytes,
         },
@@ -1151,6 +1588,7 @@ def execute(files: list[pathlib.Path], evidence_dir: pathlib.Path | None = None)
     print(f"Evidence retained at {evidence}")
     try:
         source = Source(REPO)
+        print("CONTEXT_SCOPE declared_local_push_simulation event=push hosted_event_verified=false")
         write_json(
             evidence / "source-input.json",
             {
@@ -1160,6 +1598,7 @@ def execute(files: list[pathlib.Path], evidence_dir: pathlib.Path | None = None)
                 "files": source.files,
                 "input_files": source.input_files,
                 "event": LOCAL_EVENT,
+                "event_scope": local_context_scope(),
             },
         )
         with tempfile.TemporaryDirectory(prefix="aee-workflow-steps-") as scratch:
@@ -1170,9 +1609,32 @@ def execute(files: list[pathlib.Path], evidence_dir: pathlib.Path | None = None)
                     raise ValueError("workflow must be a tracked file of the selected source")
                 doc = load_yaml(path)
                 print(f"\n=== {path.name} ===")
+                selected_tags = git(source.root, "tag", "--points-at", source.head).decode().split()
+                excluded = trigger_excludes(doc, selected_tags)
                 grouped: dict[str, list[Step]] = {}
                 for step in steps_of(doc, path):
-                    grouped.setdefault(step.job, []).append(step)
+                    if excluded:
+                        reason = f"{step.label}  ({excluded})"
+                        not_run.append(reason)
+                        skipped = (
+                            evidence
+                            / "trigger-excluded"
+                            / path.stem
+                            / re.sub(r"[^A-Za-z0-9_.-]", "_", step.job)
+                        )
+                        skipped.mkdir(parents=True, exist_ok=True)
+                        write_json(
+                            skipped / f"{step.position}.json",
+                            {
+                                "label": step.label,
+                                "status": "NOT_RUN",
+                                "reason": excluded,
+                                "fault": False,
+                            },
+                        )
+                        print(f"  NOT RUN  {reason}")
+                    else:
+                        grouped.setdefault(step.job, []).append(step)
                 for job_name, steps in grouped.items():
                     ordinal += 1
                     label = re.sub(r"[^A-Za-z0-9_.-]", "_", f"{ordinal:03d}-{path.stem}-{job_name}")
@@ -1197,56 +1659,84 @@ def execute(files: list[pathlib.Path], evidence_dir: pathlib.Path | None = None)
 
 
 def resolve_in_job(step: Step, job: JobState) -> tuple[str | None, str, bool]:
-    """`resolve`, inside a job whose toolchain step may have failed to provision.
-
-    Once setup-python cannot be mirrored, every later step of the job is NOT RUN
-    rather than run on an interpreter the remote job never has.
-    """
+    """Resolve only this job's source, inputs and actual toolchain capabilities."""
     if job.blocked:
         return None, job.blocked, False
-    if step.uses.split("@", 1)[0] == "actions/checkout" and not step.inputs.get("repository"):
-        where = str(step.inputs.get("path") or ".")
-        if where != ".":
-            job.blocked = "self checkout into another path is not mirrored by the job root"
-            return None, job.blocked, True
-        ref = str(step.inputs.get("ref") or "")
-        if ref:
-            selected, missing = expand(
-                ref,
-                job.outputs,
-                job.statuses,
-                {
-                    "github.sha": git(job.root, "rev-parse", "HEAD").decode().strip(),
-                },
-            )
-            try:
-                target = (
-                    git(job.root, "rev-parse", "--verify", f"{selected}^{{commit}}")
-                    .decode()
-                    .strip()
-                )
-            except subprocess.CalledProcessError:
-                target = ""
-            if missing or target != git(job.root, "rev-parse", "HEAD").decode().strip():
-                job.blocked = missing or "checkout ref does not select the frozen source commit"
-                return None, job.blocked, True
-    block, suffix, fault = resolve(step)
     action = step.uses.split("@", 1)[0]
+    foreign = str(step.inputs.get("repository") or "") if action == "actions/checkout" else ""
+    if action == "actions/checkout" and not event_excludes(step.condition):
+        if not foreign or foreign == job.repository:
+            problem = self_checkout_problem(step, job)
+            if problem:
+                job.blocked = problem
+                return None, problem, True
+        else:
+            ref, where = str(step.inputs.get("ref", "")), str(step.inputs.get("path") or ".")
+            problem = fetch_checkout(foreign, ref, where, job)
+            if problem:
+                job.blocked = problem
+                return None, problem, True
+            return ":", f"  (checked out {foreign} at {ref or 'HEAD'} into {where})", False
+    block, suffix, fault = resolve(step)
     if block is None and action == "actions/setup-python":
         job.blocked = f"the job's interpreter was not provisioned: {suffix}"
-    foreign = str(step.inputs.get("repository") or "") if action == "actions/checkout" else ""
-    if foreign:
-        # The runner fetches another repository into the workspace and the
-        # job's later steps read it. This gate runs inside one checkout and
-        # fetches nothing, so those steps would run against bytes that are not
-        # there and report the absence as the job's failure.
-        ref = str(step.inputs.get("ref") or "its default branch")
-        where = str(step.inputs.get("path") or ".")
-        job.blocked = (
-            f"the job checks out {foreign} at {ref} into {where}, which only the "
-            "runner fetches; its later steps read those bytes"
-        )
+    if block is None and action in PROVIDES and not event_excludes(step.condition):
+        job.blocked = provider_problem(step, job)
     return block, suffix, fault
+
+
+def self_checkout_problem(step: Step, job: JobState) -> str:
+    if str(step.inputs.get("path") or ".") != ".":
+        return "self checkout into another path is not mirrored by the job root"
+    ref = str(step.inputs.get("ref", ""))
+    if not ref:
+        return ""
+    try:
+        target = git(job.root, "rev-parse", "--verify", f"{ref}^{{commit}}").decode().strip()
+    except subprocess.CalledProcessError:
+        target = ""
+    selected = git(job.root, "rev-parse", "HEAD").decode().strip()
+    return "" if target == selected else "checkout ref does not select the frozen source commit"
+
+
+def provider_problem(step: Step, job: JobState) -> str:
+    """Probe declared runner tools before any dependent shell starts."""
+    action = step.uses.split("@", 1)[0]
+    env = job.environment(step_base_environment(os.environ))
+    tools = {tool: shutil.which(tool, path=env.get("PATH")) for tool in PROVIDES[action]}
+    probe: dict[str, Any] = {"action": action, "tools": tools, "hosted_provisioning": False}
+    job.provider_probes.append(probe)
+    if not all(tools.values()):
+        return f"{action} supplies tools not installed here: {tools}; no dependent shell ran"
+    selector = {
+        "actions/setup-node": ("node-version", ["node", "--version"]),
+        "actions/setup-go": ("go-version", ["go", "version"]),
+    }.get(action)
+    if selector is None or not step.inputs.get(selector[0]):
+        return ""
+    wanted = str(step.inputs[selector[0]]).removesuffix(".x")
+    proc = subprocess.run(selector[1], env=env, capture_output=True, check=False)  # noqa: S603 -- declared tool version probe
+    raw = job.temp / "provider-probes"
+    raw.mkdir(exist_ok=True)
+    index = len(job.provider_probes) - 1
+    (raw / f"{index}.stdout.txt").write_bytes(proc.stdout)
+    (raw / f"{index}.stderr.txt").write_bytes(proc.stderr)
+    job.failed += int(proc.returncode != 0)
+    probe.update(
+        command=selector[1],
+        returncode=proc.returncode,
+        stdout=proc.stdout.decode("utf-8", "replace"),
+        stderr=proc.stderr.decode("utf-8", "replace"),
+    )
+    installed = re.search(r"(?:go|v)([0-9]+(?:\.[0-9]+)+)", probe["stdout"])
+    if proc.returncode or not re.fullmatch(r"[0-9]+(?:\.[0-9]+)*", wanted) or not installed:
+        return f"{action} version {wanted!r} could not be bound to an actual local tool"
+    if installed.group(1).split(".")[: len(wanted.split("."))] != wanted.split("."):
+        return (
+            f"{action} asks for {wanted}, actual local tool is {installed.group(1)}; "
+            "dependent steps not run"
+        )
+    return ""
 
 
 # The event a local run stands for. The pre-push hook mirrors a push, so a step

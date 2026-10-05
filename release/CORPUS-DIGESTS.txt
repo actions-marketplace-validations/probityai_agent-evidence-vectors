@@ -10,7 +10,7 @@ aa8deffa934df48d43f228e48e299be2a136aef32ff5a55d18a2ef99e0286740  vectors-aci/MA
 e26e5a50267f4f09052f3349388f703d0a332a41cf325a4d248e21414070cbef  vectors-artifact-binding/MANIFEST.json  artifact-binding-conformance  vectors=8  no-suiteRevision
 90ba5e8cc42aca0383fe76608b1648406a5824ed303c178dd40a22f1d8e36f26  vectors-mcp-record-contract/MANIFEST.json  cross-run-record-contract  vectors=15  no-suiteRevision
 caa09e57af6e6ee85feff1fa5117095fa424c11a57a7518ca127d19676bfd5bc  vectors-mcp-response-phase/MANIFEST.json  mcp-response-phase-interception  vectors=8  no-suiteRevision
-d708b2d69d7051adbc2f5c849a43f03e4330b0e36a05ac099948b5af33dbd042  vectors-observed-effect/MANIFEST.json  observed-effect-conformance  vectors=57  no-suiteRevision
+1b45a2ea8023b019569fe5ef5489beca138bbe78229fd1f1c80fbae158f9dbaf  vectors-observed-effect/MANIFEST.json  observed-effect-conformance  vectors=59  no-suiteRevision
 cb490284f25c5eebc0a91c7776e6f195ae571c4f7dce029ae437128fce03a6ae  vectors-receipt-signature/MANIFEST.json  receipt-signature-conformance  vectors=25  no-suiteRevision
 79d651d3e127ce9bb68d4bf782f86b4e79391962ddda37f131fba641ca0c20da  vectors-scitt-cose/MANIFEST.json  scitt-cose-carriage-conformance  vectors=27  no-suiteRevision
 75393685568336f1ca2a5b1836f42d7e498b4927930234e7cc11d8f4aa81a064  vectors-self-reported-record/MANIFEST.json  self-reported-record-conformance  vectors=11  no-suiteRevision

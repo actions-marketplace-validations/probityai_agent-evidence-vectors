@@ -8,7 +8,7 @@
 
 [project]
 name = "agent-evidence-vectors"
-version = "0.17.2"
+version = "0.17.3"
 description = "Conformance vectors and reference verifier for the in-toto Adversarial Execution Evidence predicate"
 requires-python = ">=3.13"
 license = { text = "Apache-2.0" }
@@ -114,6 +114,11 @@ exclude = ["**/__pycache__", "**/.build", "**/*.pyc", "vectors/**/*.py", "vector
 # specification ships at that path beside the corpora.
 "spec/predicates/observed-effect.md" = "agent_evidence_vectors/corpora/spec/predicates/observed-effect.md"
 "spec/schemas/observed-effect-code-digest-v0.5.schema.json" = "agent_evidence_vectors/corpora/spec/schemas/observed-effect-code-digest-v0.5.schema.json"
+# The directory readers check each corpus's recorded criteria against these
+# source documents. Keep their repository-relative paths beside the corpora.
+"docs/proposals/ai-generation-v01-findings.md" = "agent_evidence_vectors/corpora/docs/proposals/ai-generation-v01-findings.md"
+"docs/INTEROP-EVIDENCE.md" = "agent_evidence_vectors/corpora/docs/INTEROP-EVIDENCE.md"
+"docs/mcp-response-phase.md" = "agent_evidence_vectors/corpora/docs/mcp-response-phase.md"
 
 [tool.hatch.build.targets.sdist]
 only-include = [
@@ -121,6 +126,9 @@ only-include = [
     "packaging/run_vectors.py",
     "spec/predicates/observed-effect.md",
     "spec/schemas/observed-effect-code-digest-v0.5.schema.json",
+    "docs/proposals/ai-generation-v01-findings.md",
+    "docs/INTEROP-EVIDENCE.md",
+    "docs/mcp-response-phase.md",
     "interop/observed-code-digest-candidate",
     "vectors",
     "vectors-agent-audit-record",
