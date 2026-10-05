@@ -48,6 +48,17 @@ Mutation = Callable[[Path], None]
 Case = tuple[str, Mutation, tuple[str, ...]]
 
 
+# A staged copy holds every tracked file as a loose object, so the first commit
+# starts a background `git gc --auto` that can still be writing under `.git`
+# when TemporaryDirectory removes the copy; CI failed on 2026-10-05 with
+# "Directory not empty: release-order/.git". The same three settings, and the
+# measurement behind them, are in spec-anchor-gate-test.py.
+QUIESCENT = {
+    "maintenance.auto": "false",
+    "gc.auto": "0",
+    "gc.autoDetach": "false",
+}
+
 def stage(destination: Path) -> None:
     """Copy the tracked tree into a fresh git checkout.
 
@@ -68,7 +79,11 @@ def stage(destination: Path) -> None:
         target = destination / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, target)
-    for command in (["git", "init", "-q"], ["git", "add", "-A"]):
+    for command in (
+        ["git", "init", "-q"],
+        *[["git", "config", key, value] for key, value in QUIESCENT.items()],
+        ["git", "add", "-A"],
+    ):
         subprocess.run(command, cwd=destination, check=True, capture_output=True)
     # And a COMMIT, because the gate now reads dates off the history: the release
     # date is checked against the commit being described and against the tags that
