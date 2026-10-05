@@ -45,5 +45,5 @@
   ],
   "specVersion": "0.1.0",
   "suite": "acs-core-negative-conformance",
-  "witnessScope": "SELF"
+  "witnessScope": "PEER"
 }

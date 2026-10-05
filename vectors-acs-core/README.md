@@ -131,11 +131,11 @@ each waits for its sentence and is minted from that sentence when it lands.
 The sealed-session members in `acs-f-6` come in a pair per profile. A seal that
 drops a head the Guardian already published is refused with `CHAIN_MISMATCH`
 under both the HMAC baseline and ACS-Crypto, and only the witness scope
-differs: `SELF` under the baseline, where the Guardian holds the key and can
-re-sign a shorter chain, and `EXTERNAL` under ACS-Crypto, where the public key
-lets a third party show which heads the Guardian signed. A decision-failure
-count derived from a sealed total inherits that scope, so the Core half never
-claims a third-party witness.
+differs: `PEER` under the baseline, where the Observed Agent holds the session
+key and the heads already published to it, and `EXTERNAL` under ACS-Crypto,
+where the public key lets a third party show which heads the Guardian signed.
+The baseline stops at the peer because the Guardian holds the same key and can
+re-sign a shorter chain, so the Core half never claims a third-party witness.
 
 Nothing here tests content filtering, model robustness, or prompt injection
 detection. The member about attributed content tests one property: that

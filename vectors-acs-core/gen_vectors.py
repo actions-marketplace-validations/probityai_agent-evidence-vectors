@@ -934,15 +934,17 @@ def build() -> list[dict]:
         verdict="deny",
         code="CHAIN_MISMATCH",
         evidence_basis="artifact",
-        witness_scope="SELF",
+        witness_scope="PEER",
         coverage="effective",
         cites=(
             "a session sealed off the second head after the Guardian's signed "
             "response had published a third. The seal drops a witnessed step, and "
             "a decision-failure count derived from the sealed total then misses "
-            "it. Under the HMAC baseline the Guardian holds the key and can "
-            "re-sign the shorter chain, so only a key-holder can check this "
-            "member, and its witness scope is SELF."
+            "it. Under the HMAC baseline the Observed Agent holds the session key "
+            "and the heads already published to it, so it can check the seal "
+            "without the Guardian's account and the member is PEER. It cannot "
+            "prove to a third party which side signed, because the Guardian can "
+            "re-sign a shorter chain with the same key."
         ),
     )
     add(
@@ -953,7 +955,7 @@ def build() -> list[dict]:
         verdict="allow",
         code=None,
         evidence_basis="artifact",
-        witness_scope="SELF",
+        witness_scope="PEER",
         coverage="effective",
         cites=(
             "the same session sealed off the last witnessed head, so a verifier "

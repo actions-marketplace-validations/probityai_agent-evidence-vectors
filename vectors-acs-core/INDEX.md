@@ -118,12 +118,12 @@ what it tests, so each waits for its sentence and is minted from it.
 | `v4f75a079844635af` | accept | acs-f-6 | ACS-R-006, ACS-R-021 | allow | none | artifact | EXTERNAL |
 | `v661266c5c87cb206` | reject | acs-f-1 | ACS-R-013 | deny | `CAPABILITY_NOT_NEGOTIATED` | substrate | SELF |
 | `v699f3f41215849ca` | accept | acs-f-7 | ACS-R-013 | allow | none | substrate | SELF |
-| `v6daaec0f6f0c8a14` | accept | acs-f-6 | ACS-R-006, ACS-R-021 | allow | none | artifact | SELF |
+| `v6daaec0f6f0c8a14` | accept | acs-f-6 | ACS-R-006, ACS-R-021 | allow | none | artifact | PEER |
 | `v78927805373a6c06` | accept | acs-f-9 | ACS-R-017 | allow | none | substrate | PEER |
 | `v7b0b32fb369136c1` | reject | acs-f-8 | ACS-R-006 | deny | `CHAIN_MISMATCH` | artifact | PEER |
 | `v82b6d110b4d68e7c` | indeterminate | acs-f-3 | ACS-R-003 | unmeasurable | none | artifact | EXTERNAL |
 | `v8557c978bf12ca55` | reject | acs-f-6 | ACS-R-016 | deny | `CHAIN_MISMATCH` | artifact | PEER |
-| `v986429a577e03404` | reject | acs-f-6 | ACS-R-006, ACS-R-021 | deny | `CHAIN_MISMATCH` | artifact | SELF |
+| `v986429a577e03404` | reject | acs-f-6 | ACS-R-006, ACS-R-021 | deny | `CHAIN_MISMATCH` | artifact | PEER |
 | `va00ef569d09bf7d5` | reject | acs-f-6 | ACS-R-015 | deny | none | substrate | SELF |
 | `va0ee5d0830b0490b` | accept | acs-f-5 | ACS-R-005 | allow | none | substrate | SELF |
 | `va200b64093301e14` | reject | acs-f-9 | ACS-R-018 | deny | none | substrate | SELF |

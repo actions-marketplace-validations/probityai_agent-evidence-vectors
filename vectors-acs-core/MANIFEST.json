@@ -274,7 +274,7 @@
     "reject": 24,
     "indeterminate": 1
   },
-  "corpusDigest": "4bb33bc9eabf52b1a572e9c443dd9a212bdb184070d0f3957087e73834009f8b",
+  "corpusDigest": "9013f6801c6a410536461299458ada59df8b90aef5afe75fe2adfe24d273d156",
   "note": "Each reject member has an accepting twin somewhere in its family, so an implementation that denies everything scores zero rather than full marks. A member the specification cannot express carries the verdict unmeasurable and the reason it cannot.",
   "vectors": [
     {
@@ -576,7 +576,7 @@
         "unmeasurableBecause": null
       },
       "evidenceBasis": "artifact",
-      "witnessScope": "SELF",
+      "witnessScope": "PEER",
       "coverage": "effective",
       "cites": "the same session sealed off the last witnessed head, so a verifier that refuses every sealed chain scores zero on the pair."
     },
@@ -677,9 +677,9 @@
         "unmeasurableBecause": null
       },
       "evidenceBasis": "artifact",
-      "witnessScope": "SELF",
+      "witnessScope": "PEER",
       "coverage": "effective",
-      "cites": "a session sealed off the second head after the Guardian's signed response had published a third. The seal drops a witnessed step, and a decision-failure count derived from the sealed total then misses it. Under the HMAC baseline the Guardian holds the key and can re-sign the shorter chain, so only a key-holder can check this member, and its witness scope is SELF."
+      "cites": "a session sealed off the second head after the Guardian's signed response had published a third. The seal drops a witnessed step, and a decision-failure count derived from the sealed total then misses it. Under the HMAC baseline the Observed Agent holds the session key and the heads already published to it, so it can check the seal without the Guardian's account and the member is PEER. It cannot prove to a third party which side signed, because the Guardian can re-sign a shorter chain with the same key."
     },
     {
       "id": "va00ef569d09bf7d5",
