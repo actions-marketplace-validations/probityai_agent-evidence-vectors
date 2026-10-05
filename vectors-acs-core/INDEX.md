@@ -5,8 +5,8 @@ Ground truth: the four normative files vendored in `spec-vendored/`, read at
 `9d4a9da` of `GenAI-Security-Project/agent-control-standard`, each pinned by sha256 in
 `MANIFEST.json`.
 
-This corpus is 34 vectors, of which 11 a conformant verifier must
-not fail closed on and 22 it must reject.
+This corpus is 38 vectors, of which 13 a conformant verifier must
+not fail closed on and 24 it must reject.
 
 **No implementation has been run against this corpus.** There is no reference
 adapter in the specification's repository at the pinned commit, and the two
@@ -61,6 +61,7 @@ Self-check: `aee-verify vectors-acs-core/` from the repository root.
 | `ACS-R-018` | guardian | `spec-vendored/specification-9d4a9da.md:282` | `e141df498745672d` | When the Guardian determines that the client cannot resolve `ASK`, the Guardian MUST NOT return `ASK` |
 | `ACS-R-019` | guardian | `spec-vendored/specification-9d4a9da.md:57` | `d045577eea0fab7a` | Accept `X.Y.Z` matching major version |
 | `ACS-R-020` | guardian | `spec-vendored/specification-9d4a9da.md:293` | `4aba06b38783dc57` | canonical input is REQUIRED in ACS-Core |
+| `ACS-R-021` | verifier | `spec-vendored/specification-9d4a9da.md:258` | `4c97a8c91e35a161` | Non-repudiation, proving to a third party that a specific Guardian issued a specific head, requires the asymmetric ACS-Crypto profile |
 
 ## Families
 
@@ -88,6 +89,17 @@ now is a vector rewritten when it lands.
 | the second half of the subagent hook pair | split out of the mandatory set by a later push on the same pull request |
 | the wrapped tool-protocol methods | the same pull request has moved these twice and they currently sit back at mandatory for sessions that use them, so their status is unsettled rather than relaxed |
 
+## Waiting for a sentence
+
+Cases raised on the specification's tracker that no sentence at the pinned
+commit says. A member written now would cite a requirement that does not say
+what it tests, so each waits for its sentence and is minted from it.
+
+| case | why it waits |
+|---|---|
+| a session that began and was never sealed | the pinned text has no sentence requiring a party other than the Observed Agent to record that a session began, so a begun session with no seal leaves nothing a member could cite. Wording is proposed on GenAI-Security-Project/agent-control-standard#37. Once it lands, the member expects a counted decision failure, never unmeasurable, because a begun and unsealed session is countable |
+| an argument textually inside a scoped mandate that resolves outside it | a dot-dot segment, a symlink, an encoded traversal or an unnormalised egress hostname passes a raw prefix check and resolves out of scope. The pinned text fixes the URI form of a resource identifier and says nothing about checking its resolved form against a mandate. Raised on GenAI-Security-Project/agent-control-standard#29, where a Guardian unable to resolve the argument is proposed as unmeasurable rather than allow |
+
 ## Vectors
 
 | id | kind | family | requirements | verdict | code | basis | witness scope |
@@ -97,17 +109,21 @@ now is a vector rewritten when it lands.
 | `v0c6dcb9ff13af3c9` | reject | acs-f-6 | ACS-R-014 | deny | none | substrate | SELF |
 | `v100f74962fbb8b94` | reject | acs-f-4 | ACS-R-011 | deny | `CAPABILITY_NOT_NEGOTIATED` | substrate | PEER |
 | `v10351021bf6e46b1` | reject | acs-f-7 | ACS-R-009 | deny | `CAPABILITY_NOT_NEGOTIATED` | substrate | SELF |
+| `v221edeb22c4e8634` | reject | acs-f-6 | ACS-R-006, ACS-R-021 | deny | `CHAIN_MISMATCH` | artifact | EXTERNAL |
 | `v25f01d8fe1e91bf5` | accept | acs-f-8 | ACS-R-006 | allow | none | artifact | PEER |
 | `v3c03d4e4ce213e9c` | accept | acs-f-6 | ACS-R-016 | allow | none | artifact | PEER |
 | `v3e946bcfde26bbe2` | accept | acs-f-2 | ACS-R-002 | allow | none | substrate | SELF |
 | `v412653087b92cb07` | reject | acs-f-9 | ACS-R-017 | deny | `UNSUPPORTED_VERSION` | substrate | PEER |
 | `v448a61c91554a125` | reject | acs-f-7 | ACS-R-013 | deny | `CAPABILITY_NOT_NEGOTIATED` | substrate | SELF |
+| `v4f75a079844635af` | accept | acs-f-6 | ACS-R-006, ACS-R-021 | allow | none | artifact | EXTERNAL |
 | `v661266c5c87cb206` | reject | acs-f-1 | ACS-R-013 | deny | `CAPABILITY_NOT_NEGOTIATED` | substrate | SELF |
 | `v699f3f41215849ca` | accept | acs-f-7 | ACS-R-013 | allow | none | substrate | SELF |
+| `v6daaec0f6f0c8a14` | accept | acs-f-6 | ACS-R-006, ACS-R-021 | allow | none | artifact | PEER |
 | `v78927805373a6c06` | accept | acs-f-9 | ACS-R-017 | allow | none | substrate | PEER |
 | `v7b0b32fb369136c1` | reject | acs-f-8 | ACS-R-006 | deny | `CHAIN_MISMATCH` | artifact | PEER |
 | `v82b6d110b4d68e7c` | indeterminate | acs-f-3 | ACS-R-003 | unmeasurable | none | artifact | EXTERNAL |
 | `v8557c978bf12ca55` | reject | acs-f-6 | ACS-R-016 | deny | `CHAIN_MISMATCH` | artifact | PEER |
+| `v986429a577e03404` | reject | acs-f-6 | ACS-R-006, ACS-R-021 | deny | `CHAIN_MISMATCH` | artifact | PEER |
 | `va00ef569d09bf7d5` | reject | acs-f-6 | ACS-R-015 | deny | none | substrate | SELF |
 | `va0ee5d0830b0490b` | accept | acs-f-5 | ACS-R-005 | allow | none | substrate | SELF |
 | `va200b64093301e14` | reject | acs-f-9 | ACS-R-018 | deny | none | substrate | SELF |
