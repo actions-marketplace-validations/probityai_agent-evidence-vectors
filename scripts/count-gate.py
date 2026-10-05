@@ -1812,6 +1812,54 @@ FROZEN: tuple[Frozen, ...] = (
         "about 59 AVE records into a fact about these vectors.",
     ),
     Frozen(
+        "crosswalks/aee-to-ave.md",
+        "the opening line's AVE record count",
+        "against AVE's 59 published records",
+        "A count of AVE's published records, read on the date the document "
+        "states. It equals the observed-effect corpus total only by "
+        "coincidence and must not track it.",
+    ),
+    Frozen(
+        "crosswalks/aee-to-ave.md",
+        "the counting note's AVE record count",
+        "derived from the 59 records in the records directory",
+        "A count of AVE's published records, read on the date the document "
+        "states. It equals the observed-effect corpus total only by "
+        "coincidence and must not track it.",
+    ),
+    Frozen(
+        "crosswalks/aee-to-ave.md",
+        "the provenance paragraph's AVE record count",
+        "on 2026-07-28, 59 in total",
+        "A count of AVE's published records, read on the date the document "
+        "states. It equals the observed-effect corpus total only by "
+        "coincidence and must not track it.",
+    ),
+    Frozen(
+        "crosswalks/aee-to-ave.md",
+        "the provenance paragraph's upstream tree size",
+        "carried a 59-record tree",
+        "A count of AVE's published records, read on the date the document "
+        "states. It equals the observed-effect corpus total only by "
+        "coincidence and must not track it.",
+    ),
+    Frozen(
+        "crosswalks/aee-to-owasp-and-atlas.md",
+        "the provenance note's AVE corpus size",
+        "derive from the same 59-record corpus",
+        "A count of AVE's published records, read on the date the document "
+        "states. It equals the observed-effect corpus total only by "
+        "coincidence and must not track it.",
+    ),
+    Frozen(
+        "scripts/crosswalk-gen.py",
+        "the docstring's account of the old record_count",
+        "`record_count: 59`",
+        "A count of AVE's published records, read on the date the document "
+        "states. It equals the observed-effect corpus total only by "
+        "coincidence and must not track it.",
+    ),
+    Frozen(
         "vectors/CHANGES.md",
         "suiteRevision 15's mutation-campaign tally",
         "19 were seen and tolerated",

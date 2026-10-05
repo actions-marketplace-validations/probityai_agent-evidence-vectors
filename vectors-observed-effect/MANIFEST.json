@@ -3,6 +3,10 @@
     "digest": "sha256",
     "envelope": "ed25519"
   },
+  "blobNote": "The one blob the read rows in this corpus narrate, keyed by its sha256 and given as its ASCII text. The expected verdicts assume a consumer that holds it, the way they assume one that holds the observer key: range-digest-over-bytes-alone is malformed only to a verifier that recomputes the range digest from these bytes, and a verifier configured without them accepts it. read-row-nobody-can-check reads a different blob that is published nowhere, and is accepted for that reason.",
+  "blobs": {
+    "83c9f464f91df454a002f890170cac9f3152bc36813c477b0ee8abbe79a369ac": "port: 8080\nmode: strict\nport: 8080\nmode: strict\nport: 8080\nmode: strict\nport: 8080\nmode: strict\nport: 8080\nmode: strict\nport: 8080\nmode: strict\nport: 8080\nmode: strict\nport: 8080\nmode: strict\n"
+  },
   "conditions": {
     "oe-agreement": "dualValues: agreement must be derivable from the two carried values",
     "oe-anchor-unruled": "priorCommitment.externalAnchor: the predicate defines no offline token rule",
@@ -13,6 +17,7 @@
     "oe-commitment-keyid": "priorCommitment: keyid must not appear in observedSigners (attack A1)",
     "oe-commitment-order": "priorCommitment: committedAt strictly before interval.openedAt",
     "oe-commitment-signature": "priorCommitment: the signature is verified against the anchored observer key (attack A27)",
+    "oe-commitment-signature-form": "priorCommitment: sig is spelled one way, 128 lowercase hex, so every rail reads the same bytes (attack A32)",
     "oe-coverage-contradiction": "coverage: scopeComplete true with a gap inside pathScope is malformed",
     "oe-coverage-named": "coverage: an incomplete observation names where it was blind (attack A25)",
     "oe-dual-recompute": "dualValues: for a fact the statement can compute about itself, the observed side is that value (attack A28)",
@@ -45,11 +50,11 @@
     "oe-write-scope": "writes: a write outside pathScope invalidates the authoritative tier",
     "oe-write-scope-label": "writes: inScope is derived from path and pathScope, never a producer opinion"
   },
-  "corpusDigest": "d708b2d69d7051adbc2f5c849a43f03e4330b0e36a05ac099948b5af33dbd042",
+  "corpusDigest": "1b45a2ea8023b019569fe5ef5489beca138bbe78229fd1f1c80fbae158f9dbaf",
   "counts": {
     "accept": 12,
     "indeterminate": 1,
-    "reject": 44
+    "reject": 46
   },
   "emptyTree": {
     "sha1": "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
@@ -104,6 +109,7 @@
         "oe-coverage-named",
         "oe-keyid-form",
         "oe-commitment-signature",
+        "oe-commitment-signature-form",
         "oe-dual-recompute",
         "oe-dual-values-absent",
         "oe-origin-vantage",
@@ -933,6 +939,40 @@
       "kind": "reject",
       "parent": "v1c6fdd82db5229e4",
       "slug": "commitment-signed-by-nobody"
+    },
+    {
+      "cites": "A correct commitment signature written in uppercase hexadecimal. Every decoder in this repository accepted it and it verified, so one signed commitment had two spellings and the record carrying it had two byte strings, while the predicate fixes one spelling for every other hexadecimal member.",
+      "conditions": [
+        "oe-commitment-signature-form"
+      ],
+      "expected": {
+        "codes": [
+          "commitment-signature-malformed"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v90141a91a4a8486a.json",
+      "id": "v90141a91a4a8486a",
+      "kind": "reject",
+      "parent": "v1c6fdd82db5229e4",
+      "slug": "commitment-signature-in-uppercase-hex"
+    },
+    {
+      "cites": "A correct commitment signature with one space between its two halves. Python's bytes.fromhex skips the space and the signature verifies; Go's hex.DecodeString refuses it. The two reference verifiers in this repository returned valid and malformed for the same signed bytes, which is the divergence a conformance corpus exists to remove.",
+      "conditions": [
+        "oe-commitment-signature-form"
+      ],
+      "expected": {
+        "codes": [
+          "commitment-signature-malformed"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v0cff3afffe48e741.json",
+      "id": "v0cff3afffe48e741",
+      "kind": "reject",
+      "parent": "v1c6fdd82db5229e4",
+      "slug": "commitment-signature-with-a-space"
     },
     {
       "cites": "The record carries two writes and reports having observed seven, and agrees with itself about it. dualValues is the member the predicate offers as the one that catches a lying producer without trusting anyone, and the observed side was a free string, so the cross-check could be set to any number including one the same signed bytes refute.",

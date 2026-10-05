@@ -839,6 +839,22 @@ def _rule_keyid_form(state: _State) -> None:
         raise Malformed("keyid-not-lowercase-hex")
 
 
+def _rule_commitment_signature_form(state: _State) -> None:
+    """The commitment signature has one spelling: 128 lowercase hex characters.
+
+    ``bytes.fromhex`` skips whitespace and accepts uppercase, and Go's
+    ``hex.DecodeString`` accepts uppercase and refuses whitespace, so while the
+    decoder decided, one signed record read valid here and malformed on the Go
+    rail. Fixing the spelling in stage one makes the bytes decide.
+    """
+    commitment = _commitment(state.predicate)
+    if commitment is None:
+        return
+    signature = commitment.get("sig")
+    if not (isinstance(signature, str) and _lower_hex(signature) and len(signature) == 128):
+        raise Malformed("commitment-signature-malformed")
+
+
 def _rule_agreement_derivable(state: _State) -> None:
     """The agreement is a function of the two carried values, never a claim."""
     for row in state.predicate["dualValues"]:
@@ -1010,6 +1026,7 @@ RULES: tuple[tuple[str, Rule], ...] = (
     ("prior-commitment-present", _rule_prior_commitment_present),
     ("commitment-digest", _rule_commitment_digest),
     ("keyid-form", _rule_keyid_form),
+    ("commitment-signature-form", _rule_commitment_signature_form),
     ("agreement-derivable", _rule_agreement_derivable),
     ("dual-value-recomputes", _rule_dual_value_recomputes),
     ("commitment-signature", _rule_commitment_signature),

@@ -618,6 +618,22 @@ func ruleKeyidForm(c *ctx) *fault {
 	return nil
 }
 
+// ruleCommitmentSignatureForm fixes one spelling for the commitment signature: 128
+// lowercase hex characters. hex.DecodeString accepts uppercase and refuses
+// whitespace, and Python's bytes.fromhex accepts both, so while the decoder
+// decided, one signed record read malformed here and valid on the Python rails.
+func ruleCommitmentSignatureForm(c *ctx) *fault {
+	commitment, present := c.commitment()
+	if !present {
+		return nil
+	}
+	signature, _ := commitment["sig"].(string)
+	if !lowerHex(signature) || len(signature) != 2*ed25519.SignatureSize {
+		return malformed("commitment-signature-malformed")
+	}
+	return nil
+}
+
 func lowerHex(value any) bool {
 	text, ok := value.(string)
 	if !ok || text == "" {
