@@ -522,8 +522,11 @@ def release_order_checks(tmp: Path) -> list[str]:
     )
     for name, committer, author in cuts:
         commit_with_dates(root, committer, author)
-        subprocess.run(["git", "-c", "tag.gpgsign=false", "tag", "-a", name, "-m", name],
-                       cwd=root, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-c", "user.name=citation gate test", "-c",
+             "user.email=citation-gate-test@example.invalid", "-c", "tag.gpgsign=false",
+             "tag", "-a", name, "-m", name], cwd=root, check=True, capture_output=True,
+        )
     commit_with_dates(root, "2026-10-05T03:00:00+0000", "2026-10-05T03:00:00+0000")
     failures: list[str] = []
     for timezone in TIMEZONES:
