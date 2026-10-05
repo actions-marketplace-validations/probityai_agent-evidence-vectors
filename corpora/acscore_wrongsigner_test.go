@@ -145,3 +145,85 @@ func TestACSWrongSignerIsTwoShapesAcrossProfiles(t *testing.T) {
 			c.row.ID, h.row.ID, c.row.Expected.Verdict)
 	}
 }
+
+// An HMAC head offered to a third party as proof of which Guardian issued it
+// is a claim the symmetric tier cannot carry, and grading it weak lets it
+// through. The corpus therefore needs a member that refuses the claim: the
+// signature verifies and the signer is honest, and the verdict is still deny.
+// It must not share the undeterminable member's verdict, or a surface that can
+// only say "weak" passes it.
+func TestACSSymmetricHeadClaimedExternalIsRefused(t *testing.T) {
+	dir := corpusPath("vectors-acs-core")
+	raw, err := os.ReadFile(filepath.Join(dir, "MANIFEST.json"))
+	if err != nil {
+		t.Fatalf("reading the ACS-Core manifest: %v", err)
+	}
+	var manifest struct {
+		Vectors []wrongSignerRow `json:"vectors"`
+	}
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		t.Fatalf("the ACS-Core manifest does not parse: %v", err)
+	}
+	if len(manifest.Vectors) == 0 {
+		t.Fatal("the ACS-Core manifest lists no members, so an absence below would prove nothing")
+	}
+	var claimed, undeterminable []wrongSignerRow
+	for _, row := range manifest.Vectors {
+		body, err := os.ReadFile(filepath.Join(dir, row.File))
+		if err != nil {
+			t.Fatalf("%s: reading the vector file: %v", row.ID, err)
+		}
+		var document struct {
+			Payload struct {
+				wrongSignerPayload
+				PresentedAs *struct {
+					WitnessScope string `json:"witness_scope"`
+				} `json:"presented_as"`
+			} `json:"payload"`
+		}
+		if err := json.Unmarshal(body, &document); err != nil {
+			t.Fatalf("%s: the vector file does not parse: %v", row.ID, err)
+		}
+		p := document.Payload
+		if p.Profile != "ACS-Core" || p.GuardianResponse == nil ||
+			p.GuardianResponse.Signature.Algorithm != "HMAC-SHA256" {
+			continue
+		}
+		if p.PresentedAs != nil && p.PresentedAs.WitnessScope == "EXTERNAL" {
+			claimed = append(claimed, row)
+		} else if row.Expected.Verdict == "unmeasurable" {
+			undeterminable = append(undeterminable, row)
+		}
+	}
+	if len(claimed) != 1 {
+		t.Fatalf("want exactly one ACS-Core HMAC head presented as EXTERNAL evidence, found %d", len(claimed))
+	}
+	r := claimed[0]
+	if r.Kind != "reject" || r.Expected.Verdict != "deny" {
+		t.Errorf("%s: want a reject expecting deny, got kind %q verdict %q", r.ID, r.Kind, r.Expected.Verdict)
+	}
+	if r.Expected.Code != nil {
+		t.Errorf("%s: the signature verifies, so no registry code names this refusal; got %q", r.ID, *r.Expected.Code)
+	}
+	cites := false
+	for _, id := range r.Requirements {
+		if id == "ACS-R-021" {
+			cites = true
+		}
+	}
+	if !cites {
+		t.Errorf("%s: want the member to cite ACS-R-021; it cites %v", r.ID, r.Requirements)
+	}
+	if r.WitnessScope != "EXTERNAL" {
+		t.Errorf("%s: the algorithm and the claim are in the presented bytes, so want EXTERNAL, got %q",
+			r.ID, r.WitnessScope)
+	}
+	for _, u := range undeterminable {
+		if u.Expected.Verdict == r.Expected.Verdict {
+			t.Errorf("%s and %s share the verdict %q", r.ID, u.ID, r.Expected.Verdict)
+		}
+	}
+	if len(undeterminable) == 0 {
+		t.Error("the undeterminable HMAC member this refusal is contrasted with is missing")
+	}
+}
