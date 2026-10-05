@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import re
@@ -169,46 +170,57 @@ class ProcessTests(unittest.TestCase):
                             pin or reader.sha256(manifest.read_bytes()),
                             "--output-dir", str(output))
 
+    def assert_refused(self, result: subprocess.CompletedProcess[str], reason: str) -> None:
+        # Exit 2 alone cannot tell the intended refusal from any other one.
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertEqual(json.loads(result.stderr)["status"], "refused")
+        self.assertEqual(json.loads(result.stderr)["reason"], reason)
+
+    def assert_output_exists(self, result: subprocess.CompletedProcess[str]) -> None:
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertTrue(json.loads(result.stderr)["reason"].startswith(
+            f"[Errno {errno.EEXIST}]"), result.stderr)
+
     def test_actual_accept_and_refuse_exit_codes(self) -> None:
         self.assertEqual(self.command("check", str(self.copy / "cases/ATF-001.json")).returncode, 0)
-        result = self.command("check", str(self.copy / "cases/ATF-010.json"))
-        self.assertEqual(result.returncode, 2)
-        self.assertEqual(json.loads(result.stderr)["reason"], "tuple-mismatch")
+        self.assert_refused(self.command("check", str(self.copy / "cases/ATF-010.json")),
+                            "tuple-mismatch")
 
     def test_fresh_report_and_stale_output_refusal(self) -> None:
         output = self.root / "first"
-        self.assertEqual(self.run_corpus(output).returncode, 0)
+        first = self.run_corpus(output)
+        self.assertEqual(first.returncode, 0, first.stderr)
         before = (output / "report.json").read_bytes()
-        self.assertEqual(self.run_corpus(output).returncode, 2)
+        self.assert_output_exists(self.run_corpus(output))
         self.assertEqual((output / "report.json").read_bytes(), before)
         empty = self.root / "empty"
         empty.mkdir()
-        self.assertEqual(self.run_corpus(empty).returncode, 2)
+        self.assert_output_exists(self.run_corpus(empty))
         self.assertFalse((empty / "report.json").exists())
 
     def test_wrong_selected_pin_and_changed_reader_refuse_without_report(self) -> None:
         output = self.root / "wrong-pin"
-        self.assertEqual(self.run_corpus(output, "0" * 64).returncode, 2)
+        self.assert_refused(self.run_corpus(output, "0" * 64), "manifest-pin")
         self.assertFalse((output / "report.json").exists())
         path = self.copy / "reader.py"
         path.write_bytes(path.read_bytes() + b"\n# changed source\n")
         output = self.root / "changed-reader"
-        self.assertEqual(self.run_corpus(output).returncode, 2)
+        self.assert_refused(self.run_corpus(output), "pin-digest")
         self.assertFalse((output / "report.json").exists())
 
     def test_changed_case_extra_case_and_symlink_refuse(self) -> None:
         case = self.copy / "cases/ATF-001.json"
         original = case.read_bytes()
         case.write_bytes(original + b"\n")
-        self.assertEqual(self.run_corpus(self.root / "changed-case").returncode, 2)
+        self.assert_refused(self.run_corpus(self.root / "changed-case"), "pin-digest")
         case.write_bytes(original)
         extra = self.copy / "cases/extra.json"
         extra.write_bytes(original)
-        self.assertEqual(self.run_corpus(self.root / "extra-case").returncode, 2)
+        self.assert_refused(self.run_corpus(self.root / "extra-case"), "corpus-population")
         extra.unlink()
         case.unlink()
         case.symlink_to(ROOT / "cases/ATF-001.json")
-        self.assertEqual(self.run_corpus(self.root / "symlink").returncode, 2)
+        self.assert_refused(self.run_corpus(self.root / "symlink"), "pin-symlink")
 
 
 if __name__ == "__main__":
