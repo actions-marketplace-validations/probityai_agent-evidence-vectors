@@ -3749,12 +3749,14 @@ def _run_non_reference_suite(
     )
     if not own_reader and external_cmd is not None:
         return None
-    if suite == anchoredchain.SUITE:
-        # Judged by its own reader, or by a named verifier through the contract
-        # its README states; either way every case is answered or the run fails.
-        return anchoredchain.run(suite_dir, external_cmd, report_path, rail_note)
-    if suite == sourcecoverage.SUITE:
-        return sourcecoverage.run_or_refuse(suite_dir, external_cmd, report_path, rail_note)
+    # These readers judge with their own reader or a named verifier through the
+    # contract their README states, so every case is answered or the run fails.
+    full_reader = {
+        anchoredchain.SUITE: anchoredchain.run,
+        sourcecoverage.SUITE: sourcecoverage.run_or_refuse,
+    }.get(suite)
+    if full_reader is not None:
+        return full_reader(suite_dir, external_cmd, report_path, rail_note)
     if external_cmd is not None and suite == receiptsignature.SUITE:
         return receiptsignature.run_external(suite_dir, external_cmd, report_path, rail_note)
     if external_cmd is not None:

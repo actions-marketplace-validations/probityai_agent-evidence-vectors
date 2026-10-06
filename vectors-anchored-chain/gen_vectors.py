@@ -4,9 +4,9 @@ Every case is one stored history of signed memory records, one anchor signed by
 a key the store does not hold, and the consumer's trust inputs in ``case.json``.
 The edits follow the storage-level edits of
 draft-khandelwal-bmwg-agent-memory-integrity-01, Section 6, and the snapshot
-rollback the agmi suite adds as T9, applied to a signed
-chain instead of a raw store, plus a rollback to an abandoned branch and the controls that keep the corpus
-honest.
+rollback the agmi suite adds as T9, applied to a signed chain instead of a raw
+store, plus a rollback to an abandoned branch and the controls that keep the
+corpus honest.
 
 Keys are Ed25519 seeds derived from published labels, so anyone can rebuild
 every signature. They are test keys and protect nothing.

@@ -45,6 +45,7 @@ import json
 import shlex
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -126,7 +127,7 @@ def _first_failure(
     """
     producer = bytes.fromhex(case["keys"]["producer"])
     envelopes = [json.loads(line) for line in lines]
-    failures = {
+    failures: dict[str, Callable[[], bool]] = {
         "signature_invalid": lambda: not all(
             _signed(env, "record", producer) for env in envelopes),
         "anchor_signature_invalid": lambda: not _signed(
@@ -239,6 +240,7 @@ def check(
         case_path = directory / "case.json"
         if store_signatures_verify(case_path) != entry["storeSignaturesVerify"]:
             errors.append(f"{name}: declared signature property does not hold")
+        observed: dict[str, Any] | str
         if command is None:
             ran, observed = True, verify(case_path, skip)
         else:
@@ -281,7 +283,7 @@ def run(root: str, verifier: list[str] | None, report_path: str, rail_note: str)
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(description=(__doc__ or SUITE).splitlines()[0])
     parser.add_argument("case", nargs="?", help="judge one case.json with the reference reader")
     parser.add_argument("--json", action="store_true", help="print the decision as JSON")
     parser.add_argument("--verifier", help="run every case through this verifier instead")
