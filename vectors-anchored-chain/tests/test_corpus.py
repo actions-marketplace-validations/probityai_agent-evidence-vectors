@@ -25,7 +25,8 @@ generator = _load("anchored_chain_generator", ROOT / "gen_vectors.py")
 from agent_evidence_vectors import anchoredchain  # noqa: E402
 
 GENUINE_REJECTS = {"t2-tail-removal", "t3-middle-deletion", "t4-reorder",
-                   "t6-cross-context-replay", "t7-rollback-older-record"}
+                   "t6-cross-context-replay", "t7-rollback-older-record",
+                   "t9-snapshot-rollback"}
 
 
 def _stub(tmp_path: Path, skip: tuple[str, ...]) -> str:
@@ -70,7 +71,7 @@ class TestAnchoredChainCorpus:
             assert errors == []
             assert answered == len(generator.cases())
 
-        def test_seven_rejected_stores_hold_only_genuine_signed_records(self) -> None:
+        def test_eight_rejected_stores_hold_only_genuine_signed_records(self) -> None:
             manifest = anchoredchain.json.loads((ROOT / "MANIFEST.json").read_text())
             genuine = {e["id"] for e in manifest["vectors"]
                        if e["storeSignaturesVerify"] and e["expected"]["decision"] == "rejected"}
@@ -88,7 +89,8 @@ class TestAnchoredChainCorpus:
             self, tmp_path: Path
         ) -> None:
             _, errors = corpus.check(_stub(tmp_path, anchoredchain.CHECKS[4:]))
-            assert _failed(errors) == {"t2-tail-removal", "rollback-to-abandoned-branch"}
+            assert _failed(errors) == {"t2-tail-removal", "t9-snapshot-rollback",
+                                       "rollback-to-abandoned-branch"}
 
         @pytest.mark.parametrize("name", anchoredchain.CHECKS)
         def test_every_check_is_forced_by_some_case(self, name: str) -> None:

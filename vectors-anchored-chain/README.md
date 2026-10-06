@@ -2,10 +2,12 @@
 
 Cases for `anchored-record-chain/v1`: a stored history of signed agent memory
 records, an anchor over that history signed by a key the store does not hold,
-and the decision a verifier must reach. The edits are the eight storage-level
+and the decision a verifier must reach. The edits are the storage-level
 edits of
 [draft-khandelwal-bmwg-agent-memory-integrity-01](https://datatracker.ietf.org/doc/draft-khandelwal-bmwg-agent-memory-integrity/),
-Section 6, applied to a signed chain, plus a rollback to an abandoned branch,
+Section 6, and the whole-store snapshot rollback the
+[agmi](https://github.com/tech4biz-yasha/agmi) suite measures as T9, applied to a
+signed chain, plus a rollback to an abandoned branch,
 a re-anchoring attempt and three controls. The expected decision and reason
 for every case are in `MANIFEST.json`.
 
@@ -28,6 +30,7 @@ anchor catch them, and the corpus says which one.
 | t6-cross-context-replay | T6 | yes | rejected, `record_from_other_chain` | chain identity |
 | t7-rollback-older-record | T7 | yes | rejected, `chain_link_broken` | chain link |
 | t8-metadata-tamper | T8 | no | rejected, `signature_invalid` | record signature |
+| t9-snapshot-rollback | T9 (agmi) | yes | rejected, `anchored_head_missing` | anchor |
 | rollback-to-abandoned-branch | rollback | yes | rejected, `anchored_head_mismatch` | anchor |
 | tail-removal-reanchored | T2, re-anchored | yes | rejected, `anchor_signature_invalid` | anchor key |
 

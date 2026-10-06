@@ -2,8 +2,9 @@
 
 Every case is one stored history of signed memory records, one anchor signed by
 a key the store does not hold, and the consumer's trust inputs in ``case.json``.
-The edits follow the eight storage-level edits of
-draft-khandelwal-bmwg-agent-memory-integrity-01, Section 6, applied to a signed
+The edits follow the storage-level edits of
+draft-khandelwal-bmwg-agent-memory-integrity-01, Section 6, and the snapshot
+rollback the agmi suite adds as T9, applied to a signed
 chain instead of a raw store, plus a rollback to an abandoned branch and the controls that keep the corpus
 honest.
 
@@ -135,6 +136,9 @@ def cases() -> list[tuple[str, list[bytes], bytes, str, str, str]]:
          "T7: a genuine older record of A copied over A's newest record"),
         ("t8-metadata-tamper", [*a[:3], _resign_free_edit(a[3], owner="context-b"), *a[4:]],
          head, "rejected", "signature_invalid", "T8: a record's owner changed, content kept"),
+        ("t9-snapshot-rollback", a[:5], head, "rejected", "anchored_head_missing",
+         "T9: the whole store restored from a copy taken before the newest record was "
+         "written; the anchor was taken after it"),
         ("rollback-to-abandoned-branch", [*a[:4], *abandoned], head, "rejected",
          "anchored_head_mismatch",
          "rollback: the store restored from a backup taken on a branch the producer "

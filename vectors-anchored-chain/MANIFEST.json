@@ -1,5 +1,5 @@
 {
-  "corpusDigest": "86ede988a2c7d7cb848599dc50f6d5b7c687b80d4eb83cb8898f78b1535dc098",
+  "corpusDigest": "a92cf47c64f905ec6a57c4bf624c2667c075da4a76d58b4d251584831202dc86",
   "suite": "anchored-record-chain/v1",
   "vectors": [
     {
@@ -166,6 +166,21 @@
       "id": "t8-metadata-tamper",
       "path": "cases/t8-metadata-tamper",
       "storeSignaturesVerify": false
+    },
+    {
+      "edit": "T9: the whole store restored from a copy taken before the newest record was written; the anchor was taken after it",
+      "expected": {
+        "decision": "rejected",
+        "reason": "anchored_head_missing"
+      },
+      "files": {
+        "anchor.json": "d3c37863f32302a426605e56c26572e8850663ffa890ee0356d28d467a294894",
+        "case.json": "e079edc395007d64e281a68e7bc2a3c00db6e03c077bdc109fe4fcb4d749ef65",
+        "store.jsonl": "30a58ef4b31e8a57df723dad0a581055ae10a6309cd133430b982e21e8923085"
+      },
+      "id": "t9-snapshot-rollback",
+      "path": "cases/t9-snapshot-rollback",
+      "storeSignaturesVerify": true
     },
     {
       "edit": "rollback: the store restored from a backup taken on a branch the producer signed and later abandoned; every record is genuine and every link holds",

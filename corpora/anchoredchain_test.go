@@ -59,6 +59,7 @@ func TestAnchoredChainEachCheckMovesTheVerdict(t *testing.T) {
 		{"intact", "t6-cross-context-replay", "derived rejected/record_from_other_chain"},
 		{"intact", "rollback-to-abandoned-branch", "derived rejected/anchored_head_mismatch"},
 		{"intact", "t1-content-tamper", "every stored signature verifies: false"},
+		{"intact", "t9-snapshot-rollback", "derived rejected/anchored_head_missing"},
 		{"t1-content-tamper", "intact", "every stored signature verifies: true"},
 	}
 	for _, tc := range cases {

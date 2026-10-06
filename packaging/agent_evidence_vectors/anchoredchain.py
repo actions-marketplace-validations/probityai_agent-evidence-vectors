@@ -4,7 +4,7 @@ The corpus this module reads separates two questions a verifier can be asked
 about a stored history of signed records. The first is whether each record is
 genuine: every signature verifies under the producer's key. The second is
 whether the history is the one that was written: every record sits where it was
-written, and nothing written before the last anchor is missing. Seven of the
+written, and nothing written before the last anchor is missing. Eight of the
 corpus's rejected stores pass the first question completely, because an
 adversary who can edit the store needs no key to delete, reorder, replay or
 roll back records the system signed itself. Only the chain links and the anchor
