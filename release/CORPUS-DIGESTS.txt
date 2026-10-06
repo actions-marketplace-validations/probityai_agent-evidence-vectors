@@ -7,6 +7,7 @@ aa8deffa934df48d43f228e48e299be2a136aef32ff5a55d18a2ef99e0286740  vectors-aci/MA
 36ab3447ae8a037ca30576209591cb0d0223b0539e64513c9c97ee0ed87288b5  vectors-ai-agent-action/MANIFEST.json  ai-agent-action-conformance  vectors=75  no-suiteRevision
 786164241118262620eabae41936c62512c32a365bb3c2a94800df1cbf37f037  vectors-ai-generation/MANIFEST.json  ai-generation-v01-conformance  vectors=38  no-suiteRevision
 6bc10ebd3b65776e96e78797101f85687437bcff89963864067795de2f2948be  vectors-anchor-stream/MANIFEST.json  anchor-stream-conformance  vectors=32  no-suiteRevision
+86ede988a2c7d7cb848599dc50f6d5b7c687b80d4eb83cb8898f78b1535dc098  vectors-anchored-chain/MANIFEST.json  anchored-record-chain/v1  vectors=13  no-suiteRevision
 e26e5a50267f4f09052f3349388f703d0a332a41cf325a4d248e21414070cbef  vectors-artifact-binding/MANIFEST.json  artifact-binding-conformance  vectors=8  no-suiteRevision
 90ba5e8cc42aca0383fe76608b1648406a5824ed303c178dd40a22f1d8e36f26  vectors-mcp-record-contract/MANIFEST.json  cross-run-record-contract  vectors=15  no-suiteRevision
 caa09e57af6e6ee85feff1fa5117095fa424c11a57a7518ca127d19676bfd5bc  vectors-mcp-response-phase/MANIFEST.json  mcp-response-phase-interception  vectors=8  no-suiteRevision
