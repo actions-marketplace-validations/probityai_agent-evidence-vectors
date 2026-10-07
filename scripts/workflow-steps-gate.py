@@ -984,7 +984,7 @@ class JobState:
         self.temp.mkdir(parents=True, exist_ok=True)
         self.env: dict[str, str] = {}
         self.path: list[str] = []
-        # Set when a step that provisions the job's toolchain could not run;
+        # Set when a required binding or an unclassified action is unresolved;
         # every later step of the job is then NOT RUN with this reason.
         self.blocked = ""
         self.outputs: dict[str, dict[str, str]] = {}
@@ -1130,6 +1130,17 @@ PROVIDES: dict[str, tuple[str, ...]] = {
     "astral-sh/setup-uv": ("uv", "uvx"),
 }
 CHECKOUT_BASE = "https://github.com"
+
+
+def unclassified_action(step: Step) -> bool:
+    """An unknown action can change every later command's unbound environment."""
+    action = step.uses.split("@", 1)[0]
+    return (
+        step.run is None
+        and action not in MIRRORED
+        and action not in CANNOT_RUN
+        and action not in PROVIDES
+    )
 
 
 def interpolate_inputs(step: Step, job: JobState, context: Mapping[str, str]) -> tuple[Step, str]:
@@ -1516,7 +1527,11 @@ def resolve_inputs(
     step: Step, job: JobState, context: Mapping[str, str]
 ) -> tuple[Step, str | None, str, bool]:
     action = step.uses.split("@", 1)[0]
-    binds_job = action in PROVIDES or action in ("actions/checkout", "actions/setup-python")
+    binds_job = (
+        action in PROVIDES
+        or action in ("actions/checkout", "actions/setup-python")
+        or unclassified_action(step)
+    )
     # A proven false setup condition needs no inputs or provider. An attempted
     # setup with unresolved inputs cannot leave consumers on ambient tools.
     excluded = event_excludes(step.condition) if binds_job else ""
@@ -1816,6 +1831,9 @@ def resolve_in_job(step: Step, job: JobState) -> tuple[str | None, str, bool]:
                 return None, problem, True
             return ":", f"  (checked out {foreign} at {ref or 'HEAD'} into {where})", False
     block, suffix, fault = resolve(step)
+    if fault and unclassified_action(step):
+        job.blocked = f"the job has an unclassified action with unbound effects: {suffix}"
+        return None, job.blocked, True
     if block is None and action == "actions/setup-python" and not event_excludes(step.condition):
         job.blocked = f"the job's interpreter was not provisioned: {suffix}"
     if block is None and action in PROVIDES and not event_excludes(step.condition):

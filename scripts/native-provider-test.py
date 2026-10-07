@@ -360,6 +360,7 @@ class ProviderControls(unittest.TestCase):
         condition: str = "",
         uv_body: str | None = None,
         continue_on_error: bool = False,
+        child_condition: str = "",
     ) -> tuple[Any, pathlib.Path, pathlib.Path]:
         repo = pathlib.Path(tempfile.mkdtemp(prefix="consumer-source-", dir=self.root))
         (repo / "README.md").write_text("Harmless provider dependency control.\n")
@@ -410,6 +411,7 @@ class ProviderControls(unittest.TestCase):
                 job="dependency",
                 position=1,
                 name="actual child",
+                condition=child_condition,
                 run=command,
                 uses="",
                 inputs={},
@@ -814,6 +816,127 @@ class ProviderControls(unittest.TestCase):
         self.assertEqual(
             json.loads((evidence / "steps/1/result.json").read_text())["status"], "NOT_RUN"
         )
+
+    def test_unclassified_action_blocks_normal_and_explicit_status_consumers(self) -> None:
+        for condition in ["", "always()", "failure()", "success()"]:
+            for continued in [False, True]:
+                with self.subTest(condition=condition, continued=continued):
+                    job, sentinel, evidence = self.setup_consumer(
+                        "unknown/setup-runtime",
+                        "version",
+                        "1.2.3",
+                        continue_on_error=continued,
+                        child_condition=condition,
+                    )
+                    self.assertEqual(job.failed, 1)
+                    self.assertEqual(job.ran, 0)
+                    self.assertIn("unbound effects", job.blocked)
+                    self.assertFalse(sentinel.exists())
+                    setup = json.loads((evidence / "steps/0/result.json").read_text())
+                    child = json.loads((evidence / "steps/1/result.json").read_text())
+                    self.assertEqual(setup["status"], "NOT_RUN")
+                    self.assertTrue(setup["fault"])
+                    self.assertEqual(child["status"], "NOT_RUN")
+                    self.assertFalse(child["fault"])
+                    self.assertEqual(child["reason"], job.blocked)
+                    self.assertFalse((evidence / "steps/1/command.sh").exists())
+                    self.assertEqual(job.outputs, {})
+                    self.assertEqual(job.statuses, {})
+
+    def test_unclassified_action_with_unresolved_inputs_blocks_consumer(self) -> None:
+        job, sentinel, evidence = self.setup_consumer(
+            "unknown/setup-runtime", "version", "${{ unknown.version }}"
+        )
+        self.assertEqual(job.failed, 1)
+        self.assertEqual(job.ran, 0)
+        self.assertIn("unknown.version", job.blocked)
+        self.assertFalse(sentinel.exists())
+        child = json.loads((evidence / "steps/1/result.json").read_text())
+        self.assertEqual(child["reason"], job.blocked)
+        self.assertFalse(child["fault"])
+
+    def test_proven_excluded_unknown_action_does_not_poison_valid_consumer(self) -> None:
+        job, sentinel, evidence = self.setup_consumer(
+            "unknown/setup-runtime",
+            "version",
+            "${{ unknown.version }}",
+            "github.event_name == 'schedule'",
+        )
+        self.assertEqual(job.failed, 0)
+        self.assertEqual(job.ran, 1)
+        self.assertEqual(job.blocked, "")
+        self.assertEqual(sentinel.read_text(), "started")
+        setup = json.loads((evidence / "steps/0/result.json").read_text())
+        self.assertFalse(setup["fault"])
+        self.assertIn("false for a push", setup["reason"])
+
+    def test_known_host_only_actions_keep_qualified_local_consumers(self) -> None:
+        for action in [
+            "actions/upload-artifact",
+            "pypa/gh-action-pypi-publish",
+            "github/codeql-action/upload-sarif",
+        ]:
+            with self.subTest(action=action):
+                job, sentinel, evidence = self.setup_consumer(
+                    action, "remote-output", "${{ needs.remote.outputs.value }}", "always()"
+                )
+                self.assertEqual(job.failed, 0)
+                self.assertEqual(job.ran, 1)
+                self.assertEqual(job.blocked, "")
+                self.assertEqual(sentinel.read_text(), "started")
+                setup = json.loads((evidence / "steps/0/result.json").read_text())
+                self.assertEqual(setup["status"], "NOT_RUN")
+                self.assertFalse(setup["fault"])
+                self.assertEqual(setup["reason"], action + " " + GATE.CANNOT_RUN[action])
+                self.assertNotIn(action, job.outputs)
+
+    def test_unclassified_action_keeps_owned_retention_and_cleanup(self) -> None:
+        original, sentinel, _ = self.setup_consumer("unknown/setup-runtime", "version", "1.2.3")
+        evidence = self.root / "owned-retention"
+        evidence.mkdir()
+        scratch = self.root / "owned-scratch"
+        with patch.dict(os.environ, {}, clear=True):
+            source = GATE.Source(original.root)
+        steps = [
+            GATE.Step(
+                job="owned",
+                position=0,
+                name="unclassified",
+                run=None,
+                uses="unknown/setup-runtime@pinned",
+                inputs={},
+            ),
+            GATE.Step(
+                job="owned",
+                position=1,
+                name="dependent",
+                run="exit 93",
+                uses="",
+                inputs={},
+                condition="always()",
+            ),
+        ]
+        # This failed job starts no command. Suppress only environment creation
+        # so the local control obeys the single-venv rule; actual retention,
+        # immutable source checks, and owned directory cleanup run unchanged.
+        with patch.object(GATE.JobState, "provision_baseline", return_value=None):
+            ran, failed, missing = GATE.execute_owned_job(
+                source, str(scratch), "owned", steps, evidence, {"PATH": "/usr/bin:/bin"}
+            )
+        self.assertEqual((ran, failed, len(missing)), (0, 1, 2))
+        self.assertFalse(sentinel.exists())
+        retained = evidence / "owned"
+        initial = json.loads((retained / "source-initial.json").read_text())
+        final = json.loads((retained / "source-final.json").read_text())
+        self.assertEqual(initial["head"], final["head"])
+        self.assertEqual(initial["tree"], final["tree"])
+        self.assertEqual(initial["files"], final["files"])
+        self.assertTrue((retained / "provider-probes.json").exists())
+        self.assertTrue((retained / "tracked.diff").exists())
+        self.assertFalse((scratch / "owned").exists())
+        self.assertFalse((scratch / "runner-temp-owned").exists())
+        self.assertFalse((retained / "steps/1/command.sh").exists())
+        source.verify()
 
 
 if __name__ == "__main__":
