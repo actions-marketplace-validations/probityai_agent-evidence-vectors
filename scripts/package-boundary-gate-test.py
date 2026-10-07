@@ -40,7 +40,7 @@ def altered(
     target: Path,
     transform: Callable[[str, bytes], bytes | None],
     target_name: str | None,
-    inject: bool = False,
+    injected_name: str | None = None,
 ) -> None:
     with tarfile.open(source, "r:gz") as original, tarfile.open(target, "w:gz") as changed:
         prefix = ""
@@ -60,14 +60,14 @@ def altered(
             if replacement is not None:
                 member.size = len(replacement)
                 changed.addfile(member, io.BytesIO(replacement))
-        if inject:
-            member = tarfile.TarInfo(prefix + "/docs/research/reintroduced.md")
+        if injected_name:
+            member = tarfile.TarInfo(prefix + "/" + injected_name)
             member.size = 12
             changed.addfile(member, io.BytesIO(b"unexpected\n\n"))
 
 
-def corpus_change(name: str, data: bytes) -> bytes:
-    return data + b"\n" if name == "vectors/MANIFEST.json" else data
+def source_change(_name: str, data: bytes) -> bytes:
+    return data + b"\n"
 
 
 def missing_criterion(name: str, data: bytes) -> bytes | None:
@@ -102,19 +102,21 @@ def main() -> int:
         return data.replace(documentation, b"https://invalid.example/wrong-documentation", 1)
 
     controls = [
-        ("research-artifact", lambda _name, data: data, None, True),
-        ("source-missing", missing_criterion, "spec/predicates/observed-effect.md", False),
-        ("source-bytes", corpus_change, "vectors/MANIFEST.json", False),
-        ("metadata-urls", url_change, "PKG-INFO", False),
-        ("metadata-dependencies", dependency_change, "PKG-INFO", False),
+        ("research-artifact", lambda _name, data: data, None, "docs/research/reintroduced.md"),
+        ("source-missing", missing_criterion, "spec/predicates/observed-effect.md", None),
+        ("source-bytes", source_change, "vectors/MANIFEST.json", None),
+        ("source-bytes", source_change, ".gitignore", None),
+        ("source-unlisted", lambda _name, data: data, None, "docs/operator-private.md"),
+        ("metadata-urls", url_change, "PKG-INFO", None),
+        ("metadata-dependencies", dependency_change, "PKG-INFO", None),
     ]
     with tempfile.TemporaryDirectory(prefix="aev-package-boundary-") as directory:
-        for index, (reason, transform, target_name, inject) in enumerate(controls):
+        for index, (reason, transform, target_name, injected_name) in enumerate(controls):
             case = Path(directory) / str(index)
             case.mkdir()
-            altered(source, case / source.name, transform, target_name, inject)
+            altered(source, case / source.name, transform, target_name, injected_name)
             run(root, case, reason)
-    print("OK: actual built sdist passed; five independent artifact mutations were refused")
+    print("OK: actual built sdist passed; seven independent artifact mutations were refused")
     return 0
 
 

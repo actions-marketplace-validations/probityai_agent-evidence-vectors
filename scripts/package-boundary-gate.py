@@ -121,7 +121,7 @@ def source_member(name: str, stream: IO[bytes], expected: dict[str, str]) -> Non
     if name.startswith("docs/research/"):
         raise BoundaryError("research-artifact: source archive contains research documents")
     if name not in expected:
-        raise BoundaryError("source-unlisted: source archive contains undeclared source")
+        raise BoundaryError(f"source-unlisted: source archive contains undeclared source {name}")
     if source_sha256(stream) != expected[name]:
         raise BoundaryError("source-bytes: source archive differs from the selected source")
 

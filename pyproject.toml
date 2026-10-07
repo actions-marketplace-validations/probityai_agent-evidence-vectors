@@ -124,6 +124,8 @@ exclude = ["**/__pycache__", "**/.build", "**/*.pyc", "vectors/**/*.py", "vector
 
 [tool.hatch.build.targets.sdist]
 only-include = [
+    # Hatch always carries the VCS exclusion file; bind it as declared source.
+    ".gitignore",
     "packaging/agent_evidence_vectors",
     "packaging/run_vectors.py",
     "spec/predicates/observed-effect.md",
