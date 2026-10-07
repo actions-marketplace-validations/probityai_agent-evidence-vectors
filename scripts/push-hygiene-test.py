@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Suite for push-hygiene.py, against scratch repositories.
 
-The size limit is lowered in-process (the module constant) so a test does not
+The size limit is lowered through main's limit argument so a test does not
 write 100 MiB; the comparison under test is the same one production runs.
 """
 
 from __future__ import annotations
 
 import contextlib
+import importlib.util
 import io
 import os
 import subprocess
@@ -15,8 +16,6 @@ import sys
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
-
-import importlib.util
 
 _SPEC = importlib.util.spec_from_file_location(
     "push_hygiene", Path(__file__).resolve().parent / "push-hygiene.py"
@@ -61,14 +60,9 @@ def repo() -> Iterator[Path]:
 
 
 def run(limit: int = 64) -> tuple[int, str]:
-    saved = lph.LIMIT
-    lph.LIMIT = limit
     buf = io.StringIO()
-    try:
-        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
-            code = lph.main([])
-    finally:
-        lph.LIMIT = saved
+    with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+        code = lph.main([], limit=limit)
     return code, buf.getvalue()
 
 
@@ -130,17 +124,13 @@ def test_a_conflict_marker_is_refused() -> None:
 def test_a_named_revision_is_checked_not_the_working_head() -> None:
     with repo() as work:
         commit(work, "big.bin", "x" * 100, "add big")
-        bad = subprocess.run(["git", "rev-parse", "HEAD"], cwd=work, capture_output=True,
-                             text=True, check=True).stdout.strip()
+        bad = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=work, capture_output=True, text=True, check=True
+        ).stdout.strip()
         sh(work, "git", "reset", "-q", "--hard", "HEAD~1")
-        saved = lph.LIMIT
-        lph.LIMIT = 64
         buf = io.StringIO()
-        try:
-            with contextlib.redirect_stdout(buf):
-                code = lph.main(["--rev", bad])
-        finally:
-            lph.LIMIT = saved
+        with contextlib.redirect_stdout(buf):
+            code = lph.main(["--rev", bad], limit=64)
         assert code == 1, buf.getvalue()
 
 

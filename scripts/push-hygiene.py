@@ -38,7 +38,7 @@ def git(*args: str, stdin: str | None = None) -> str:
     ).stdout
 
 
-def big_blobs(revs: list[str]) -> list[tuple[str, int, str]]:
+def big_blobs(revs: list[str], limit: int) -> list[tuple[str, int, str]]:
     """Blobs of LIMIT bytes or more among the objects these rev-list args reach."""
     listing = git("rev-list", "--objects", *revs)
     paths: dict[str, str] = {}
@@ -48,13 +48,14 @@ def big_blobs(revs: list[str]) -> list[tuple[str, int, str]]:
     if not paths:
         return []
     out = git(
-        "cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)",
+        "cat-file",
+        "--batch-check=%(objectname) %(objecttype) %(objectsize)",
         stdin="\n".join(paths) + "\n",
     )
     found = []
     for line in out.splitlines():
         oid, kind, size = line.split()
-        if kind == "blob" and int(size) >= LIMIT:
+        if kind == "blob" and int(size) >= limit:
             found.append((oid, int(size), paths[oid]))
     return found
 
@@ -71,7 +72,8 @@ def has_ref(ref: str) -> bool:
 def conflict_markers(rev: str) -> list[str]:
     proc = subprocess.run(
         ["git", "grep", "-nI", "-E", MARKER, rev, "--", ".", *EXCLUDE],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     if proc.returncode == 1:
         return []
@@ -80,29 +82,41 @@ def conflict_markers(rev: str) -> list[str]:
     return proc.stdout.splitlines()
 
 
-def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+def main(argv: list[str] | None = None, limit: int = LIMIT) -> int:
+    ap = argparse.ArgumentParser(
+        description="Refuse a push GitHub would refuse, or one with merge conflicts."
+    )
     ap.add_argument("--rev", default="HEAD")
     ap.add_argument("--base", default="origin/main")
     args = ap.parse_args(argv)
     try:
-        tree = big_blobs(["--no-walk", args.rev])
+        tree = big_blobs(["--no-walk", args.rev], limit)
         ranged = has_ref(args.base)
-        rng = big_blobs([args.rev, "--not", args.base]) if ranged else []
+        rng = big_blobs([args.rev, "--not", args.base], limit) if ranged else []
         markers = conflict_markers(args.rev)
     except (subprocess.CalledProcessError, OSError) as exc:
         print(f"push-hygiene: REFUSED, the check could not run: {exc}", file=sys.stderr)
         return 2
     findings = {(oid, size, path) for oid, size, path in tree + rng}
     for oid, size, path in sorted(findings, key=lambda f: f[2]):
-        print(f"  {path}: blob {oid[:12]} is {size / 1048576:.1f} MiB; GitHub refuses 100 MiB or more")
+        print(
+            f"  {path}: blob {oid[:12]} is {size / 1048576:.1f} MiB; GitHub refuses 100 MiB or more"
+        )
     for line in markers:
         print(f"  unresolved merge conflict marker: {line}")
-    scope = f"{args.rev}'s tree and the commits not on {args.base}" if ranged else (
-        f"{args.rev}'s tree only ({args.base} is absent here, so the push range was NOT checked)"
+    scope = (
+        f"{args.rev}'s tree and the commits not on {args.base}"
+        if ranged
+        else (
+            f"{args.rev}'s tree only ({args.base} is absent here, "
+            "so the push range was NOT checked)"
+        )
     )
     if findings or markers:
-        print(f"push-hygiene: {len(findings)} oversized blob(s), {len(markers)} conflict marker(s) in {scope}.")
+        print(
+            f"push-hygiene: {len(findings)} oversized blob(s), "
+            f"{len(markers)} conflict marker(s) in {scope}."
+        )
         return 1
     print(f"push-hygiene: no blob of 100 MiB or more and no conflict marker in {scope}.")
     return 0
