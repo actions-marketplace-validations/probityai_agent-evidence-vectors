@@ -712,7 +712,31 @@ class ProviderControls(unittest.TestCase):
         self.assertIsNone(block)
         self.assertEqual(job.failed, 1)
         self.assertIn("only an explicit bun-version", reason)
-        self.assertFalse(fault)
+        self.assertTrue(fault)
+
+    def test_failed_required_binding_records_fault_once_and_blocks_status_consumers(self) -> None:
+        for action, key in (
+            ("actions/setup-go", "go-version"),
+            ("actions/setup-node", "node-version"),
+            ("oven-sh/setup-bun", "bun-version"),
+        ):
+            for continued in (False, True):
+                with self.subTest(action=action, continued=continued):
+                    job, sentinel, evidence = self.setup_consumer(
+                        action,
+                        key,
+                        "stable",
+                        continue_on_error=continued,
+                        child_condition="always()",
+                    )
+                    self.assertEqual((job.failed, job.ran), (1, 0))
+                    self.assertFalse(sentinel.exists())
+                    setup = json.loads((evidence / "steps/0/result.json").read_text())
+                    child = json.loads((evidence / "steps/1/result.json").read_text())
+                    self.assertTrue(setup["fault"])
+                    self.assertFalse(child["fault"])
+                    self.assertEqual(child["status"], "NOT_RUN")
+                    self.assertEqual(child["reason"], job.blocked)
 
     def test_bun_checksum_list_drift_refuses_before_archive(self) -> None:
         self.bun_fixture()

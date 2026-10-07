@@ -1599,6 +1599,7 @@ def execute_job(
             retained / "input.json",
             {"uses": step.uses, "with": step.inputs, "if": step.condition},
         )
+        failed_before_resolution = job.failed
         step, block, suffix, fault = resolve_inputs(step, job, context)
         env: dict[str, str] = {}
         directory = ""
@@ -1610,7 +1611,7 @@ def execute_job(
             if missing:
                 block, suffix, fault = None, missing, True
         if block is None:
-            job.failed += int(fault)
+            job.failed += int(fault and job.failed == failed_before_resolution)
             job.not_run.append(f"{step.label}  ({suffix})")
             write_json(
                 retained / "result.json",
@@ -1842,6 +1843,7 @@ def resolve_in_job(step: Step, job: JobState) -> tuple[str | None, str, bool]:
         job.blocked = f"the job's interpreter was not provisioned: {suffix}"
     if block is None and action in PROVIDES and not event_excludes(step.condition):
         job.blocked = provider_problem(step, job)
+        fault = fault or bool(job.blocked)
         if not job.blocked and action == "oven-sh/setup-bun":
             block = ":"
             suffix = "  (declared native Bun runtime bound; hosted action not executed)"
