@@ -8,12 +8,12 @@ import fnmatch
 import hashlib
 import subprocess
 import tarfile
+import tomllib
 from email.parser import BytesParser
 from email.policy import default
 from pathlib import Path, PurePosixPath
 from typing import IO, Any
 
-import tomllib
 from packaging.markers import Marker
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name

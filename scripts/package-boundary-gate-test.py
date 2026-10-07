@@ -9,10 +9,9 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import tomllib
 from collections.abc import Callable
 from pathlib import Path
-
-import tomllib
 
 
 def run(root: Path, dist: Path, reason: str | None) -> None:
