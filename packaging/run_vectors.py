@@ -127,6 +127,7 @@ from typing import Any, NamedTuple, TypeGuard
 # external-verifier contract of its own: a named verifier runs over it through
 # that contract instead of being refused.
 from agent_evidence_vectors import (
+    anchoredchain,
     auditrecord,
     observedeffect,
     receiptsignature,
@@ -3744,11 +3745,18 @@ def _run_non_reference_suite(
         receiptsignature.SUITE,
         auditrecord.SUITE,
         sourcecoverage.SUITE,
+        anchoredchain.SUITE,
     )
     if not own_reader and external_cmd is not None:
         return None
-    if suite == sourcecoverage.SUITE:
-        return sourcecoverage.run_or_refuse(suite_dir, external_cmd, report_path, rail_note)
+    # These readers judge with their own reader or a named verifier through the
+    # contract their README states, so every case is answered or the run fails.
+    full_reader = {
+        anchoredchain.SUITE: anchoredchain.run,
+        sourcecoverage.SUITE: sourcecoverage.run_or_refuse,
+    }.get(suite)
+    if full_reader is not None:
+        return full_reader(suite_dir, external_cmd, report_path, rail_note)
     if external_cmd is not None and suite == receiptsignature.SUITE:
         return receiptsignature.run_external(suite_dir, external_cmd, report_path, rail_note)
     if external_cmd is not None:
