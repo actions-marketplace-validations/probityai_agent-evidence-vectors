@@ -1,4 +1,4 @@
-"""Verify declared Go/Node versions and provision only an owned job runtime."""
+"""Verify declared Go/Node/Bun versions and provision only an owned job runtime."""
 
 from __future__ import annotations
 
@@ -9,14 +9,16 @@ import pathlib
 import platform
 import re
 import shutil
+import stat
 import subprocess
 import tarfile
 import tempfile
+import zipfile
 from typing import Any
 
 from _gate_json import decode_json
 
-TOOLS = {"go": ("go", "gofmt"), "node": ("node", "npm", "npx")}
+TOOLS = {"go": ("go", "gofmt"), "node": ("node", "npm", "npx"), "bun": ("bun",)}
 
 
 def matches(actual: str, wanted: str) -> bool:
@@ -59,7 +61,7 @@ def probe(
     pattern = (
         r"go version go([0-9]+(?:\.[0-9]+)+) [^\r\n]+"
         if kind == "go"
-        else r"v([0-9]+(?:\.[0-9]+)+)"
+        else (r"([0-9]+\.[0-9]+\.[0-9]+)" if kind == "bun" else r"v([0-9]+(?:\.[0-9]+)+)")
     )
     version = re.fullmatch(pattern, record["stdout"].strip())
     return version.group(1) if proc.returncode == 0 and version else ""
@@ -72,8 +74,62 @@ def platform_archive(kind: str, version: str) -> tuple[str, str, str]:
         raise ValueError("declared provider has no supported official archive for this platform")
     if kind == "go":
         return system, machine, f"go{version}.{system}-{machine}.tar.gz"
+    if kind == "bun":
+        return bun_platform_archive(system, machine)
     node_machine = "x64" if machine == "amd64" else machine
     return system, machine, f"node-v{version}-{system}-{node_machine}.tar.gz"
+
+
+def bun_platform_archive(system: str, machine: str) -> tuple[str, str, str]:
+    """Use the baseline x64 build; do not assume AVX2 or a compatible Linux libc."""
+    if system == "linux" and platform.libc_ver()[0] != "glibc":
+        raise ValueError("declared Bun provider needs a supported glibc platform")
+    arch = "x64-baseline" if machine == "amd64" else "aarch64"
+    return system, machine, f"bun-{system}-{arch}.zip"
+
+
+def bun_asset(metadata: Any, version: str, name: str) -> tuple[str, str]:
+    """Select one canonical stable-release asset and its official SHA256 digest."""
+    if (
+        not isinstance(metadata, dict)
+        or metadata.get("tag_name") != f"bun-v{version}"
+        or metadata.get("draft") is not False
+        or metadata.get("prerelease") is not False
+    ):
+        raise ValueError("official Bun metadata does not select the declared stable release")
+    assets = metadata.get("assets")
+    if not isinstance(assets, list) or not all(isinstance(item, dict) for item in assets):
+        raise ValueError("official Bun release assets are not records")
+    selected = [item for item in assets if item.get("name") == name]
+    url = f"https://github.com/oven-sh/bun/releases/download/bun-v{version}/{name}"
+    if len(selected) != 1 or selected[0].get("browser_download_url") != url:
+        raise ValueError("official Bun release does not bind a unique canonical asset")
+    checksum = selected[0].get("digest")
+    if not isinstance(checksum, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", checksum):
+        raise ValueError("official Bun asset checksum is malformed")
+    return url, checksum.removeprefix("sha256:")
+
+
+def bun_release(wanted: str, directory: pathlib.Path, env: dict[str, str]) -> tuple[str, str, str]:
+    metadata_path = directory / "release.json"
+    download(
+        f"https://api.github.com/repos/oven-sh/bun/releases/tags/bun-v{wanted}",
+        metadata_path,
+        env,
+    )
+    metadata = decode_json(metadata_path.read_bytes())
+    _, _, filename = platform_archive("bun", wanted)
+    url, checksum = bun_asset(metadata, wanted, filename)
+    sums_url, sums_checksum = bun_asset(metadata, wanted, "SHASUMS256.txt")
+    sums = directory / "SHASUMS256.txt"
+    download(sums_url, sums, env)
+    if digest(sums) != sums_checksum:
+        raise ValueError("official Bun checksum list does not match its release digest")
+    entries = [line.split() for line in sums.read_text().splitlines()]
+    checksums = [parts[0] for parts in entries if len(parts) == 2 and parts[1] == filename]
+    if checksums != [checksum]:
+        raise ValueError("official Bun checksums do not bind the selected archive digest")
+    return wanted, url, checksum
 
 
 def download(url: str, destination: pathlib.Path, env: dict[str, str]) -> None:
@@ -128,6 +184,8 @@ def selected_release(rows: Any, kind: str, wanted: str) -> tuple[dict[str, Any],
 def release(
     kind: str, wanted: str, directory: pathlib.Path, env: dict[str, str]
 ) -> tuple[str, str, str]:
+    if kind == "bun":
+        return bun_release(wanted, directory, env)
     url = (
         "https://go.dev/dl/?mode=json&include=all"
         if kind == "go"
@@ -199,6 +257,57 @@ def extract(archive: pathlib.Path, runtime: pathlib.Path, root: str) -> None:
         source.extractall(runtime, filter="data")
 
 
+def zip_member(member: zipfile.ZipInfo, root: str, seen: set[str]) -> pathlib.PurePosixPath:
+    identity = pathlib.PurePosixPath(member.filename)
+    canonical = identity.as_posix()
+    file_type = stat.S_IFMT(member.external_attr >> 16)
+    if (
+        identity.is_absolute()
+        or ".." in identity.parts
+        or not identity.parts
+        or identity.parts[0] != root
+        or member.filename != canonical + ("/" if member.is_dir() else "")
+        or canonical in seen
+        or "\\" in member.filename
+        or member.orig_filename != member.filename
+        or member.flag_bits & 1
+        or member.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED)
+        or file_type not in (0, stat.S_IFDIR if member.is_dir() else stat.S_IFREG)
+    ):
+        raise ValueError("official Bun archive has unsafe or duplicate members")
+    seen.add(canonical)
+    return identity
+
+
+def extract_zip(archive: pathlib.Path, runtime: pathlib.Path, root: str) -> None:
+    """Validate all ZIP members before writing; refuse links and special files."""
+    with zipfile.ZipFile(archive) as source:
+        seen: set[str] = set()
+        entries = [(member, zip_member(member, root, seen)) for member in source.infolist()]
+        runtime.mkdir()
+        for member, identity in entries:
+            target = runtime.joinpath(*identity.parts)
+            if member.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with source.open(member) as incoming, target.open("xb") as outgoing:
+                    shutil.copyfileobj(incoming, outgoing)
+                target.chmod((member.external_attr >> 16) & 0o755)
+
+
+def archive_runtime(
+    kind: str, url: str, archive: pathlib.Path, runtime: pathlib.Path
+) -> pathlib.Path:
+    suffix = ".zip" if kind == "bun" else ".tar.gz"
+    root = "go" if kind == "go" else url.rsplit("/", 1)[1].removesuffix(suffix)
+    if kind == "bun":
+        extract_zip(archive, runtime, root)
+        return runtime / root
+    extract(archive, runtime, root)
+    return runtime / root / "bin"
+
+
 def inventory(
     kind: str,
     wanted: str,
@@ -233,11 +342,17 @@ def contained_tools(kind: str, binary: pathlib.Path, root: pathlib.Path) -> bool
     )
 
 
+def validate_selector(kind: str, wanted: str) -> None:
+    if kind not in TOOLS or not re.fullmatch(r"[0-9]+(?:\.[0-9]+)*", wanted):
+        raise ValueError("provider version must be an explicit numeric Go, Node or Bun selector")
+    if kind == "bun" and not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", wanted):
+        raise ValueError("Bun version must be an explicit three-part numeric selector")
+
+
 def ensure(
     kind: str, wanted: str, env: dict[str, str], temp: pathlib.Path, record: dict[str, Any]
 ) -> tuple[pathlib.Path | None, pathlib.Path | None]:
-    if kind not in TOOLS or not re.fullmatch(r"[0-9]+(?:\.[0-9]+)*", wanted):
-        raise ValueError("provider version must be an explicit numeric Go or Node selector")
+    validate_selector(kind, wanted)
     inputs = temp / "provider-inputs"
     if inputs.is_symlink():
         raise ValueError("provider input directory is a symbolic link")
@@ -260,7 +375,7 @@ def ensure(
         record.update(route="maintained installed inventory", selectedBin=str(available))
         return available, available.parent if kind == "go" else None
     version, url, checksum = release(kind, wanted, directory, env)
-    archive = directory / "archive.tar.gz"
+    archive = directory / ("archive.zip" if kind == "bun" else "archive.tar.gz")
     download(url, archive, env)
     actual_checksum = digest(archive)
     record.update(
@@ -274,14 +389,12 @@ def ensure(
     )
     if actual_checksum != checksum:
         raise ValueError("official provider archive does not match its selected SHA256")
-    root = "go" if kind == "go" else url.rsplit("/", 1)[1].removesuffix(".tar.gz")
     runtime = temp / "provider-runtime" / directory.name
     if runtime.parent.is_symlink():
         raise ValueError("provider runtime directory is a symbolic link")
     runtime.parent.mkdir(exist_ok=True)
-    extract(archive, runtime, root)
-    binary = runtime / root / "bin"
-    if not contained_tools(kind, binary, runtime / root):
+    binary = archive_runtime(kind, url, archive, runtime)
+    if not contained_tools(kind, binary, binary if kind == "bun" else binary.parent):
         raise ValueError("verified provider archive is missing contained executable tools")
     selected = {**env, "PATH": str(binary) + os.pathsep + env.get("PATH", "")}
     if kind == "go":

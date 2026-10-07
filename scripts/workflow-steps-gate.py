@@ -39,6 +39,7 @@ import sys
 import tarfile
 import tempfile
 import time
+import zipfile
 from collections.abc import Callable, Iterator, Mapping
 from typing import Any, NamedTuple
 
@@ -459,6 +460,8 @@ CANNOT_RUN = {
 def local_equivalent(uses: str, inputs: dict[str, Any]) -> Local:
     """Classify one marketplace step. Never returns a silent skip."""
     action = uses.split("@", 1)[0]
+    if action == "oven-sh/setup-bun":
+        return Local(None, "Bun needs the declared native provider bound to this job")
     builder = MIRRORED.get(action)
     if builder is not None:
         return builder(inputs)
@@ -1123,6 +1126,7 @@ PROVIDES: dict[str, tuple[str, ...]] = {
     "sigstore/cosign-installer": ("cosign",),
     "actions/setup-go": ("go", "gofmt"),
     "actions/setup-node": ("node", "npm", "npx"),
+    "oven-sh/setup-bun": ("bun",),
     "astral-sh/setup-uv": ("uv", "uvx"),
 }
 CHECKOUT_BASE = "https://github.com"
@@ -1420,14 +1424,15 @@ def retain_provider_archives(job: JobState, evidence: pathlib.Path) -> None:
         if "actualSha256" not in probe:
             continue
         kind, wanted = probe["kind"], probe["wanted"]
-        if kind not in {"go", "node"} or not re.fullmatch(r"[0-9]+(?:\.[0-9]+)*", wanted):
+        if kind not in {"go", "node", "bun"} or not re.fullmatch(r"[0-9]+(?:\.[0-9]+)*", wanted):
             raise ValueError("provider archive has no bounded input identity")
         directory = probe["inputDirectory"]
         if not re.fullmatch(
             rf"provider-inputs/{kind}-{re.escape(wanted)}-[A-Za-z0-9_]+", directory
         ):
             raise ValueError("provider archive directory has no owned canonical identity")
-        relative = pathlib.Path(directory) / "archive.tar.gz"
+        name = "archive.zip" if kind == "bun" else "archive.tar.gz"
+        relative = pathlib.Path(directory) / name
         source = job.temp / relative
         if any(
             (job.temp / pathlib.Path(*relative.parts[:i])).is_symlink()
@@ -1815,6 +1820,10 @@ def resolve_in_job(step: Step, job: JobState) -> tuple[str | None, str, bool]:
         job.blocked = f"the job's interpreter was not provisioned: {suffix}"
     if block is None and action in PROVIDES and not event_excludes(step.condition):
         job.blocked = provider_problem(step, job)
+        if not job.blocked and action == "oven-sh/setup-bun":
+            block = ":"
+            suffix = "  (declared native Bun runtime bound; hosted action not executed)"
+            return block, suffix, fault
         suffix = job.blocked or (
             f"{action} hosted action is not run here; declared native tools are bound, "
             "with original capability probes retained"
@@ -1846,6 +1855,7 @@ def provider_problem(step: Step, job: JobState) -> str:
     selector = {
         "actions/setup-node": ("node-version", "node"),
         "actions/setup-go": ("go-version", "go"),
+        "oven-sh/setup-bun": ("bun-version", "bun"),
     }.get(action)
     if selector is None:
         if not all(tools.values()):
@@ -1854,12 +1864,14 @@ def provider_problem(step: Step, job: JobState) -> str:
         return ""
     wanted = str(step.inputs.get(selector[0], "")).removesuffix(".x")
     try:
+        if action == "oven-sh/setup-bun" and set(step.inputs) != {"bun-version"}:
+            raise ValueError("native Bun binding supports only an explicit bun-version input")
         binary, goroot = ensure_provider(selector[1], wanted, env, job.temp, probe)
         if binary is not None:
             job.path.append(str(binary))
         if goroot is not None:
             job.env["GOROOT"] = str(goroot)
-    except (OSError, ValueError, KeyError, TypeError, tarfile.TarError) as exc:
+    except (OSError, ValueError, KeyError, TypeError, tarfile.TarError, zipfile.BadZipFile) as exc:
         job.failed += 1
         probe["failure"] = str(exc)
         return f"{action} could not bind version {wanted!r}: {exc}; no dependent shell ran"
