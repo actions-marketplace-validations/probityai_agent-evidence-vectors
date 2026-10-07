@@ -22,7 +22,7 @@ Open `conformance-report.json` for the per-vector results. A complete external r
 
 See [installation routes and release identity](DISTRIBUTION.md) for package availability and signature checks.
 
-`v0.17.4` is published on [GitHub](https://github.com/probityai/agent-evidence-vectors/releases/tag/v0.17.4) and [PyPI](https://pypi.org/project/agent-evidence-vectors/0.17.4/). Install the matching release with Go's executable directory on your `PATH`:
+Select `v0.17.4` on [GitHub](https://github.com/probityai/agent-evidence-vectors/releases/tag/v0.17.4) and [PyPI](https://pypi.org/project/agent-evidence-vectors/0.17.4/). Install the matching release with Go's executable directory on your `PATH`:
 
 ```bash
 go install github.com/probityai/agent-evidence-vectors/cmd/aee-verify@v0.17.4
@@ -49,10 +49,7 @@ Use the [GitHub Action](action.yml) to run the same check in your build and reta
 | --- | --- |
 | Pick a format and corpus | [Corpus guide](docs/guides/corpora.md) |
 | Implement the verifier interface | [Verifier contract](docs/reference/verifier-contract.md) |
-| Understand what the fixtures test | [Corpus measurements](docs/research/corpus-measurements.md) |
-| Compare descriptor and decision IDs | [GovOps ID profile](interop/govops-capability-id/README.md) |
-| Check frozen execution boundaries | [REMORA boundary readers](interop/remora-boundary-readers/README.md) |
-| Find outside implementation results | [Run ledger](RUNS.md) and [independence record](docs/research/independence.md) |
+| Understand what the fixtures test | [Corpus measurements](https://github.com/probityai/agent-evidence-vectors/blob/v0.17.4/docs/research/corpus-measurements.md) |
 | Check release bytes and signatures | [Release verification](docs/reference/release-verification.md) |
 | Report a run or disagreement | [Run reporting](docs/guides/report-run.md) |
 
@@ -69,7 +66,7 @@ Each corpus manifest records its source revision, digest and expected outcomes. 
 <a name="on-independence"></a>
 <a name="verify-a-release-without-trusting-us"></a>
 
-For fixture coverage, see [Corpus measurements](docs/research/corpus-measurements.md). For outside results, see [External records](docs/research/external-records.md). To check signed release bytes, use [Release verification](docs/reference/release-verification.md).
+For fixture coverage, see [Corpus measurements](https://github.com/probityai/agent-evidence-vectors/blob/v0.17.4/docs/research/corpus-measurements.md). To check signed release bytes, use [Release verification](docs/reference/release-verification.md).
 
 <a name="layout"></a>
 <a name="the-go-witness-attestor-witnessattestor"></a>

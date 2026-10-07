@@ -154,6 +154,11 @@ jobs:
           uv build
           go build -o "$RUNNER_TEMP/aee-verify-release" ./cmd/aee-verify
 
+      - name: the source archive contains only the selected public package
+        run: |
+          uv run --locked --extra dev python scripts/package-boundary-gate.py
+          uv run --locked --extra dev python scripts/package-boundary-gate-test.py
+
       # The wheel is exercised from a directory that is not the checkout, so a
       # path that only resolves inside the repository is caught here and not
       # by the first relying party. --no-project keeps uv from reading the
