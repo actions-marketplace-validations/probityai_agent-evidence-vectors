@@ -271,6 +271,11 @@ extraPaths = ["vectors-observed-effect"]
 [[tool.pyright.executionEnvironments]]
 root = "interop/govops-capability-id/history/vectors-capability-id"
 
+# The govops reader imports its own fixtures.py, and a top-level fixtures/
+# directory would otherwise resolve first from the project root.
+[[tool.pyright.executionEnvironments]]
+root = "interop/govops-capability-id"
+
 # Scope the signed-map reader's shared definition import to its own tree.
 # A global path would make its generic run.py shadow unrelated native readers.
 [[tool.pyright.executionEnvironments]]
