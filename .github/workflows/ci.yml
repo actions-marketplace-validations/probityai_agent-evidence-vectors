@@ -811,6 +811,11 @@ jobs:
       # the standard library.
       - name: the observed-effect corpus behaves as its manifest claims
         run: uv run --extra generators python vectors-observed-effect/check_vectors.py
+      # Worked receipts for a sequential MCP call chain and a parallel fan-out,
+      # built from the corpus's own helpers and verified by its reference
+      # verifier, with two controls that must fail.
+      - name: the MCP receipt examples verify and link
+        run: uv run --extra generators python examples/mcp-receipts/check_examples.py
       - name: source-coverage fixtures regenerate and refuse invalid replays
         run: uv run --extra dev pytest vectors-source-coverage/tests -q
       - name: probity-verify checks source coverage

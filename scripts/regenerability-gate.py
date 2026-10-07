@@ -120,6 +120,9 @@ GENERATORS = (
     # bytes come from.
     "vectors-receipt-signature/gen_vectors.py",
     "vectors-source-coverage/gen_vectors.py",
+    # The MCP receipt examples import the observed-effect generator's helpers,
+    # so they run after it and regenerate with it.
+    "examples/mcp-receipts/gen_examples.py",
     "scripts/gen-w3c-appendix.py",
 )
 
@@ -182,6 +185,9 @@ OWNED = (
     ("vectors-observed-effect/statements", "v*.json"),
     ("vectors-observed-effect", "MANIFEST.json"),
     ("vectors-observed-effect", "INDEX.md"),
+    ("examples/mcp-receipts/chain", "*.json"),
+    ("examples/mcp-receipts/fanout", "*.json"),
+    ("examples/mcp-receipts", "authority.json"),
     ("vectors-w3c-report/vectors", "v*.json"),
     ("vectors-w3c-report", "MANIFEST.json"),
     ("vectors-w3c-report", "INDEX.md"),
