@@ -46,6 +46,10 @@ from typing import Any, NamedTuple
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from _gate_json import decode_json  # noqa: E402
+from _go_selector import (
+    SETUP_GO_REVISION,  # noqa: E402
+    go_selector,  # noqa: E402
+)
 from _lockfile import single_instance  # noqa: E402
 from _native_provider import digest as provider_digest  # noqa: E402
 from _native_provider import ensure as ensure_provider  # noqa: E402
@@ -1868,7 +1872,12 @@ def provider_problem(step: Step, job: JobState) -> str:
     action = step.uses.split("@", 1)[0]
     env = job.environment(step_base_environment(os.environ))
     tools = {tool: shutil.which(tool, path=env.get("PATH")) for tool in PROVIDES[action]}
-    probe: dict[str, Any] = {"action": action, "tools": tools, "hosted_provisioning": False}
+    probe: dict[str, Any] = {
+        "action": action,
+        "uses": step.uses,
+        "tools": tools,
+        "hosted_provisioning": False,
+    }
     job.provider_probes.append(probe)
     selector = {
         "actions/setup-node": ("node-version", "node"),
@@ -1881,9 +1890,14 @@ def provider_problem(step: Step, job: JobState) -> str:
             return f"{action} supplies tools not installed here: {tools}; no dependent shell ran"
         return ""
     wanted = str(step.inputs.get(selector[0], ""))
-    if selector[1] != "bun":
-        wanted = wanted.removesuffix(".x")
     try:
+        if action == "actions/setup-go":
+            if step.uses != f"actions/setup-go@{SETUP_GO_REVISION}":
+                raise ValueError("native setup-go binding requires the captured action revision")
+            probe["selector_contract_revision"] = SETUP_GO_REVISION
+            wanted = go_selector(step.inputs, job.root, probe)
+        if selector[1] != "bun":
+            wanted = wanted.removesuffix(".x")
         if action == "oven-sh/setup-bun" and set(step.inputs) != {"bun-version"}:
             raise ValueError("native Bun binding supports only an explicit bun-version input")
         binary, goroot = ensure_provider(selector[1], wanted, env, job.temp, probe)

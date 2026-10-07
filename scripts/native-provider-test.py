@@ -317,7 +317,7 @@ class ProviderControls(unittest.TestCase):
             position=0,
             name="setup",
             run=None,
-            uses="actions/setup-go@v5",
+            uses="actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff",
             inputs={"go-version": "stable"},
         )
         block, reason, _ = GATE.resolve_in_job(step, job)
@@ -402,7 +402,7 @@ class ProviderControls(unittest.TestCase):
                 position=0,
                 name="required setup",
                 run=None,
-                uses=f"{action}@v5",
+                uses=f"{action}@{GATE.SETUP_GO_REVISION if action == 'actions/setup-go' else 'v5'}",
                 inputs={key: selector},
                 condition=condition,
                 continue_on_error=continue_on_error,
@@ -851,7 +851,7 @@ class ProviderControls(unittest.TestCase):
                     position=0,
                     name="setup",
                     run=None,
-                    uses=action + "@pinned",
+                    uses=action + "@" + (GATE.SETUP_GO_REVISION if kind == "go" else "pinned"),
                     inputs={key: selector},
                 )
                 with patch.object(GATE, "ensure_provider", return_value=(None, None)) as ensure:
