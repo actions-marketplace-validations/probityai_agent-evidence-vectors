@@ -120,6 +120,7 @@ GENERATORS = (
     # bytes come from.
     "vectors-receipt-signature/gen_vectors.py",
     "vectors-source-coverage/gen_vectors.py",
+    "vectors-anchored-chain/gen_vectors.py",
     "scripts/gen-w3c-appendix.py",
 )
 
@@ -209,6 +210,10 @@ OWNED = (
     ("vectors-receipt-signature", "MANIFEST.json"),
     ("vectors-receipt-signature", "INDEX.md"),
     ("vectors-source-coverage", "MANIFEST.json"),
+    ("vectors-anchored-chain", "MANIFEST.json"),
+    ("vectors-anchored-chain/cases", "**/case.json"),
+    ("vectors-anchored-chain/cases", "**/store.jsonl"),
+    ("vectors-anchored-chain/cases", "**/anchor.json"),
     ("vectors-source-coverage/cases", "**/case.json"),
     ("vectors-source-coverage/cases", "**/policy.json"),
     ("vectors-source-coverage/cases", "**/report.txt"),
