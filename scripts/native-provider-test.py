@@ -817,6 +817,47 @@ class ProviderControls(unittest.TestCase):
             json.loads((evidence / "steps/1/result.json").read_text())["status"], "NOT_RUN"
         )
 
+    def test_bun_wildcard_and_malformed_selectors_block_real_consumer(self) -> None:
+        self.bun_fixture()
+        for selector in ["1.3.11.x", "1.3.x", "1.3", "v1.3.11", "1.3.11.1"]:
+            with (
+                self.subTest(selector=selector),
+                patch.object(P, "download", self.bun_download),
+                patch.object(platform, "system", return_value="Linux"),
+                patch.object(platform, "machine", return_value="x86_64"),
+                patch.object(platform, "libc_ver", return_value=("glibc", "2.39")),
+            ):
+                job, sentinel, evidence = self.setup_consumer(
+                    "oven-sh/setup-bun", "bun-version", selector
+                )
+                self.assertEqual(job.failed, 1)
+                self.assertEqual(job.ran, 0)
+                self.assertFalse(sentinel.exists())
+                self.assertIn(repr(selector), job.blocked)
+                self.assertEqual(
+                    json.loads((evidence / "steps/1/result.json").read_text())["status"],
+                    "NOT_RUN",
+                )
+
+    def test_go_and_node_wildcard_binding_preserves_valid_selectors(self) -> None:
+        for action, key, selector, kind, expected in [
+            ("actions/setup-go", "go-version", "1.24.x", "go", "1.24"),
+            ("actions/setup-node", "node-version", "24.x", "node", "24"),
+        ]:
+            with self.subTest(action=action):
+                job = GATE.JobState(str(self.root), "preserved-selector")
+                step = GATE.Step(
+                    job="test",
+                    position=0,
+                    name="setup",
+                    run=None,
+                    uses=action + "@pinned",
+                    inputs={key: selector},
+                )
+                with patch.object(GATE, "ensure_provider", return_value=(None, None)) as ensure:
+                    self.assertEqual(GATE.provider_problem(step, job), "")
+                self.assertEqual(ensure.call_args.args[:2], (kind, expected))
+
     def test_unclassified_action_blocks_normal_and_explicit_status_consumers(self) -> None:
         for condition in ["", "always()", "failure()", "success()"]:
             for continued in [False, True]:

@@ -1880,7 +1880,9 @@ def provider_problem(step: Step, job: JobState) -> str:
             job.failed += 1
             return f"{action} supplies tools not installed here: {tools}; no dependent shell ran"
         return ""
-    wanted = str(step.inputs.get(selector[0], "")).removesuffix(".x")
+    wanted = str(step.inputs.get(selector[0], ""))
+    if selector[1] != "bun":
+        wanted = wanted.removesuffix(".x")
     try:
         if action == "oven-sh/setup-bun" and set(step.inputs) != {"bun-version"}:
             raise ValueError("native Bun binding supports only an explicit bun-version input")
