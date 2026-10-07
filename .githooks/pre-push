@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 #
-# Run every shell step of every GitHub workflow before the push leaves.
+# By default (venue leak, ruling of 2026-10-07; see the venue block below), run
+# the runner-label check, the push-range identity scan and the push-hygiene
+# check, and leave every workflow to remote CI. With AEV_PRE_PUSH_VENUE=local or
+# pool, run every shell step of every GitHub workflow before the push leaves.
 #
 # Origin, 2026-08-01: a change was pushed after its author opened the
 # no-internal-drafts workflow, read the first two steps, ran those two by hand,
@@ -83,10 +86,20 @@ set -euo pipefail
 
 # Select only where the same workflow gate runs. A pool run returns its native
 # capture before this ordinary Git push can continue. It does not publish.
-venue="${AEV_PRE_PUSH_VENUE-local}"
+#
+# DEFAULT SINCE 2026-10-07: leak. The operator ruled that the local push gate
+# keeps only what must hold before bytes leave the machine, and that remote CI,
+# which runs every workflow on the pushed commit anyway, is the proof. Measured
+# before the ruling: the full mirror below took 13,103 s and 16,775 s on one
+# unchanged commit (2026-10-07), and the 6-minute idle limit on the push
+# connection cut it every time. So the default runs the runner-label check, the
+# push-range identity scan and the push-hygiene check (blob size and conflict
+# markers), and stops. `local` and `pool` still run the full mirror, here or on
+# the box pool, for whoever wants the remote's answer before pushing.
+venue="${AEV_PRE_PUSH_VENUE-leak}"
 case "$venue" in
-local | pool) ;;
-*) echo "pre-push: ABORT -- AEV_PRE_PUSH_VENUE must be local or pool." >&2; exit 1 ;;
+leak | local | pool) ;;
+*) echo "pre-push: ABORT -- AEV_PRE_PUSH_VENUE must be leak, local or pool." >&2; exit 1 ;;
 esac
 
 # Read git's own answer about where this repository lives BEFORE removing the
@@ -245,7 +258,7 @@ if [ "$saw_ref" -eq 0 ]; then
 	echo "pre-push: nothing to gate, and reading the working tree instead would answer a" >&2
 	echo "pre-push: question about a tree nobody is pushing. To gate a revision by hand:" >&2
 	echo "pre-push:" >&2
-	echo "pre-push:   printf 'refs/heads/main %s refs/heads/main %s\\n' \\" >&2
+	printf '%s\n' "pre-push:   printf 'refs/heads/main %s refs/heads/main %s\\n' \\" >&2
 	echo "pre-push:     \"\$(git rev-parse HEAD)\" \"\$(git rev-parse HEAD)\" | .githooks/pre-push" >&2
 	exit 1
 fi
@@ -261,6 +274,40 @@ if [ -z "$pushed_shas" ]; then
 	echo "pre-push: no revision to gate -- every pushed ref was either a deletion or a"
 	echo "pre-push: tag naming a commit already gated on its way in. Any line above names"
 	echo "pre-push: the tags and the commits they resolve to; a deletion names nothing."
+	exit 0
+fi
+
+if [ "$venue" = leak ]; then
+	# The check is read from the PUSHED revision, as the workflow gate below is:
+	# the main checkout may predate it, and the commit being pushed is what the
+	# remote will hold.
+	hygiene="$(mktemp "${TMPDIR:-/tmp}/aee-push-hygiene.XXXXXXXX")"
+	trap 'rm -f "$hygiene"' EXIT
+	while read -r local_ref local_sha _remote_ref remote_sha; do
+		[ -z "${local_ref:-}" ] && continue
+		case "$local_sha" in *[!0]*) ;; *) continue ;; esac
+		if ! git -C "$src_root" show "$local_sha:scripts/push-hygiene.py" > "$hygiene" 2>/dev/null; then
+			echo "pre-push: ABORT -- scripts/push-hygiene.py is missing from $local_sha; refusing to pass a push whose size guard is absent." >&2
+			exit 1
+		fi
+		base="origin/main"
+		case "${remote_sha:-0}" in *[!0]*) base="$remote_sha" ;; esac
+		python3 "$hygiene" --rev "$local_sha" --base "$base" && hygiene_status=0 || hygiene_status=$?
+		case "$hygiene_status" in
+		0) ;;
+		1)
+			echo "pre-push: REFUSED -- $local_ref carries a blob GitHub refuses or an unresolved conflict marker." >&2
+			exit 1
+			;;
+		*)
+			echo "pre-push: ABORT -- the push-hygiene check could not run (exit $hygiene_status); nothing was verified." >&2
+			exit 1
+			;;
+		esac
+	done <<< "$push_lines"
+	echo "pre-push: leak, size and runner-label checks passed. Remote CI is the proof for"
+	echo "pre-push: everything else: watch the run for the pushed commit to its conclusion."
+	echo "pre-push:     gh run list --commit <sha>"
 	exit 0
 fi
 

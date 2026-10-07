@@ -50,8 +50,13 @@ step was the one the change broke, the push went red on a public repository, and
 the tag cut from it had to be withdrawn. Running the checks you happened to read
 is not running the checks.
 
-The same command is what `.githooks/pre-push` invokes. `git push --no-verify`
-walks past it and the remote runs the identical workflows regardless.
+`.githooks/pre-push` does not run it by default. Since 2026-10-07 the hook runs
+only the checks that must hold before bytes leave the machine: the runner-label
+check, the push-range identity scan and the push-hygiene check (blob size and
+conflict markers). Remote CI runs every workflow on the pushed commit and is the
+proof; a red run after a push is fixed at once. Set `AEV_PRE_PUSH_VENUE=local`
+(this machine) or `AEV_PRE_PUSH_VENUE=pool` (the box pool) to have the hook run
+the full workflow mirror above before the push instead.
 
 ## What the gates refuse
 
