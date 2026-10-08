@@ -3,22 +3,27 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import io
 import json
 import os
 import pathlib
+import platform
 import shlex
 import shutil
+import stat
 import sys
 import tarfile
 import tempfile
 import unittest
+import zipfile
 from collections.abc import Sequence
 from typing import Any
 from unittest.mock import patch
 
 import _native_provider as P
+from _workflow_test_fixture import fixture_git, fixture_source
 
 HERE = pathlib.Path(__file__).resolve().parent
 SPEC = importlib.util.spec_from_file_location(
@@ -52,6 +57,15 @@ def archive(path: pathlib.Path, members: Sequence[tuple[str, bytes | str, str]])
                 assert isinstance(data, bytes)
                 member.size = len(data)
                 output.addfile(member, io.BytesIO(data))
+
+
+def zip_archive(path: pathlib.Path, members: Sequence[tuple[str, bytes, int]]) -> None:
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as output:
+        for name, data, mode in members:
+            member = zipfile.ZipInfo(name)
+            member.create_system = 3
+            member.external_attr = mode << 16
+            output.writestr(member, data)
 
 
 class ProviderControls(unittest.TestCase):
@@ -111,8 +125,8 @@ class ProviderControls(unittest.TestCase):
     def ensure(self, kind: str = "go", wanted: str = "1.24") -> tuple[Any, Any]:
         with (
             patch.object(P, "download", self.fixture_download),
-            patch.object(P.platform, "system", return_value="Linux"),
-            patch.object(P.platform, "machine", return_value="x86_64"),
+            patch.object(platform, "system", return_value="Linux"),
+            patch.object(platform, "machine", return_value="x86_64"),
         ):
             return P.ensure(kind, wanted, self.env, self.temp, self.record)
 
@@ -253,7 +267,7 @@ class ProviderControls(unittest.TestCase):
         self.assertFalse((self.temp / "provider-runtime").exists())
 
     def test_unsafe_archive_members_refuse(self) -> None:
-        hostile = [
+        hostile: list[tuple[str, bytes | str, str]] = [
             ("go/../escape", b"bad", "file"),
             ("/go/absolute", b"bad", "file"),
             ("go/escape", "../../escape", "link"),
@@ -285,7 +299,7 @@ class ProviderControls(unittest.TestCase):
     def test_invalid_selector_and_unsupported_platform_refuse(self) -> None:
         with self.assertRaisesRegex(ValueError, "numeric"):
             P.ensure("go", "stable", self.env, self.temp, self.record)
-        with patch.object(P.platform, "system", return_value="unknown"):
+        with patch.object(platform, "system", return_value="unknown"):
             with self.assertRaisesRegex(ValueError, "platform"):
                 P.platform_archive("go", "1.24.13")
 
@@ -304,7 +318,7 @@ class ProviderControls(unittest.TestCase):
             position=0,
             name="setup",
             run=None,
-            uses="actions/setup-go@v5",
+            uses="actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff",
             inputs={"go-version": "stable"},
         )
         block, reason, _ = GATE.resolve_in_job(step, job)
@@ -347,12 +361,13 @@ class ProviderControls(unittest.TestCase):
         condition: str = "",
         uv_body: str | None = None,
         continue_on_error: bool = False,
+        child_condition: str = "",
     ) -> tuple[Any, pathlib.Path, pathlib.Path]:
         repo = pathlib.Path(tempfile.mkdtemp(prefix="consumer-source-", dir=self.root))
         (repo / "README.md").write_text("Harmless provider dependency control.\n")
-        GATE.git(repo, "init", "--quiet")
-        GATE.git(repo, "add", "README.md")
-        GATE.git(
+        fixture_git(repo, "init", "--quiet")
+        fixture_git(repo, "add", "README.md")
+        fixture_git(
             repo,
             "-c",
             "user.name=Provider control",
@@ -363,8 +378,7 @@ class ProviderControls(unittest.TestCase):
             "-m",
             "test: retain provider dependency input",
         )
-        with patch.dict(os.environ, {}, clear=True):
-            source = GATE.Source(repo)
+        source = fixture_source(GATE, repo)
         job = GATE.JobState(str(self.root), repo.name, repo)
         path = "/usr/bin:/bin"
         if uv_body is not None:
@@ -388,7 +402,7 @@ class ProviderControls(unittest.TestCase):
                 position=0,
                 name="required setup",
                 run=None,
-                uses=f"{action}@v5",
+                uses=f"{action}@{GATE.SETUP_GO_REVISION if action == 'actions/setup-go' else 'v5'}",
                 inputs={key: selector},
                 condition=condition,
                 continue_on_error=continue_on_error,
@@ -397,6 +411,7 @@ class ProviderControls(unittest.TestCase):
                 job="dependency",
                 position=1,
                 name="actual child",
+                condition=child_condition,
                 run=command,
                 uses="",
                 inputs={},
@@ -412,6 +427,7 @@ class ProviderControls(unittest.TestCase):
         for action, key in (
             ("actions/setup-go", "go-version"),
             ("actions/setup-node", "node-version"),
+            ("oven-sh/setup-bun", "bun-version"),
             ("actions/setup-python", "python-version"),
         ):
             for selector in ("${{ format('unsupported') }}", "${{ unknown.version }}"):
@@ -434,6 +450,7 @@ class ProviderControls(unittest.TestCase):
         for action, key in (
             ("actions/setup-go", "go-version"),
             ("actions/setup-node", "node-version"),
+            ("oven-sh/setup-bun", "bun-version"),
             ("actions/setup-python", "python-version"),
         ):
             with self.subTest(action=action):
@@ -517,6 +534,473 @@ class ProviderControls(unittest.TestCase):
         source.symlink_to(self.payload)
         with self.assertRaisesRegex(ValueError, "symbolic"):
             GATE.retain_provider_archives(job, self.root / "refused")
+
+    def bun_fixture(self, version: str = "1.3.11", include_tool: bool = True) -> None:
+        root = "bun-linux-x64-baseline"
+        members = [(root + "/", b"", stat.S_IFDIR | 0o755)]
+        if include_tool:
+            members.append(
+                (root + "/bun", f"#!/bin/sh\necho {version}\n".encode(), stat.S_IFREG | 0o755)
+            )
+        zip_archive(self.payload, members)
+
+    def bun_download(self, url: str, destination: pathlib.Path, env: dict[str, str]) -> None:
+        name = "bun-linux-x64-baseline.zip"
+        sums = P.digest(self.payload) + "  " + name + "\n"
+        if destination.name == "release.json":
+            destination.write_text(
+                json.dumps(
+                    {
+                        "tag_name": "bun-v1.3.11",
+                        "draft": False,
+                        "prerelease": False,
+                        "assets": [
+                            {
+                                "name": asset,
+                                "digest": "sha256:" + checksum,
+                                "browser_download_url": "https://github.com/oven-sh/bun/releases/download/bun-v1.3.11/"
+                                + asset,
+                            }
+                            for asset, checksum in [
+                                (name, P.digest(self.payload)),
+                                ("SHASUMS256.txt", hashlib.sha256(sums.encode()).hexdigest()),
+                            ]
+                        ],
+                    }
+                )
+            )
+        elif destination.name == "SHASUMS256.txt":
+            destination.write_text(sums)
+        else:
+            shutil.copyfile(self.payload, destination)
+
+    def bun_ensure(self) -> tuple[pathlib.Path | None, pathlib.Path | None]:
+        with (
+            patch.object(P, "download", self.bun_download),
+            patch.object(platform, "system", return_value="Linux"),
+            patch.object(platform, "machine", return_value="x86_64"),
+            patch.object(platform, "libc_ver", return_value=("glibc", "2.39")),
+        ):
+            return P.ensure("bun", "1.3.11", self.env, self.temp, self.record)
+
+    def test_bun_exact_existing_version_needs_no_download(self) -> None:
+        executable(self.bin / "bun", "echo 1.3.11")
+        with patch.object(P, "download", side_effect=AssertionError("unexpected download")):
+            self.assertEqual(
+                P.ensure("bun", "1.3.11", self.env, self.temp, self.record), (None, None)
+            )
+        self.assertEqual(self.record["route"], "existing PATH")
+
+    def test_bun_wrong_original_version_uses_owned_verified_zip(self) -> None:
+        self.bun_fixture()
+        executable(self.bin / "bun", "echo 1.3.10")
+        binary, goroot = self.bun_ensure()
+        assert binary is not None
+        self.assertTrue(binary.is_relative_to(self.temp))
+        self.assertIsNone(goroot)
+        self.assertTrue(self.record["archiveVerified"])
+        self.assertEqual(self.record["probes"][0]["stdout"], "1.3.10\n")
+        self.assertEqual(self.record["probes"][-1]["stdout"], "1.3.11\n")
+        job = GATE.JobState(str(self.root), "retain-bun")
+        job.temp, job.provider_probes = self.temp, [self.record]
+        retained = self.root / "retained-bun"
+        GATE.retain_provider_archives(job, retained)
+        target = retained / "reports/runner-temp" / self.record["inputDirectory"] / "archive.zip"
+        self.assertEqual(target.read_bytes(), self.payload.read_bytes())
+
+    def test_bun_wrong_archive_version_and_missing_tool_refuse(self) -> None:
+        for version, include in [("1.3.10", True), ("1.3.11", False)]:
+            with self.subTest(version=version, include=include):
+                self.bun_fixture(version, include)
+                with self.assertRaisesRegex(ValueError, "executable"):
+                    self.bun_ensure()
+
+    def test_bun_rejects_implicit_partial_and_missing_versions(self) -> None:
+        for wanted in ["", "latest", "canary", "1", "1.3", "v1.3.11"]:
+            with (
+                self.subTest(wanted=wanted),
+                patch.object(P, "download", side_effect=AssertionError("unexpected download")),
+            ):
+                with self.assertRaisesRegex(ValueError, "numeric"):
+                    P.ensure("bun", wanted, self.env, self.temp, self.record)
+
+    def test_bun_metadata_is_unique_canonical_stable_and_checksum_bound(self) -> None:
+        name = "bun-linux-x64-baseline.zip"
+        asset = {
+            "name": name,
+            "digest": "sha256:" + "a" * 64,
+            "browser_download_url": "https://github.com/oven-sh/bun/releases/download/bun-v1.3.11/"
+            + name,
+        }
+        document = {
+            "tag_name": "bun-v1.3.11",
+            "draft": False,
+            "prerelease": False,
+            "assets": [asset],
+        }
+        self.assertEqual(P.bun_asset(document, "1.3.11", name)[1], "a" * 64)
+        invalid = [
+            {},
+            {**document, "tag_name": "bun-v1.3.10"},
+            {**document, "draft": True},
+            {**document, "prerelease": True},
+            {**document, "assets": []},
+            {**document, "assets": [True]},
+            {**document, "assets": [asset, asset]},
+            {**document, "assets": [{**asset, "digest": "malformed"}]},
+            {
+                **document,
+                "assets": [{**asset, "browser_download_url": "https://example.invalid/bun.zip"}],
+            },
+        ]
+        for metadata in invalid:
+            with self.subTest(metadata=metadata), self.assertRaises(ValueError):
+                P.bun_asset(metadata, "1.3.11", name)
+
+    def test_bun_checksum_list_must_agree_even_when_its_own_digest_matches(self) -> None:
+        self.bun_fixture()
+        for sums in [
+            "0" * 64 + "  bun-linux-x64-baseline.zip\n",
+            "",
+            (P.digest(self.payload) + "  bun-linux-x64-baseline.zip\n") * 2,
+        ]:
+            with self.subTest(sums=sums):
+
+                def altered(
+                    url: str, destination: pathlib.Path, env: dict[str, str], sums: str = sums
+                ) -> None:
+                    self.bun_download(url, destination, env)
+                    if destination.name == "SHASUMS256.txt":
+                        destination.write_text(sums)
+                    if destination.name == "release.json":
+                        metadata = json.loads(destination.read_text())
+                        metadata["assets"][1]["digest"] = (
+                            "sha256:" + hashlib.sha256(sums.encode()).hexdigest()
+                        )
+                        destination.write_text(json.dumps(metadata))
+
+                with (
+                    patch.object(P, "download", altered),
+                    patch.object(platform, "system", return_value="Linux"),
+                    patch.object(platform, "machine", return_value="x86_64"),
+                    patch.object(platform, "libc_ver", return_value=("glibc", "2.39")),
+                ):
+                    with self.assertRaisesRegex(ValueError, "selected archive digest"):
+                        P.ensure("bun", "1.3.11", self.env, self.temp, self.record)
+
+    def test_bun_probe_refuses_nonzero_malformed_and_extended_versions(self) -> None:
+        for text in ["echo 1.3.11; exit 9", "echo v1.3.11", "echo 1.3.11.1", "echo unrelated"]:
+            with self.subTest(text=text):
+                executable(self.bin / "bun", text)
+                self.assertEqual(P.probe("bun", self.env, self.temp, "invalid-bun", []), "")
+
+    def test_bun_setup_refuses_unsupported_action_inputs(self) -> None:
+        job = GATE.JobState(str(self.root), "unsupported-bun-input")
+        step = GATE.Step(
+            job="test",
+            position=0,
+            name="setup",
+            run=None,
+            uses="oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76",
+            inputs={
+                "bun-version": "1.3.11",
+                "bun-download-url": "https://example.invalid/other.zip",
+            },
+        )
+        with patch.object(P, "download", side_effect=AssertionError("unexpected download")):
+            block, reason, fault = GATE.resolve_in_job(step, job)
+        self.assertIsNone(block)
+        self.assertEqual(job.failed, 1)
+        self.assertIn("only an explicit bun-version", reason)
+        self.assertTrue(fault)
+
+    def test_failed_required_binding_records_fault_once_and_blocks_status_consumers(self) -> None:
+        for action, key in (
+            ("actions/setup-go", "go-version"),
+            ("actions/setup-node", "node-version"),
+            ("oven-sh/setup-bun", "bun-version"),
+        ):
+            for continued in (False, True):
+                with self.subTest(action=action, continued=continued):
+                    job, sentinel, evidence = self.setup_consumer(
+                        action,
+                        key,
+                        "stable",
+                        continue_on_error=continued,
+                        child_condition="always()",
+                    )
+                    self.assertEqual((job.failed, job.ran), (1, 0))
+                    self.assertFalse(sentinel.exists())
+                    setup = json.loads((evidence / "steps/0/result.json").read_text())
+                    child = json.loads((evidence / "steps/1/result.json").read_text())
+                    self.assertTrue(setup["fault"])
+                    self.assertFalse(child["fault"])
+                    self.assertEqual(child["status"], "NOT_RUN")
+                    self.assertEqual(child["reason"], job.blocked)
+
+    def test_bun_checksum_list_drift_refuses_before_archive(self) -> None:
+        self.bun_fixture()
+
+        def altered(url: str, destination: pathlib.Path, env: dict[str, str]) -> None:
+            self.bun_download(url, destination, env)
+            if destination.name == "SHASUMS256.txt":
+                destination.write_text("changed list")
+
+        with (
+            patch.object(P, "download", altered),
+            patch.object(platform, "system", return_value="Linux"),
+            patch.object(platform, "machine", return_value="x86_64"),
+            patch.object(platform, "libc_ver", return_value=("glibc", "2.39")),
+        ):
+            with self.assertRaisesRegex(ValueError, "checksum list"):
+                P.ensure("bun", "1.3.11", self.env, self.temp, self.record)
+        self.assertFalse((self.temp / "provider-runtime").exists())
+
+    def test_bun_zip_refuses_unsafe_members_before_any_output(self) -> None:
+        root = "bun-linux-x64-baseline"
+        safe = (root + "/bun", b"tool", stat.S_IFREG | 0o755)
+        unsafe = [
+            ("/absolute", b"bad", stat.S_IFREG | 0o644),
+            (root + "/../escape", b"bad", stat.S_IFREG | 0o644),
+            (root + "/bun/", b"bad", stat.S_IFREG | 0o644),
+            (root + "/link", b"../../escape", stat.S_IFLNK | 0o777),
+            (root + "/fifo", b"", stat.S_IFIFO | 0o644),
+            (root + "\\escape", b"bad", stat.S_IFREG | 0o644),
+            (root + "/./escape", b"bad", stat.S_IFREG | 0o644),
+        ]
+        for index, item in enumerate(unsafe):
+            with self.subTest(item=item[0]):
+                zip_archive(self.payload, [safe, item])
+                target = self.root / f"unsafe-bun-{index}"
+                with self.assertRaisesRegex(ValueError, "unsafe"):
+                    P.extract_zip(self.payload, target, root)
+                self.assertFalse(target.exists())
+        zip_archive(self.payload, [safe, (root + "/dup", b"second", stat.S_IFREG | 0o755)])
+        # Change both equal-length name fields after construction. This creates
+        # a real duplicate archive without suppressing a ZIP producer warning.
+        self.payload.write_bytes(
+            self.payload.read_bytes().replace((root + "/dup").encode(), (root + "/bun").encode())
+        )
+        target = self.root / "duplicate-bun"
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            P.extract_zip(self.payload, target, root)
+        self.assertFalse(target.exists())
+
+    def test_bun_zip_refuses_encryption_null_names_and_unknown_compression(self) -> None:
+        root = "bun-linux-x64-baseline"
+        null = zipfile.ZipInfo(root + "/bun\x00hidden")
+        encrypted = zipfile.ZipInfo(root + "/bun")
+        encrypted.flag_bits = 1
+        unsupported = zipfile.ZipInfo(root + "/bun")
+        unsupported.compress_type = 99
+        for member in [null, encrypted, unsupported]:
+            with (
+                self.subTest(member=member.orig_filename),
+                self.assertRaisesRegex(ValueError, "unsafe"),
+            ):
+                P.zip_member(member, root, set())
+
+    def test_bun_platform_selection_has_no_avx2_or_musl_assumption(self) -> None:
+        with patch.object(platform, "libc_ver", return_value=("glibc", "2.39")):
+            self.assertEqual(
+                P.bun_platform_archive("linux", "amd64")[2], "bun-linux-x64-baseline.zip"
+            )
+            self.assertEqual(P.bun_platform_archive("linux", "arm64")[2], "bun-linux-aarch64.zip")
+        self.assertEqual(
+            P.bun_platform_archive("darwin", "amd64")[2], "bun-darwin-x64-baseline.zip"
+        )
+        with patch.object(platform, "libc_ver", return_value=("musl", "1.2")):
+            with self.assertRaisesRegex(ValueError, "glibc"):
+                P.bun_platform_archive("linux", "amd64")
+
+    def test_bun_native_binding_runs_setup_and_real_consumer(self) -> None:
+        self.bun_fixture()
+        with (
+            patch.object(P, "download", self.bun_download),
+            patch.object(platform, "system", return_value="Linux"),
+            patch.object(platform, "machine", return_value="x86_64"),
+            patch.object(platform, "libc_ver", return_value=("glibc", "2.39")),
+        ):
+            job, sentinel, evidence = self.setup_consumer(
+                "oven-sh/setup-bun", "bun-version", "1.3.11"
+            )
+        self.assertEqual(job.failed, 0)
+        self.assertEqual(job.ran, 2)
+        self.assertEqual(sentinel.read_text(), "started")
+        setup = json.loads((evidence / "steps/0/result.json").read_text())
+        self.assertEqual(setup["status"], "EXECUTED")
+        self.assertNotIn("fault", setup)
+        self.assertEqual(job.provider_probes[0]["kind"], "bun")
+
+    def test_bun_failed_required_binding_blocks_real_consumer(self) -> None:
+        job, sentinel, evidence = self.setup_consumer("oven-sh/setup-bun", "bun-version", "latest")
+        self.assertEqual(job.failed, 1)
+        self.assertEqual(job.ran, 0)
+        self.assertFalse(sentinel.exists())
+        self.assertEqual(
+            json.loads((evidence / "steps/1/result.json").read_text())["status"], "NOT_RUN"
+        )
+
+    def test_bun_wildcard_and_malformed_selectors_block_real_consumer(self) -> None:
+        self.bun_fixture()
+        for selector in ["1.3.11.x", "1.3.x", "1.3", "v1.3.11", "1.3.11.1"]:
+            with (
+                self.subTest(selector=selector),
+                patch.object(P, "download", self.bun_download),
+                patch.object(platform, "system", return_value="Linux"),
+                patch.object(platform, "machine", return_value="x86_64"),
+                patch.object(platform, "libc_ver", return_value=("glibc", "2.39")),
+            ):
+                job, sentinel, evidence = self.setup_consumer(
+                    "oven-sh/setup-bun", "bun-version", selector
+                )
+                self.assertEqual(job.failed, 1)
+                self.assertEqual(job.ran, 0)
+                self.assertFalse(sentinel.exists())
+                self.assertIn(repr(selector), job.blocked)
+                self.assertEqual(
+                    json.loads((evidence / "steps/1/result.json").read_text())["status"],
+                    "NOT_RUN",
+                )
+
+    def test_go_and_node_wildcard_binding_preserves_valid_selectors(self) -> None:
+        for action, key, selector, kind, expected in [
+            ("actions/setup-go", "go-version", "1.24.x", "go", "1.24"),
+            ("actions/setup-node", "node-version", "24.x", "node", "24"),
+        ]:
+            with self.subTest(action=action):
+                job = GATE.JobState(str(self.root), "preserved-selector")
+                step = GATE.Step(
+                    job="test",
+                    position=0,
+                    name="setup",
+                    run=None,
+                    uses=action + "@" + (GATE.SETUP_GO_REVISION if kind == "go" else "pinned"),
+                    inputs={key: selector},
+                )
+                with patch.object(GATE, "ensure_provider", return_value=(None, None)) as ensure:
+                    self.assertEqual(GATE.provider_problem(step, job), "")
+                self.assertEqual(ensure.call_args.args[:2], (kind, expected))
+
+    def test_unclassified_action_blocks_normal_and_explicit_status_consumers(self) -> None:
+        for condition in ["", "always()", "failure()", "success()"]:
+            for continued in [False, True]:
+                with self.subTest(condition=condition, continued=continued):
+                    job, sentinel, evidence = self.setup_consumer(
+                        "unknown/setup-runtime",
+                        "version",
+                        "1.2.3",
+                        continue_on_error=continued,
+                        child_condition=condition,
+                    )
+                    self.assertEqual(job.failed, 1)
+                    self.assertEqual(job.ran, 0)
+                    self.assertIn("unbound effects", job.blocked)
+                    self.assertFalse(sentinel.exists())
+                    setup = json.loads((evidence / "steps/0/result.json").read_text())
+                    child = json.loads((evidence / "steps/1/result.json").read_text())
+                    self.assertEqual(setup["status"], "NOT_RUN")
+                    self.assertTrue(setup["fault"])
+                    self.assertEqual(child["status"], "NOT_RUN")
+                    self.assertFalse(child["fault"])
+                    self.assertEqual(child["reason"], job.blocked)
+                    self.assertFalse((evidence / "steps/1/command.sh").exists())
+                    self.assertEqual(job.outputs, {})
+                    self.assertEqual(job.statuses, {})
+
+    def test_unclassified_action_with_unresolved_inputs_blocks_consumer(self) -> None:
+        job, sentinel, evidence = self.setup_consumer(
+            "unknown/setup-runtime", "version", "${{ unknown.version }}"
+        )
+        self.assertEqual(job.failed, 1)
+        self.assertEqual(job.ran, 0)
+        self.assertIn("unknown.version", job.blocked)
+        self.assertFalse(sentinel.exists())
+        child = json.loads((evidence / "steps/1/result.json").read_text())
+        self.assertEqual(child["reason"], job.blocked)
+        self.assertFalse(child["fault"])
+
+    def test_proven_excluded_unknown_action_does_not_poison_valid_consumer(self) -> None:
+        job, sentinel, evidence = self.setup_consumer(
+            "unknown/setup-runtime",
+            "version",
+            "${{ unknown.version }}",
+            "github.event_name == 'schedule'",
+        )
+        self.assertEqual(job.failed, 0)
+        self.assertEqual(job.ran, 1)
+        self.assertEqual(job.blocked, "")
+        self.assertEqual(sentinel.read_text(), "started")
+        setup = json.loads((evidence / "steps/0/result.json").read_text())
+        self.assertFalse(setup["fault"])
+        self.assertIn("false for a push", setup["reason"])
+
+    def test_known_host_only_actions_keep_qualified_local_consumers(self) -> None:
+        for action in [
+            "actions/upload-artifact",
+            "pypa/gh-action-pypi-publish",
+            "github/codeql-action/upload-sarif",
+        ]:
+            with self.subTest(action=action):
+                job, sentinel, evidence = self.setup_consumer(
+                    action, "remote-output", "${{ needs.remote.outputs.value }}", "always()"
+                )
+                self.assertEqual(job.failed, 0)
+                self.assertEqual(job.ran, 1)
+                self.assertEqual(job.blocked, "")
+                self.assertEqual(sentinel.read_text(), "started")
+                setup = json.loads((evidence / "steps/0/result.json").read_text())
+                self.assertEqual(setup["status"], "NOT_RUN")
+                self.assertFalse(setup["fault"])
+                self.assertEqual(setup["reason"], action + " " + GATE.CANNOT_RUN[action])
+                self.assertNotIn(action, job.outputs)
+
+    def test_unclassified_action_keeps_owned_retention_and_cleanup(self) -> None:
+        original, sentinel, _ = self.setup_consumer("unknown/setup-runtime", "version", "1.2.3")
+        evidence = self.root / "owned-retention"
+        evidence.mkdir()
+        scratch = self.root / "owned-scratch"
+        source = fixture_source(GATE, original.root)
+        steps = [
+            GATE.Step(
+                job="owned",
+                position=0,
+                name="unclassified",
+                run=None,
+                uses="unknown/setup-runtime@pinned",
+                inputs={},
+            ),
+            GATE.Step(
+                job="owned",
+                position=1,
+                name="dependent",
+                run="exit 93",
+                uses="",
+                inputs={},
+                condition="always()",
+            ),
+        ]
+        # This failed job starts no command. Suppress only environment creation
+        # so the local control obeys the single-venv rule; actual retention,
+        # immutable source checks, and owned directory cleanup run unchanged.
+        with patch.object(GATE.JobState, "provision_baseline", return_value=None):
+            ran, failed, missing = GATE.execute_owned_job(
+                source, str(scratch), "owned", steps, evidence, {"PATH": "/usr/bin:/bin"}
+            )
+        self.assertEqual((ran, failed, len(missing)), (0, 1, 2))
+        self.assertFalse(sentinel.exists())
+        retained = evidence / "owned"
+        initial = json.loads((retained / "source-initial.json").read_text())
+        final = json.loads((retained / "source-final.json").read_text())
+        self.assertEqual(initial["head"], final["head"])
+        self.assertEqual(initial["tree"], final["tree"])
+        self.assertEqual(initial["files"], final["files"])
+        self.assertTrue((retained / "provider-probes.json").exists())
+        self.assertTrue((retained / "tracked.diff").exists())
+        self.assertFalse((scratch / "owned").exists())
+        self.assertFalse((scratch / "runner-temp-owned").exists())
+        self.assertFalse((retained / "steps/1/command.sh").exists())
+        source.verify()
 
 
 if __name__ == "__main__":

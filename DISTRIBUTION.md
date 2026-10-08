@@ -4,16 +4,16 @@ Use this page to choose an installation route or identify the corpus you ran. Fo
 
 ## The tag to cite
 
-`v0.17.4`, the version recorded in [CITATION.cff](CITATION.cff). Cite its signed tag or full source commit and corpus digest when reporting a result.
+`v0.17.4`, the published version named by the preferred citation in [CITATION.cff](CITATION.cff). Cite its signed tag or full source commit and corpus digest when reporting a result.
 
 The installation examples are pinned to the version above. The corpus table
 describes this checkout; a release tag or installed wheel identifies its own
 population.
 
-This version packages the criterion documents for AI generation, MCP record
-contract and MCP response phase. These files were missing from the prior wheel
-and source archive. Its [GitHub release](https://github.com/probityai/agent-evidence-vectors/releases/tag/v0.17.4) and
-[PyPI wheel and source archive](https://pypi.org/project/agent-evidence-vectors/0.17.4/) are published.
+This checkout prepares an unreleased source version with package metadata and
+criterion-document repairs. Those changes are not part of the published release.
+For a release run, select the matching [GitHub release](https://github.com/probityai/agent-evidence-vectors/releases/tag/v0.17.4) and
+[PyPI wheel and source archive](https://pypi.org/project/agent-evidence-vectors/0.17.4/).
 Use the installation route below or build from a reviewed source checkout.
 The [source-wheel recipe](README.md#try-it) builds the verifier and harness
 from a reviewed checkout, then runs the installed harness outside it. Record
@@ -106,7 +106,7 @@ Add a sibling `vectors-<name>/` directory using the [corpus pull-request templat
 
 ## Reporting a run
 
-Use the [run form](.github/ISSUE_TEMPLATE/independent-run.yml) and retain the full report. [RUNS.md](RUNS.md) records outside implementation results; the [independence record](docs/research/independence.md) explains how they were produced.
+Use the [run form](.github/ISSUE_TEMPLATE/independent-run.yml) and retain the full report.
 
 ## Archive and identifiers
 

@@ -75,12 +75,9 @@
 # defines them, so mirroring the remote means reading them from that commit. A
 # commit that deletes the gate is refused here by the missing-gate branch below.
 #
-# The PYTHON ENVIRONMENT is the one exception, and it is named rather than
-# implied: UV_PROJECT_ENVIRONMENT below points uv at the existing .venv beside
-# the working tree, because the workflow steps run `uv sync` and a fresh
-# environment per push would cost a full dependency install every time. That is
-# exactly what happened before this change (the steps ran in the working tree
-# and synced the working tree's .venv), so it is preserved, not introduced.
+# Each source checkout owns its .venv. The default leak checks need only the
+# standard library. Explicit local and pool mirrors install the selected
+# revision's locked dependencies into that revision's own environment.
 
 set -euo pipefail
 
@@ -111,19 +108,50 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
 	GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX
 src_root="$(cd "$(dirname "$git_common")" && pwd -P)"
 
-# The environment donor: the checkout this push was issued from, when there is
-# one, and the repository directory otherwise. Discovery is from the current
-# directory on purpose -- git runs a hook at the top of the invoking working
-# tree, so a push issued from a linked worktree donates that worktree's .venv
-# rather than the main checkout's. Used for nothing but the .venv path below.
-if donor="$(git rev-parse --show-toplevel 2>/dev/null)"; then
-	:
-else
-	donor="$src_root"
-fi
-if [ -d "$donor/.venv" ]; then
-	export UV_PROJECT_ENVIRONMENT="$donor/.venv"
-fi
+export UV_LINK_MODE=copy
+export PYTHONDONTWRITEBYTECODE=1
+
+own_python() {
+    project_root="$1"
+    if [ ! -x "$project_root/.venv/bin/python" ]; then
+        if ! command -v uv >/dev/null 2>&1; then
+            echo "pre-push: ABORT -- uv is required to bootstrap $project_root/.venv." >&2
+            return 1
+        fi
+        (cd "$project_root" && uv venv --python 3.13 "$project_root/.venv") >&2 || return "$?"
+    fi
+    if ! "$project_root/.venv/bin/python" -B - "$project_root/.venv" <<'PY'
+import os
+import sys
+expected = os.path.normcase(os.path.abspath(sys.argv[1]))
+prefix = os.path.normcase(os.path.abspath(sys.prefix))
+base = os.path.normcase(os.path.abspath(sys.base_prefix))
+valid = (sys.version_info >= (3, 13) and prefix == expected and prefix != base
+         and os.path.isfile(os.path.join(expected, "pyvenv.cfg")))
+if not valid:
+    print(f"pre-push: environment prefix {prefix}; base {base}; expected {expected}.",
+          file=sys.stderr)
+sys.exit(0 if valid else 1)
+PY
+    then
+        echo "pre-push: ABORT -- $project_root/.venv must own a Python 3.13 or newer environment." >&2
+        return 1
+    fi
+    printf '%s\n' "$project_root/.venv/bin/python"
+}
+
+full_python() {
+    project_root="$1"
+    own_python "$project_root" >/dev/null || return "$?"
+    if ! command -v uv >/dev/null 2>&1; then
+        echo "pre-push: ABORT -- uv is required for the selected revision's locked dependencies." >&2
+        return 1
+    fi
+    (cd "$project_root" && UV_PROJECT_ENVIRONMENT="$project_root/.venv" \
+        uv sync --locked --extra dev --python 3.13) >&2 || return "$?"
+    own_python "$project_root"
+}
+source_python="$(own_python "$src_root")"
 
 # git feeds one line per pushed ref on stdin:
 #
@@ -164,7 +192,7 @@ push_lines="$(cat)"
 # refusing on an answer it does not have.
 label_gate="$src_root/scripts/runner-labels-gate.py"
 if [ -f "$label_gate" ]; then
-	python3 "$label_gate" && label_status=0 || label_status=$?
+	"$source_python" -B "$label_gate" && label_status=0 || label_status=$?
 	case "$label_status" in
 	0) ;;
 	1)
@@ -186,7 +214,7 @@ if [ ! -f "$range_scan" ]; then
 	exit 1
 fi
 if [ -n "$push_lines" ]; then
-	printf '%s\n' "$push_lines" | python3 "$range_scan" && range_status=0 || range_status=$?
+	printf '%s\n' "$push_lines" | "$source_python" -B "$range_scan" && range_status=0 || range_status=$?
 	case "$range_status" in
 	0) ;;
 	1)
@@ -292,7 +320,7 @@ if [ "$venue" = leak ]; then
 		fi
 		base="origin/main"
 		case "${remote_sha:-0}" in *[!0]*) base="$remote_sha" ;; esac
-		python3 "$hygiene" --rev "$local_sha" --base "$base" && hygiene_status=0 || hygiene_status=$?
+		"$source_python" -B "$hygiene" --rev "$local_sha" --base "$base" && hygiene_status=0 || hygiene_status=$?
 		case "$hygiene_status" in
 		0) ;;
 		1)
@@ -369,6 +397,7 @@ gate_revision() {
 		exit 1
 	fi
 
+	iso_python="$(full_python "$iso")"
 	echo "pre-push: running every workflow shell step against ${sha}..."
 
 	if [ "$venue" = pool ]; then
@@ -377,25 +406,12 @@ gate_revision() {
 			echo "pre-push: ABORT -- the selected revision has no pool gate bridge." >&2
 			exit 1
 		fi
-		(cd "$iso" && python3 "$bridge" pool)
+		(cd "$iso" && UV_PROJECT_ENVIRONMENT="$iso/.venv" "$iso_python" -B "$bridge" pool)
 		cleanup
 		return
 	fi
 
-	# uv carries PyYAML without touching the project environment. If uv is absent,
-	# fall back to the interpreter and let the gate itself say what it needs -- it
-	# exits non-zero with the exact command to run, which is more useful than this
-	# hook guessing.
-	#
-	# cryptography rides along because the go job's steps call the runner's system
-	# python3, and the runner image ships it: the obligation proof loads the reject
-	# generator, which signs with Ed25519. Without it here the mirror failed a step
-	# the remote passes, on an import rather than on anything the step checks.
-	if command -v uv >/dev/null 2>&1; then
-		(cd "$iso" && uv run --quiet --with pyyaml --with cryptography python "$gate")
-	else
-		(cd "$iso" && python3 "$gate")
-	fi
+    (cd "$iso" && UV_PROJECT_ENVIRONMENT="$iso/.venv" "$iso_python" -B "$gate")
 
 	cleanup
 }
