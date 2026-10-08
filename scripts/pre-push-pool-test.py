@@ -233,6 +233,27 @@ class Controls(unittest.TestCase):
             "branchAuthority": authority,
         }
 
+    def fixture_source(self, request: dict[str, Any]) -> Any:
+        """Bind a temporary repository to its own context, preserving the caller's."""
+        selected = self.call("rev-parse", "HEAD")
+        context = {"GITHUB_SHA": selected, "GITHUB_HEAD_SHA": selected, "GITHUB_EVENT_NAME": "push"}
+        with patch.dict(os.environ, context):
+            return GATE.Source(self.root, request["branchAuthority"])
+
+    def test_fixture_source_context_preserves_foreign_ci_refusal(self):
+        request = self.request()
+        foreign = {
+            "GITHUB_SHA": "1" * 40,
+            "GITHUB_HEAD_SHA": "2" * 40,
+            "GITHUB_EVENT_NAME": "pull_request",
+        }
+        with patch.dict(os.environ, foreign):
+            source = self.fixture_source(request)
+            self.assertEqual(source.head, self.call("rev-parse", "HEAD"))
+            self.assertEqual({key: os.environ[key] for key in foreign}, foreign)
+            with self.assertRaisesRegex(ValueError, "GITHUB_SHA does not identify"):
+                GATE.Source(self.root, request["branchAuthority"])
+
     def native(self, request):
         output = io.StringIO()
         with patch.dict(os.environ, self.env, clear=True), contextlib.redirect_stdout(output):
@@ -317,7 +338,7 @@ class Controls(unittest.TestCase):
 
     def test_non_main_primary_metadata_beats_stale_cached_head(self):
         request = self.request()
-        source = GATE.Source(self.root, request["branchAuthority"])
+        source = self.fixture_source(request)
         self.assertEqual(source.default_branch, "trunk")
         self.assertEqual(source.authority["live_remote_tip"], self.call("rev-parse", "HEAD"))
         cached = self.call("symbolic-ref", "refs/remotes/origin/HEAD")
@@ -334,7 +355,7 @@ class Controls(unittest.TestCase):
         cached = self.call("symbolic-ref", "refs/remotes/origin/HEAD")
         self.call("update-ref", "-d", "refs/remotes/origin/trunk")
         with self.assertRaises(ValueError):
-            GATE.Source(self.root, request["branchAuthority"])
+            self.fixture_source(request)
         code, receipt = self.native(request)
         self.assertEqual(code, 0)
         self.assertEqual(self.call("rev-parse", "refs/remotes/origin/trunk"), tip)
@@ -508,7 +529,7 @@ class Controls(unittest.TestCase):
         self.assertFalse((self.root / ".build/driver-native.log").exists())
         self.call("update-ref", "refs/remotes/origin/trunk", current)
         request = self.request()
-        source = GATE.Source(self.root, request["branchAuthority"])
+        source = self.fixture_source(request)
         self.assertEqual(source.authority["live_remote_tip"], current)
         self.assertEqual(source.authority["frozen_published_tip"], current)
 
