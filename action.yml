@@ -1,5 +1,5 @@
 name: "agent-evidence-vectors"
-description: "Replay the agent-evidence-vectors conformance corpus against your verifier and publish the report"
+description: "Test your AI-agent evidence verifier against a public corpus of signed attestations and publish a pass/fail report"
 author: "Sankalp Gilda"
 
 # Replay a consumer's verifier and retain its results. The interface is in

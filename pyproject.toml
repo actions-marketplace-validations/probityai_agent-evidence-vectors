@@ -13,7 +13,7 @@ description = "Conformance corpora and reference verifiers for agent evidence re
 requires-python = ">=3.13"
 license = { text = "Apache-2.0" }
 readme = "README.md"
-authors = [{ name = "Sankalp Gilda" }]
+authors = [{ name = "Sankalp Gilda", email = "sankalp.gilda@gmail.com" }]
 keywords = ["in-toto", "attestation", "conformance", "test-vectors", "agent-evidence", "dsse"]
 classifiers = [
     "Development Status :: 4 - Beta",
