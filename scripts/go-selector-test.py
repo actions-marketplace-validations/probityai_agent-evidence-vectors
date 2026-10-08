@@ -9,13 +9,13 @@ import json
 import os
 import pathlib
 import shlex
-import subprocess
 import tempfile
 import unittest
 from typing import Any
 from unittest.mock import patch
 
 from _go_selector import JS_TRIM, SETUP_GO_REVISION, go_selector
+from _workflow_test_fixture import fixture_git, fixture_source
 
 HERE = pathlib.Path(__file__).resolve().parent
 SPEC = importlib.util.spec_from_file_location("go_selector_gate", HERE / "workflow-steps-gate.py")
@@ -37,29 +37,20 @@ class GoSelectorControls(unittest.TestCase):
         return go_selector(inputs, self.root, self.probe)
 
     def freeze(self, root: pathlib.Path) -> Any:
-        for argv in (
-            ["git", "init", "-q", str(root)],
-            ["git", "-C", str(root), "add", "."],
-            [
-                "git",
-                "-C",
-                str(root),
-                "-c",
-                "user.name=Selector control",
-                "-c",
-                "user.email=control@example.invalid",
-                "commit",
-                "--allow-empty",
-                "-qm",
-                "Freeze input",
-            ],
-        ):
-            subprocess.run(argv, check=True, capture_output=True)  # noqa: S603 -- isolated fixture
-        # The fixture is its own declared push simulation, not the enclosing CI source.
-        with patch.dict(
-            os.environ, {"GITHUB_SHA": "", "GITHUB_HEAD_SHA": "", "GITHUB_EVENT_NAME": "push"}
-        ):
-            return GATE.Source(root)
+        fixture_git(root, "init", "-q")
+        fixture_git(root, "add", ".")
+        fixture_git(
+            root,
+            "-c",
+            "user.name=Selector control",
+            "-c",
+            "user.email=control@example.invalid",
+            "commit",
+            "--allow-empty",
+            "-qm",
+            "Freeze input",
+        )
+        return fixture_source(GATE, root)
 
     def test_explicit_selector_overrides_even_a_missing_file(self) -> None:
         self.assertEqual(
@@ -116,27 +107,7 @@ class GoSelectorControls(unittest.TestCase):
 
     def test_release_file_binds_fixture_go_and_runs_version_consumer(self) -> None:
         (self.root / "go.mod").write_text("go 1.24\ntoolchain go1.25.3\n", encoding="utf-8")
-        for argv in (
-            ["git", "init", "-q", str(self.root)],
-            ["git", "-C", str(self.root), "add", "go.mod"],
-            [
-                "git",
-                "-C",
-                str(self.root),
-                "-c",
-                "user.name=Selector control",
-                "-c",
-                "user.email=control@example.invalid",
-                "commit",
-                "-qm",
-                "Freeze input",
-            ],
-        ):
-            subprocess.run(argv, check=True, capture_output=True)  # noqa: S603 -- isolated fixture
-        with patch.dict(
-            os.environ, {"GITHUB_SHA": "", "GITHUB_HEAD_SHA": "", "GITHUB_EVENT_NAME": "push"}
-        ):
-            source = GATE.Source(self.root)
+        source = self.freeze(self.root)
         checkout = self.root / "checkout"
         source.checkout(checkout)
         binary = self.root / "fixture-bin"
@@ -203,6 +174,84 @@ class GoSelectorControls(unittest.TestCase):
             self.assertNotEqual(source.head, os.environ["GITHUB_SHA"])
             source.checkout(self.root / "checkout")
             source.verify()
+
+    def test_explicit_repository_ignores_inherited_git_selectors(self) -> None:
+        foreign = {
+            "GIT_DIR": str(self.root / "foreign.git"),
+            "GIT_WORK_TREE": str(self.root / "foreign-worktree"),
+            "GIT_COMMON_DIR": str(self.root / "foreign-common"),
+            "GIT_INDEX_FILE": str(self.root / "foreign-index"),
+            "GIT_OBJECT_DIRECTORY": str(self.root / "foreign-objects"),
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES": str(self.root / "foreign-alternates"),
+            "GIT_NAMESPACE": "foreign",
+            "GIT_SHALLOW_FILE": str(self.root / "foreign-shallow"),
+            "GIT_CEILING_DIRECTORIES": str(self.root),
+            "GIT_DISCOVERY_ACROSS_FILESYSTEM": "0",
+        }
+        original = dict(os.environ)
+        with patch.dict(os.environ, foreign):
+            source = self.freeze(self.root)
+            self.assertEqual(source.head, fixture_git(self.root, "rev-parse", "HEAD"))
+            source.checkout(self.root / "checkout")
+            source.verify()
+            self.assertFalse(set(foreign) & GATE.git_environment().keys())
+            self.assertEqual({key: os.environ[key] for key in foreign}, foreign)
+            self.assertEqual(list(self.root.glob("foreign*")), [])
+        self.assertEqual(dict(os.environ), original)
+
+    def test_shared_fixture_preserves_real_authority_refusals(self) -> None:
+        source = self.freeze(self.root)
+        packet = source.branch_authority
+        with (
+            patch.dict(packet, {"selected_head": "0" * 40}),
+            self.assertRaisesRegex(ValueError, "another selected source commit"),
+        ):
+            source.verify()
+        packet["primary"]["repository"]["stdout"]["sha256"] = "0" * 64
+        with self.assertRaisesRegex(ValueError, "original stream hash changed"):
+            source.verify()
+
+    def test_real_job_ignores_inherited_foreign_repository(self) -> None:
+        source = self.freeze(self.root)
+        checkout = self.root / "checkout"
+        source.checkout(checkout)
+        foreign = self.root / "foreign"
+        foreign.mkdir()
+        (foreign / "README.md").write_text("Foreign source must remain unchanged.\n")
+        other = self.freeze(foreign)
+        before = {name: (foreign / name).read_bytes() for name in ("README.md", ".git/index")}
+        refs = fixture_git(foreign, "show-ref")
+        poisoned = {
+            "PATH": os.environ["PATH"],
+            "GIT_DIR": str(foreign / ".git"),
+            "GIT_WORK_TREE": str(foreign),
+            "GIT_COMMON_DIR": str(foreign / ".git"),
+            "GIT_INDEX_FILE": str(foreign / ".git/index"),
+            "GIT_OBJECT_DIRECTORY": str(foreign / ".git/objects"),
+        }
+        output = self.root / "actual-child-root"
+        job = GATE.JobState(str(self.root), "isolated", checkout)
+        job.env.update(poisoned)
+        steps = [
+            GATE.Step(
+                "isolated",
+                0,
+                "actual Git consumer",
+                "git rev-parse --show-toplevel > " + shlex.quote(str(output)),
+                "",
+                {},
+            )
+        ]
+        evidence = self.root / "isolated-evidence"
+        with patch.dict(os.environ, poisoned):
+            GATE.execute_job(steps, job, source, evidence, poisoned)
+            self.assertEqual({key: os.environ[key] for key in poisoned}, poisoned)
+        self.assertEqual((job.failed, job.ran), (0, 1))
+        self.assertEqual(output.read_text().strip(), str(checkout))
+        self.assertEqual(fixture_git(foreign, "show-ref"), refs)
+        self.assertEqual({name: (foreign / name).read_bytes() for name in before}, before)
+        source.verify()
+        other.verify()
 
     def test_trim_matches_javascript_and_preserves_other_controls(self) -> None:
         path = self.root / ".go-version"

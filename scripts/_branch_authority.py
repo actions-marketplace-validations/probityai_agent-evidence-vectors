@@ -8,6 +8,7 @@ import json
 import os
 import re
 import subprocess
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -114,9 +115,30 @@ def git(root: Path, *args: str, input_bytes: bytes | None = None) -> bytes:
     ).stdout
 
 
-def git_environment(root: Path | None = None) -> dict[str, str]:
-    """Read original objects; a graft file cannot establish custody or ancestry."""
-    env = {**os.environ, "GIT_NO_LAZY_FETCH": "1", "GIT_NO_REPLACE_OBJECTS": "1"}
+def git_environment(
+    root: Path | None = None, *, base: Mapping[str, str] | None = None
+) -> dict[str, str]:
+    """Bind Git to command arguments; a graft cannot establish original history."""
+    env = {
+        **(os.environ if base is None else base),
+        "GIT_NO_LAZY_FETCH": "1",
+        "GIT_NO_REPLACE_OBJECTS": "1",
+    }
+    # Hooks can inherit a different repository, index or object store. Those
+    # selectors must not override an explicit root, including during bootstrap.
+    for key in (
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_COMMON_DIR",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_NAMESPACE",
+        "GIT_SHALLOW_FILE",
+        "GIT_CEILING_DIRECTORIES",
+        "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+    ):
+        env.pop(key, None)
     if root is None:
         return env
     actual = (

@@ -722,9 +722,9 @@ jobs:
       - name: the pool venue retains source-bound native results and refuses incomplete runs
         run: .venv/bin/python -B scripts/pre-push-pool-test.py
       - name: required native providers bind real tools and refuse unsafe archives
-        run: python3 scripts/native-provider-test.py
+        run: .venv/bin/python -B scripts/native-provider-test.py
       - name: setup-go selects the declared workspace file before dependent commands
-        run: python3 scripts/go-selector-test.py
+        run: .venv/bin/python -B scripts/go-selector-test.py
       # Both vector indexes publish a determinism recipe saying the set
       # regenerates byte-identically from the generator beside it, and until
       # this gate nothing ran it. Seven vector files and seven manifest entries

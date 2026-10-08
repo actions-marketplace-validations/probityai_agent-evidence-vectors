@@ -23,6 +23,7 @@ from typing import Any
 from unittest.mock import patch
 
 import _native_provider as P
+from _workflow_test_fixture import fixture_git, fixture_source
 
 HERE = pathlib.Path(__file__).resolve().parent
 SPEC = importlib.util.spec_from_file_location(
@@ -364,9 +365,9 @@ class ProviderControls(unittest.TestCase):
     ) -> tuple[Any, pathlib.Path, pathlib.Path]:
         repo = pathlib.Path(tempfile.mkdtemp(prefix="consumer-source-", dir=self.root))
         (repo / "README.md").write_text("Harmless provider dependency control.\n")
-        GATE.git(repo, "init", "--quiet")
-        GATE.git(repo, "add", "README.md")
-        GATE.git(
+        fixture_git(repo, "init", "--quiet")
+        fixture_git(repo, "add", "README.md")
+        fixture_git(
             repo,
             "-c",
             "user.name=Provider control",
@@ -377,8 +378,7 @@ class ProviderControls(unittest.TestCase):
             "-m",
             "test: retain provider dependency input",
         )
-        with patch.dict(os.environ, {}, clear=True):
-            source = GATE.Source(repo)
+        source = fixture_source(GATE, repo)
         job = GATE.JobState(str(self.root), repo.name, repo)
         path = "/usr/bin:/bin"
         if uv_body is not None:
@@ -960,8 +960,7 @@ class ProviderControls(unittest.TestCase):
         evidence = self.root / "owned-retention"
         evidence.mkdir()
         scratch = self.root / "owned-scratch"
-        with patch.dict(os.environ, {}, clear=True):
-            source = GATE.Source(original.root)
+        source = fixture_source(GATE, original.root)
         steps = [
             GATE.Step(
                 job="owned",

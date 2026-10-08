@@ -1037,7 +1037,7 @@ class JobState:
         if self.path:
             env["PATH"] = os.pathsep.join([*reversed(self.path), env.get("PATH", "")])
         env["PATH"] = os.pathsep.join([str(self.root / ".venv/bin"), env.get("PATH", "")])
-        return env
+        return git_environment(base=env)
 
     def provision_baseline(self, evidence: pathlib.Path) -> None:
         """Isolate the actual local interpreter, including fallback pip installs."""
