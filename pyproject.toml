@@ -66,6 +66,7 @@ only-include = [
     "packaging/agent_evidence_vectors",
     "vectors",
     "vectors-agent-audit-record",
+    "vectors-anchored-chain",
     "vectors-aci",
     "vectors-acs-core",
     "vectors-ai-agent-action",
@@ -92,6 +93,7 @@ exclude = ["**/__pycache__", "**/.build", "**/*.pyc", "vectors/**/*.py", "vector
 "packaging/agent_evidence_vectors" = "agent_evidence_vectors"
 "vectors" = "agent_evidence_vectors/corpora/vectors"
 "vectors-agent-audit-record" = "agent_evidence_vectors/corpora/vectors-agent-audit-record"
+"vectors-anchored-chain" = "agent_evidence_vectors/corpora/vectors-anchored-chain"
 "vectors-aci" = "agent_evidence_vectors/corpora/vectors-aci"
 "vectors-acs-core" = "agent_evidence_vectors/corpora/vectors-acs-core"
 "vectors-ai-agent-action" = "agent_evidence_vectors/corpora/vectors-ai-agent-action"
@@ -136,6 +138,7 @@ only-include = [
     "interop/observed-code-digest-candidate",
     "vectors",
     "vectors-agent-audit-record",
+    "vectors-anchored-chain",
     "vectors-aci",
     "vectors-acs-core",
     "vectors-ai-agent-action",
@@ -219,8 +222,8 @@ files = ["packaging", "vectors", "tools"]
 # Directories cannot forget. A file added to any of these is checked because it
 # is there, not because it was announced, and scripts/typecheck-gate.py refuses
 # to pass if a Python file exists outside them.
-include = ["docs/proposals", "docs/site", "interop", "packaging", "scripts", "tools", "vectors",
-           "vectors-agent-audit-record", "vectors-aci", "vectors-acs-core", "vectors-ai-agent-action", "vectors-ai-generation",
+include = ["docs/proposals", "docs/site", "examples/mcp-receipts", "interop", "packaging", "scripts", "tools", "vectors",
+           "vectors-agent-audit-record", "vectors-anchored-chain", "vectors-aci", "vectors-acs-core", "vectors-ai-agent-action", "vectors-ai-generation",
            "vectors-anchor-stream", "vectors-artifact-binding",
            "vectors-mcp-record-contract", "vectors-mcp-response-phase",
            "vectors-observed-effect", "vectors-receipt-signature",
@@ -260,9 +263,21 @@ pythonVersion = "3.13"
 [[tool.pyright.executionEnvironments]]
 root = "vectors-self-reported-record"
 
+# The MCP receipt examples import the observed-effect corpus's gen_vectors and
+# check_vectors. `vectors` comes first on the global extraPaths and carries
+# modules of the same names, so this root searches only the corpus it uses.
+[[tool.pyright.executionEnvironments]]
+root = "examples/mcp-receipts"
+extraPaths = ["vectors-observed-effect"]
+
 # The retained generator imports its own historical check_vectors module.
 [[tool.pyright.executionEnvironments]]
 root = "interop/govops-capability-id/history/vectors-capability-id"
+
+# The govops reader imports its own fixtures.py, and a top-level fixtures/
+# directory would otherwise resolve first from the project root.
+[[tool.pyright.executionEnvironments]]
+root = "interop/govops-capability-id"
 
 # Scope the signed-map reader's shared definition import to its own tree.
 # A global path would make its generic run.py shadow unrelated native readers.

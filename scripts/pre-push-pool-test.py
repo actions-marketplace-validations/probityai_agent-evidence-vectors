@@ -80,7 +80,13 @@ class Controls(unittest.TestCase):
         self.call("init", "-q")
         self.call("config", "user.name", "Transport fixture")
         self.call("config", "user.email", "fixture@example.com")
+        # A global tag.gpgSign makes the lightweight fixture tag an annotated one
+        # that needs a message, so the fixture fails on a signing machine.
+        self.call("config", "tag.gpgSign", "false")
         self.call("config", "core.hooksPath", ".githooks")
+        # Pin signing off so the fixture does not inherit the caller's global git config.
+        self.call("config", "tag.gpgSign", "false")
+        self.call("config", "commit.gpgSign", "false")
         self.call("remote", "add", "origin", "https://github.com/example/transport.git")
         (self.root / "scripts").mkdir()
         (self.root / ".githooks").mkdir()

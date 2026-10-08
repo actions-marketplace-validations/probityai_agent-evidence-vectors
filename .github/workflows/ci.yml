@@ -253,7 +253,7 @@ jobs:
       - name: type-check every python file
         run: uv run python scripts/typecheck-gate.py
       - name: ruff
-        run: uv run ruff check packaging vectors vectors-acs-core/wire-probes vectors-observed-effect vectors-agent-audit-record vectors-ai-generation vectors-receipt-signature vectors-source-coverage vectors-self-reported-record scripts interop/gemara-method-link interop/ws4-prior-witness-candidate interop/agentavow-live-mcp interop/agentavow-signed-map-v1 interop/a2a-s3-retain-2026-10-01 interop/a2a-s4-dual-name-2026-10-02 interop/action-tuple-framed-v1
+        run: uv run ruff check packaging vectors vectors-acs-core/wire-probes vectors-observed-effect vectors-agent-audit-record vectors-ai-generation vectors-receipt-signature vectors-source-coverage vectors-anchored-chain vectors-self-reported-record scripts interop/gemara-method-link interop/ws4-prior-witness-candidate interop/agentavow-live-mcp interop/agentavow-signed-map-v1 interop/a2a-s3-retain-2026-10-01 interop/a2a-s4-dual-name-2026-10-02 interop/action-tuple-framed-v1
       - name: timestamp candidate custody and refusal controls
         run: python3 scripts/retain-timestamp-candidate-test.py
       - name: E2 compatibility tests in the shared development environment
@@ -813,8 +813,15 @@ jobs:
       # the standard library.
       - name: the observed-effect corpus behaves as its manifest claims
         run: uv run --extra generators python vectors-observed-effect/check_vectors.py
+      # Worked receipts for a sequential MCP call chain and a parallel fan-out,
+      # built from the corpus's own helpers and verified by its reference
+      # verifier, with two controls that must fail.
+      - name: the MCP receipt examples verify and link
+        run: uv run --extra generators python examples/mcp-receipts/check_examples.py
       - name: source-coverage fixtures regenerate and refuse invalid replays
         run: uv run --extra dev pytest vectors-source-coverage/tests -q
+      - name: anchored-chain cases regenerate and force every check
+        run: uv run --extra dev pytest vectors-anchored-chain/tests -q
       - name: probity-verify checks source coverage
         run: |
           mkdir -p .build
