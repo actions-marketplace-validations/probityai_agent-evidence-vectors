@@ -22,6 +22,7 @@ import tempfile
 from pathlib import Path, PurePosixPath
 from typing import IO, Any
 
+from _branch_authority import capture_authority, git_environment, require_packet, restore_authority
 from _gate_json import decode_json
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -42,6 +43,7 @@ KEEP_ENV = {
     "GOFLAGS",
     "CARGO_BUILD_JOBS",
     "MAKEFLAGS",
+    "PYTHONDONTWRITEBYTECODE",
 }
 
 
@@ -75,15 +77,50 @@ def encode(value: Any) -> bytes:
 
 def git(*args: str) -> str:
     """Read the selected repository, refusing errors."""
-    return subprocess.check_output(["git", "-C", str(ROOT), *args], text=True).strip()
+    return subprocess.check_output(
+        ["git", "-C", str(ROOT), *args], text=True, env=git_environment(ROOT)
+    ).strip()
+
+
+def selected_mechanisms(head: str) -> dict[str, str]:
+    """Required executable bytes must belong to the selected commit itself."""
+    result = {}
+    for field, relative in {
+        "gateSha256": "scripts/workflow-steps-gate.py",
+        "hookSha256": ".githooks/pre-push",
+        "bridgeSha256": "scripts/pre-push-pool.py",
+        "authoritySha256": "scripts/_branch_authority.py",
+        "jsonSha256": "scripts/_gate_json.py",
+        "bootstrapSha256": "scripts/pre-push-pool-native.sh",
+        "goSelectorSha256": "scripts/_go_selector.py",
+        "lockSha256": "scripts/_lockfile.py",
+        "providerSha256": "scripts/_native_provider.py",
+    }.items():
+        path = ROOT / relative
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("required gate source is not a regular file: " + relative)
+        actual = path.read_bytes()
+        committed = subprocess.run(
+            ["git", "-C", str(ROOT), "cat-file", "blob", head + ":" + relative],
+            capture_output=True,
+            check=True,
+            env=git_environment(ROOT),
+        ).stdout
+        if actual != committed:
+            raise ValueError("required gate source differs from selected commit: " + relative)
+        result[field] = digest(actual)
+    if result["bridgeSha256"] != digest(Path(__file__).read_bytes()):
+        raise ValueError("executing bridge differs from the selected commit")
+    return result
 
 
 def bindings() -> dict[str, Any]:
     """Bind the native gate, hook, source revision, origin, and every tag."""
     if git("status", "--porcelain", "--untracked-files=no"):
         raise ValueError("tracked source differs from the selected commit")
+    head = git("rev-parse", "HEAD")
     return {
-        "head": git("rev-parse", "HEAD"),
+        "head": head,
         "tree": git("rev-parse", "HEAD^{tree}"),
         "origin": git("config", "--get", "remote.origin.url"),
         "hooksPath": git("config", "--get", "core.hooksPath"),
@@ -93,9 +130,7 @@ def bindings() -> dict[str, Any]:
                 "for-each-ref", "--format=%(refname) %(objectname)", "refs/tags"
             ).splitlines()
         ),
-        "gateSha256": digest((ROOT / "scripts/workflow-steps-gate.py").read_bytes()),
-        "hookSha256": digest((ROOT / ".githooks/pre-push").read_bytes()),
-        "bridgeSha256": digest(Path(__file__).read_bytes()),
+        **selected_mechanisms(head),
     }
 
 
@@ -103,6 +138,20 @@ def require_bindings(expected: dict[str, Any]) -> None:
     """Refuse any changed source coordinate before starting the native gate."""
     if bindings() != expected:
         raise ValueError("pool checkout does not match the selected source bindings")
+
+
+def require_source_capture(
+    source: Any,
+    expected: dict[str, Any],
+    authority: dict[str, Any],
+) -> None:
+    """Require the original source and primary metadata at both receipt boundaries."""
+    if not isinstance(source, dict):
+        raise ValueError("native source capture is not a JSON object")
+    if any(source.get(key) != expected[key] for key in ("head", "tree", "tags")):
+        raise ValueError("native source capture does not match the request")
+    if source.get("branch_authority") != authority:
+        raise ValueError("native source capture has different branch authority")
 
 
 def read_json(path: Path) -> Any:
@@ -155,7 +204,10 @@ def remote(request: dict[str, Any]) -> int:
     capture = Path(scratch) / "capture"
     capture.mkdir()
     (capture / "request.json").write_bytes(encode(request))
-    gate_exit, bridge_exit, result = run_native(expected, env, capture)
+    (capture / "branch-authority.json").write_bytes(encode(request["branchAuthority"]))
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env["UV_LINK_MODE"] = "copy"
+    gate_exit, bridge_exit, result = run_native(expected, request["branchAuthority"], env, capture)
     storage = ROOT / ".build" / ("pre-push-pool-" + request["nonce"])
     if storage.parent.is_symlink():
         raise ValueError("pool capture storage is a symbolic link")
@@ -165,6 +217,7 @@ def remote(request: dict[str, Any]) -> int:
     receipt = {
         "requestSha256": digest(encode(request)),
         "bindings": expected,
+        "branchAuthoritySha256": digest(encode(request["branchAuthority"])),
         "gateExit": gate_exit,
         "bridgeExit": bridge_exit,
         "nativeResult": result,
@@ -179,6 +232,7 @@ def remote(request: dict[str, Any]) -> int:
 
 def run_native(
     expected: dict[str, Any],
+    branch_authority: dict[str, Any],
     env: dict[str, str],
     capture: Path,
 ) -> tuple[int | None, int, Any]:
@@ -188,18 +242,17 @@ def run_native(
     try:
         git("checkout", "--quiet", "--detach", expected["head"])
         require_bindings(expected)
+        restore_authority(ROOT, branch_authority, capture)
+        packet_path = capture / "branch-authority.json"
+        packet_path.write_bytes(encode(branch_authority))
         command = [
-            "uv",
-            "run",
-            "--quiet",
-            "--with",
-            "pyyaml",
-            "--with",
-            "cryptography",
-            "python",
+            str(ROOT / ".venv/bin/python"),
+            "-B",
             str(ROOT / "scripts/workflow-steps-gate.py"),
             "--evidence-dir",
             str(capture / "native"),
+            "--branch-authority",
+            str(packet_path),
         ]
         with (capture / "gate.stdout").open("wb") as out:
             with (capture / "gate.stderr").open("wb") as err:
@@ -207,10 +260,10 @@ def run_native(
         gate_exit = process.returncode
         (capture / "gate-process.json").write_bytes(encode({"returncode": gate_exit}))
         require_bindings(expected)
+        require_packet(ROOT, branch_authority)
         result = read_json(capture / "native/result.json")
         source = read_json(capture / "native/source-input.json")
-        if any(source[key] != expected[key] for key in ("head", "tree", "tags")):
-            raise ValueError("native source capture does not match the request")
+        require_source_capture(source, expected, branch_authority)
         if not isinstance(result, dict) or type(result.get("ran")) is not int or result["ran"] < 1:
             raise ValueError("native gate did not retain a nonempty execution result")
         if type(result.get("failed")) is not int or result["failed"] < 0:
@@ -239,6 +292,7 @@ def completion(log: str, request: dict[str, Any], runner_exit: int) -> dict[str,
     if (
         receipt.get("requestSha256") != digest(encode(request))
         or receipt.get("bindings") != request["bindings"]
+        or receipt.get("branchAuthoritySha256") != digest(encode(request["branchAuthority"]))
         or receipt.get("bridgeExit") != runner_exit
     ):
         raise ValueError("pool receipt is not bound to this source and actual exit")
@@ -306,6 +360,8 @@ def check_archive(
         raise ValueError("native archive does not match its complete member manifest")
     if decode_json(contracts["request.json"]) != request:
         raise ValueError("native archive contains another request")
+    if decode_json(contracts.get("branch-authority.json", b"null")) != request["branchAuthority"]:
+        raise ValueError("native archive branch authority differs from the producer")
     result = (
         decode_json(contracts["native/result.json"]) if "native/result.json" in contracts else None
     )
@@ -313,8 +369,7 @@ def check_archive(
         raise ValueError("native archive result differs from its completion receipt")
     if receipt["bridgeExit"] == 0:
         source = decode_json(contracts["native/source-input.json"])
-        if any(source[key] != request["bindings"][key] for key in ("head", "tree", "tags")):
-            raise ValueError("native archive source differs from the selected revision")
+        require_source_capture(source, request["bindings"], request["branchAuthority"])
     return {
         "archiveBytes": receipt["bytes"],
         "originalFileCount": len(actual),
@@ -364,6 +419,7 @@ def archive_members(archive: Path) -> tuple[dict[str, Any], dict[str, bytes]]:
                     in {
                         "POOL-MANIFEST.json",
                         "request.json",
+                        "branch-authority.json",
                         "native/result.json",
                         "native/source-input.json",
                     }
@@ -385,31 +441,51 @@ def pool() -> int:
     runner = shutil.which("box_run.sh")
     if runner is None:
         raise ValueError("pool venue needs the installed box_run.sh on PATH")
-    request = {"nonce": secrets.token_hex(16), "bindings": bindings()}
     storage = (
-        Path(git("rev-parse", "--path-format=absolute", "--git-common-dir"))
-        / "aev-pre-push-pool"
+        Path(git("rev-parse", "--path-format=absolute", "--git-common-dir")) / "aev-pre-push-pool"
     )
     if storage.is_symlink():
         raise ValueError("pool evidence storage is a symbolic link")
     storage.mkdir(exist_ok=True)
     retained = Path(tempfile.mkdtemp(prefix="capture-", dir=storage))
+    expected = bindings()
+    branch_authority = capture_authority(ROOT, retained / "branch-authority")
+    require_bindings(expected)
+    request = {
+        "nonce": secrets.token_hex(16),
+        "bindings": expected,
+        "branchAuthority": branch_authority,
+    }
     (retained / "request.json").write_bytes(encode(request))
     print(f"pre-push: pool evidence retained at {retained}", flush=True)
     argument = base64.b64encode(encode(request)).decode()
+    if len(argument.encode()) > 65536:
+        raise ValueError("bound primary request exceeds the safe single-argument transport size")
     command = [
         runner,
         "pre-push-" + request["nonce"],
         "--keep",
+        "--no-sync",
         "--",
-        "python3",
-        "scripts/pre-push-pool.py",
-        "remote",
+        "sh",
+        "scripts/pre-push-pool-native.sh",
         argument,
     ]
     with (retained / "runner.stdout").open("wb") as out:
         with (retained / "runner.stderr").open("wb") as err:
-            process = child(command, cwd=ROOT, stdout=out, stderr=err)
+            process = child(
+                command,
+                cwd=ROOT,
+                stdout=out,
+                stderr=err,
+                env={
+                    **os.environ,
+                    "BOX_RUN_NO_BURST": "1",
+                    "BOX_RUN_MIN_FREE_GB": "15",
+                    "UV_LINK_MODE": "copy",
+                    "PYTHONDONTWRITEBYTECODE": "1",
+                },
+            )
     (retained / "runner-process.json").write_bytes(encode({"returncode": process.returncode}))
     log = (retained / "runner.stdout").read_text()
     # box_run's console includes only a tail. Its LOCAL_LOG holds the full job.
@@ -442,6 +518,7 @@ def pool() -> int:
     measurements = check_archive(archive, receipt, request)
     (retained / "archive-validation.json").write_bytes(encode(measurements))
     require_bindings(request["bindings"])
+    require_packet(ROOT, request["branchAuthority"])
     (retained / "completion.json").write_bytes(encode(receipt))
     print(f"pre-push: pool native exit {process.returncode}; full capture checked at {retained}")
     if isinstance(receipt["nativeResult"], dict):

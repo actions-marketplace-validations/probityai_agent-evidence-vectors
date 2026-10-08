@@ -12,9 +12,9 @@ Running "the checks I happened to read" is not running the checks. So this
 reads the workflows themselves and runs every shell step in them, in file and
 step order, and it is deliberately noisy about the ones it cannot run.
 
-    python3 scripts/workflow-steps-gate.py            # every workflow
-    python3 scripts/workflow-steps-gate.py --list     # show the plan, run nothing
-    python3 scripts/workflow-steps-gate.py --only no-internal-drafts
+    .venv/bin/python -B scripts/workflow-steps-gate.py            # every workflow
+    .venv/bin/python -B scripts/workflow-steps-gate.py --list     # show the plan, run nothing
+    .venv/bin/python -B scripts/workflow-steps-gate.py --only no-internal-drafts
 
 Exit 0 only when every runnable step exited 0. Any native step failure, unknown
 action or expression, invalid source binding,
@@ -45,6 +45,13 @@ from typing import Any, NamedTuple
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+from _branch_authority import (  # noqa: E402
+    capture_authority,
+    frozen_refs,
+    git_environment,
+    require_frozen_commit,
+    require_packet,
+)
 from _gate_json import decode_json  # noqa: E402
 from _go_selector import (
     SETUP_GO_REVISION,  # noqa: E402
@@ -61,7 +68,7 @@ WORKFLOWS = REPO / ".github" / "workflows"
 def git(root: pathlib.Path, *args: str) -> bytes:
     """Read or change only the Git repository explicitly named by the caller."""
     return subprocess.run(  # noqa: S603 -- fixed Git commands, explicit repository
-        ["git", "-C", str(root), *args], capture_output=True, check=True
+        ["git", "-C", str(root), *args], capture_output=True, check=True, env=git_environment(root)
     ).stdout
 
 
@@ -75,6 +82,7 @@ def optional_git(root: pathlib.Path, *args: str) -> str:
         capture_output=True,
         text=True,
         check=False,
+        env=git_environment(root),
     )
     return proc.stdout.strip() if proc.returncode == 0 else ""
 
@@ -128,6 +136,7 @@ def committed_inventory(root: pathlib.Path, revision: str) -> dict[str, dict[str
         input="".join(f"{identity}\n" for _, identity, _ in entries).encode(),
         capture_output=True,
         check=True,
+        env=git_environment(root),
     )
     cursor = 0
     files = {}
@@ -150,7 +159,7 @@ def committed_inventory(root: pathlib.Path, revision: str) -> dict[str, dict[str
 class Source:
     """An immutable input revision; every job gets its own Git database and files."""
 
-    def __init__(self, root: pathlib.Path) -> None:
+    def __init__(self, root: pathlib.Path, branch_authority: dict[str, Any]) -> None:
         self.root = root.resolve()
         self.head = git(root, "rev-parse", "HEAD").decode().strip()
         self.tree = git(root, "rev-parse", "HEAD^{tree}").decode().strip()
@@ -175,11 +184,12 @@ class Source:
             r"(?:https://github\.com/|git@github\.com:)([^/]+/[^/]+?)(?:\.git)?", self.origin
         )
         self.repository = match.group(1) if match else ""
-        self.default_branch = optional_git(
-            root, "symbolic-ref", "-q", "refs/remotes/origin/HEAD"
-        ).removeprefix("refs/remotes/origin/")
+        self.branch_authority = branch_authority
+        self.authority = require_packet(root, branch_authority)
+        self.default_branch = self.authority["default_branch"]
 
     def verify(self) -> None:
+        require_packet(self.root, self.branch_authority)
         if (
             git(self.root, "rev-parse", "HEAD").decode().strip() != self.head
             or git(self.root, "rev-parse", "HEAD^{tree}").decode().strip() != self.tree
@@ -204,6 +214,7 @@ class Source:
             ],
             capture_output=True,
             check=True,
+            env=git_environment(self.root),
         )
         git(
             destination,
@@ -225,6 +236,7 @@ class Source:
             or inventory(destination) != self.files
         ):
             raise ValueError("job checkout does not reproduce the selected source and tags")
+        require_packet(destination, self.branch_authority)
 
     def context(self, temp: pathlib.Path) -> dict[str, str]:
         return {
@@ -413,8 +425,8 @@ def setup_python(inputs: dict[str, Any]) -> Local:
             True,
         )
     return Local(
-        f'uv venv -q --seed --python {shlex.quote(wanted)} "$RUNNER_TEMP/setup-python"\n'
-        'echo "$RUNNER_TEMP/setup-python/bin" >> "$GITHUB_PATH"\n',
+        f'uv venv -q --clear --seed --python {shlex.quote(wanted)} "$GITHUB_WORKSPACE/.venv"\n'
+        'echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"\n',
         "",
     )
 
@@ -1008,28 +1020,23 @@ class JobState:
         return True
 
     def environment(self, base: dict[str, str]) -> dict[str, str]:
-        project_env = str(self.temp / "project-env")
+        project_env = str(self.root / ".venv")
         env = {
             **base,
             **self.env,
             "RUNNER_TEMP": str(self.temp),
             "GITHUB_WORKSPACE": str(self.root),
             "UV_PROJECT_ENVIRONMENT": project_env,
+            "VIRTUAL_ENV": project_env,
+            "UV_PYTHON": str(self.root / ".venv/bin/python"),
+            "UV_LINK_MODE": "copy",
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "GIT_NO_LAZY_FETCH": "1",
+            "GIT_NO_REPLACE_OBJECTS": "1",
         }
-        env.pop("VIRTUAL_ENV", None)
-        if (self.temp / "setup-python").is_dir():
-            env["VIRTUAL_ENV"] = str(self.temp / "setup-python")
-            env["UV_PYTHON"] = str(self.temp / "setup-python" / "bin" / "python")
-        elif pathlib.Path(project_env).is_dir():
-            env["VIRTUAL_ENV"] = project_env
-        elif (self.temp / "baseline-python").is_dir():
-            env["VIRTUAL_ENV"] = str(self.temp / "baseline-python")
         if self.path:
             env["PATH"] = os.pathsep.join([*reversed(self.path), env.get("PATH", "")])
-        if pathlib.Path(project_env).is_dir() and not (self.temp / "setup-python").is_dir():
-            env["PATH"] = os.pathsep.join(
-                [str(pathlib.Path(project_env) / "bin"), env.get("PATH", "")]
-            )
+        env["PATH"] = os.pathsep.join([str(self.root / ".venv/bin"), env.get("PATH", "")])
         return env
 
     def provision_baseline(self, evidence: pathlib.Path) -> None:
@@ -1042,7 +1049,7 @@ class JobState:
             "--seed",
             "--python",
             sys.executable,
-            str(self.temp / "baseline-python"),
+            str(self.root / ".venv"),
         ]
         with (retained / "stdout").open("wb") as stdout, (retained / "stderr").open("wb") as stderr:
             proc = subprocess.run(  # noqa: S603 -- seed only this job's baseline environment
@@ -1050,6 +1057,7 @@ class JobState:
                 stdout=stdout,
                 stderr=stderr,
                 check=False,
+                env={**os.environ, "UV_LINK_MODE": "copy", "PYTHONDONTWRITEBYTECODE": "1"},
             )
         write_json(
             retained / "result.json",
@@ -1064,7 +1072,7 @@ class JobState:
             raise ValueError(
                 "job-owned baseline Python could not be provisioned; see retained output"
             )
-        self.path.append(str(self.temp / "baseline-python" / "bin"))
+        self.path.append(str(self.root / ".venv/bin"))
 
     def absorb(self, env: dict[str, str]) -> None:
         """Carry what the step just wrote to $GITHUB_ENV and $GITHUB_PATH forward."""
@@ -1239,7 +1247,9 @@ def _fetch_into(
     )
     for index, command in enumerate(commands):
         try:
-            proc = subprocess.run(command, capture_output=True, check=False, timeout=900)  # noqa: S603 -- selected foreign checkout
+            proc = subprocess.run(  # noqa: S603 -- selected foreign checkout
+                command, capture_output=True, check=False, timeout=900, env=git_environment()
+            )
         except subprocess.TimeoutExpired as exc:
             (evidence / f"{index}.stdout.txt").write_bytes(exc.stdout or b"")
             (evidence / f"{index}.stderr.txt").write_bytes(exc.stderr or b"")
@@ -1266,6 +1276,11 @@ def main() -> int:
     ap.add_argument("--list", action="store_true", help="print the plan and run nothing")
     ap.add_argument("--only", metavar="NAME", help="run one workflow, by file stem")
     ap.add_argument(
+        "--branch-authority",
+        type=pathlib.Path,
+        help="use the source-bound primary metadata packet retained by the producer",
+    )
+    ap.add_argument(
         "--evidence-dir",
         type=pathlib.Path,
         help="retain job source, mutations and process bytes here",
@@ -1291,7 +1306,10 @@ def main() -> int:
     # lock is taken here rather than left to the individual steps so the refusal
     # arrives before any work starts, instead of partway through a long run.
     with single_instance("aee-workflow-steps-gate"):
-        return execute(files, args.evidence_dir)
+        authority = (
+            decode_json(args.branch_authority.read_bytes()) if args.branch_authority else None
+        )
+        return execute(files, args.evidence_dir, authority)
 
 
 def plan(files: list[pathlib.Path]) -> int:
@@ -1345,6 +1363,7 @@ def retain_job(job: JobState, source: Source, evidence: pathlib.Path) -> None:
             "head": git(job.root, "rev-parse", "HEAD").decode().strip(),
             "tree": git(job.root, "rev-parse", "HEAD^{tree}").decode().strip(),
             "tags": final_tags,
+            "branch_refs": frozen_refs(job.root),
             "files": final,
             "event_scope": local_context_scope(),
         },
@@ -1360,6 +1379,7 @@ def retain_job(job: JobState, source: Source, evidence: pathlib.Path) -> None:
     ):
         raise ValueError("job changed its source commit or selected tag refs; evidence retained")
     source.verify()
+    require_frozen_commit(job.root, source.authority)
 
 
 def retain_tracked_changes(
@@ -1593,6 +1613,7 @@ def execute_job(
 ) -> None:
     context = job_context(steps, job, source)
     for step in steps:
+        require_frozen_commit(job.root, source.authority)
         retained = evidence / "steps" / str(step.position)
         retained.mkdir(parents=True)
         write_json(
@@ -1699,6 +1720,7 @@ def execute_owned_job(
             "head": source.head,
             "tree": source.tree,
             "tags": tags(root),
+            "branch_authority": source.branch_authority,
             "files": inventory(root),
             "event_scope": local_context_scope(),
             "checkout_seconds": setup_seconds,
@@ -1729,7 +1751,11 @@ def execute_owned_job(
     return job.ran, job.failed, job.not_run
 
 
-def execute(files: list[pathlib.Path], evidence_dir: pathlib.Path | None = None) -> int:
+def execute(
+    files: list[pathlib.Path],
+    evidence_dir: pathlib.Path | None = None,
+    branch_authority: dict[str, Any] | None = None,
+) -> int:
     ran = failed = 0
     not_run: list[str] = []
     base = step_base_environment(os.environ)
@@ -1745,7 +1771,12 @@ def execute(files: list[pathlib.Path], evidence_dir: pathlib.Path | None = None)
         return 1
     print(f"Evidence retained at {evidence}")
     try:
-        source = Source(REPO)
+        packet = (
+            capture_authority(REPO, evidence / "branch-authority")
+            if branch_authority is None
+            else branch_authority
+        )
+        source = Source(REPO, packet)
         print("CONTEXT_SCOPE declared_local_push_simulation event=push hosted_event_verified=false")
         write_json(
             evidence / "source-input.json",
@@ -1755,6 +1786,7 @@ def execute(files: list[pathlib.Path], evidence_dir: pathlib.Path | None = None)
                 "tags": source.tags,
                 "files": source.files,
                 "input_files": source.input_files,
+                "branch_authority": source.branch_authority,
                 "event": LOCAL_EVENT,
                 "event_scope": local_context_scope(),
             },

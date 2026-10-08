@@ -24,13 +24,15 @@ not read the block's contents and must not start.
 The last case is the balance: a block whose commands all succeed still passes,
 and a mirror that failed everything would be deleted rather than trusted.
 
-Usage: python3 scripts/workflow-steps-gate-test.py
+Usage: .venv/bin/python -B scripts/workflow-steps-gate-test.py
 Exit 0 when every case holds; 1 on a summary of failures.
 """
 
 from __future__ import annotations
 
+import base64
 import contextlib
+import hashlib
 import importlib.util
 import json
 import os
@@ -40,6 +42,8 @@ import sys
 import tempfile
 from collections.abc import Callable, Iterator
 from typing import Any
+
+from _branch_authority import default_branch_authority, frozen_refs
 
 HERE = pathlib.Path(__file__).resolve().parent
 
@@ -359,11 +363,66 @@ def the_action_mirror_fails_on_a_non_pass_verdict() -> None:
 
 def _fixture_git(root: pathlib.Path, *args: str) -> str:
     return subprocess.run(  # noqa: S603 -- commands act only on this test's fixture repository
-        ["git", "-C", str(root), *args],
+        [
+            "git",
+            "-C",
+            str(root),
+            "-c",
+            "core.hooksPath=/dev/null",
+            "-c",
+            "commit.gpgSign=false",
+            "-c",
+            "tag.gpgSign=false",
+            *args,
+        ],
         check=True,
         capture_output=True,
         text=True,
     ).stdout.strip()
+
+
+def _fixture_authority(root: pathlib.Path) -> dict[str, Any]:
+    """Supply declared fixture metadata while exercising the real Source contract."""
+    origin = "https://github.com/example/workflow-fixture.git"
+    _fixture_git(root, "config", "remote.origin.url", origin)
+    refs = frozen_refs(root)
+    ref = "refs/remotes/origin/trunk"
+    selected = [row for row in refs if row["ref"] == ref]
+    if not selected:
+        _fixture_git(root, "update-ref", ref, "HEAD")
+        refs = frozen_refs(root)
+    tip = next(row["object"] for row in refs if row["ref"] == ref)
+    api = json.dumps({"full_name": "example/workflow-fixture", "default_branch": "trunk"}).encode()
+    remote = f"ref: refs/heads/trunk\tHEAD\n{tip}\tHEAD\n{tip}\trefs/heads/trunk\n".encode()
+
+    def record(argv: list[str], data: bytes) -> dict[str, Any]:
+        return {
+            "argv": argv,
+            "returncode": 0,
+            "testFixture": "synthetic primary metadata",
+            "stdout": {
+                "base64": base64.b64encode(data).decode(),
+                "bytes": len(data),
+                "sha256": hashlib.sha256(data).hexdigest(),
+            },
+            "stderr": {"base64": "", "bytes": 0, "sha256": hashlib.sha256(b"").hexdigest()},
+        }
+
+    return {
+        "version": "branch-authority/v1",
+        "origin": origin,
+        "selected_head": _fixture_git(root, "rev-parse", "HEAD"),
+        "frozen_refs": refs,
+        "authority": default_branch_authority(origin, api, remote, refs),
+        "primary": {
+            "repository": record(
+                ["gh", "api", "--method", "GET", "repos/example/workflow-fixture"], api
+            ),
+            "remote_head": record(
+                ["git", "ls-remote", "--symref", origin, "HEAD", "refs/heads/trunk"], remote
+            ),
+        },
+    }
 
 
 def _fixture(workflow: str, root: pathlib.Path) -> pathlib.Path:
@@ -430,7 +489,7 @@ def _execute(workflow: str, root: pathlib.Path | None = None) -> tuple[int, str]
         path = _fixture(workflow, root)
         out = pathlib.Path(tmp) / "out.txt"
         with _local_input(root), open(out, "w") as handle, contextlib.redirect_stdout(handle):
-            rc = GATE.execute([path])  # type: ignore[attr-defined]
+            rc = GATE.execute([path], branch_authority=_fixture_authority(path.parents[2]))  # type: ignore[attr-defined]
         return rc, out.read_text()
 
 
@@ -724,7 +783,7 @@ def mutations_and_native_report_bytes_survive_job_cleanup() -> None:
             open(directory / "log", "w") as out,
             contextlib.redirect_stdout(out),
         ):
-            rc = GATE.execute([path], evidence)  # type: ignore[attr-defined]
+            rc = GATE.execute([path], evidence, _fixture_authority(path.parents[2]))  # type: ignore[attr-defined]
         assert rc == 0, (directory / "log").read_text()
         producer = evidence / "001-wf-upgrade"
         consumer = evidence / "002-wf-verify"
@@ -810,14 +869,14 @@ def sparse_inputs_produce_complete_jobs_and_hidden_drift_is_refused() -> None:
         _fixture_git(root, "sparse-checkout", "set", ".github")
         assert not (root / "hidden/proof").exists()
         with _local_input(root):
-            assert GATE.execute([path]) == 0  # type: ignore[attr-defined]
+            assert GATE.execute([path], branch_authority=_fixture_authority(path.parents[2])) == 0  # type: ignore[attr-defined]
         assert not (root / "hidden/proof").exists(), "the mirror changed its sparse donor"
         _fixture_git(root, "sparse-checkout", "disable")
         _fixture_git(root, "update-index", "--assume-unchanged", "hidden/proof")
         (root / "hidden/proof").write_text("hidden drift")
         assert not _fixture_git(root, "status", "--porcelain", "--untracked-files=no")
         with _local_input(root):
-            assert GATE.execute([path]) == 1  # type: ignore[attr-defined]
+            assert GATE.execute([path], branch_authority=_fixture_authority(path.parents[2])) == 1  # type: ignore[attr-defined]
 
 
 def step_outputs_and_status_do_not_leak_between_jobs() -> None:
@@ -844,11 +903,11 @@ def selected_source_cannot_be_faked_or_dirty() -> None:
         with _local_input(root):
             for key in ("GITHUB_SHA", "GITHUB_HEAD_SHA"):
                 os.environ[key] = "1" * 40
-                rc = GATE.execute([path])  # type: ignore[attr-defined]
+                rc = GATE.execute([path], branch_authority=_fixture_authority(path.parents[2]))  # type: ignore[attr-defined]
                 assert rc == 1, f"a fake {key} was trusted"
                 os.environ.pop(key)
             path.write_text(path.read_text() + "# changed tracked source\n")
-            assert GATE.execute([path]) == 1  # type: ignore[attr-defined]
+            assert GATE.execute([path], branch_authority=_fixture_authority(path.parents[2])) == 1  # type: ignore[attr-defined]
 
 
 def job_tag_ref_changes_are_retained_and_cannot_change_the_donor() -> None:
@@ -864,7 +923,7 @@ def job_tag_ref_changes_are_retained_and_cannot_change_the_donor() -> None:
         annotation = _fixture_git(root, "rev-parse", "refs/tags/fixture-tag")
         evidence = directory / "evidence"
         with _local_input(root):
-            rc = GATE.execute([path], evidence)  # type: ignore[attr-defined]
+            rc = GATE.execute([path], evidence, _fixture_authority(path.parents[2]))  # type: ignore[attr-defined]
         assert rc == 1, "a job silently changed its frozen tag binding"
         assert _fixture_git(root, "rev-parse", "refs/tags/fixture-tag") == annotation
         assert _fixture_git(root, "cat-file", "-t", annotation) == "tag"
@@ -893,15 +952,118 @@ def checkout_and_working_directory_bind_to_the_selected_source() -> None:
 def baseline_python_and_uv_environment_belong_to_each_job() -> None:
     workflow = (
         "jobs:\n  first:\n    steps:\n      - run: |\n"
-        '          test "$VIRTUAL_ENV" = "$RUNNER_TEMP/baseline-python"\n'
-        '          test "$UV_PROJECT_ENVIRONMENT" = "$RUNNER_TEMP/project-env"\n'
-        '          python3 -c "import sys; assert sys.prefix != sys.base_prefix"\n'
+        '          test "$VIRTUAL_ENV" = "$GITHUB_WORKSPACE/.venv"\n'
+        '          test "$UV_PROJECT_ENVIRONMENT" = "$GITHUB_WORKSPACE/.venv"\n'
+        '          test "$UV_PYTHON" = "$GITHUB_WORKSPACE/.venv/bin/python"\n'
+        '          python3 -B -c "import os,sys; '
+        "assert sys.prefix == os.environ['GITHUB_WORKSPACE']+'/.venv'\"\n"
         "  second:\n    steps:\n      - run: |\n"
-        '          test "$VIRTUAL_ENV" = "$RUNNER_TEMP/baseline-python"\n'
-        '          test "$UV_PROJECT_ENVIRONMENT" = "$RUNNER_TEMP/project-env"\n'
+        '          test "$VIRTUAL_ENV" = "$GITHUB_WORKSPACE/.venv"\n'
+        '          test "$UV_PROJECT_ENVIRONMENT" = "$GITHUB_WORKSPACE/.venv"\n'
     )
     rc, log = _execute(workflow)
     assert rc == 0, log
+
+
+def current_default_metadata_selects_the_actual_commit_lint_range() -> None:
+    """Published bad legacy messages are outside the actual non-main default range."""
+    doc = GATE.load_yaml(HERE.parent / ".github/workflows/commit-message-lint.yml")  # type: ignore[attr-defined]
+    block = next(
+        step.run
+        for step in GATE.steps_of(doc, pathlib.Path("lint.yml"))  # type: ignore[attr-defined]
+        if step.name == "Lint the commit messages this event introduces"
+    )
+    workflow = json.dumps(
+        {
+            "jobs": {
+                "lint": {
+                    "steps": [
+                        {
+                            "env": {
+                                "DEFAULT_BRANCH": "${{ github.event.repository.default_branch }}",
+                                "PUSH_REF": "${{ github.ref }}",
+                                "PR_BASE": "",
+                                "PUSH_BEFORE": "",
+                            },
+                            "run": block,
+                        }
+                    ]
+                }
+            }
+        }
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        directory = pathlib.Path(tmp)
+        root = directory / "source"
+        path = _fixture(workflow, root)
+        initial = _fixture_git(root, "rev-parse", "HEAD")
+        hooks = root / ".githooks"
+        hooks.mkdir()
+        for name in ("commit-msg", "commit-msg.permitted-paths", "commit-msg.forbidden-words"):
+            target = hooks / name
+            target.write_bytes((HERE.parent / ".githooks" / name).read_bytes())
+            target.chmod((HERE.parent / ".githooks" / name).stat().st_mode & 0o777)
+        _fixture_git(root, "add", ".")
+        _fixture_git(
+            root,
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.test",
+            "commit",
+            "-qm",
+            "test: " + "published legacy subject " * 4,
+        )
+        published = _fixture_git(root, "rev-parse", "HEAD")
+        _fixture_git(root, "update-ref", "refs/remotes/origin/trunk", published)
+        _fixture_git(root, "update-ref", "refs/remotes/origin/stale", initial)
+        _fixture_git(root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/stale")
+        (root / "new-change").write_text("selected feature change\n")
+        _fixture_git(root, "add", ".")
+        _fixture_git(
+            root,
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.test",
+            "commit",
+            "-qm",
+            "test: add selected feature change",
+        )
+        evidence = directory / "evidence"
+        with _local_input(root):
+            rc = GATE.execute([path], evidence, _fixture_authority(root))  # type: ignore[attr-defined]
+        assert rc == 0, (evidence / "result.json").read_text()
+        output = next(evidence.glob("*/steps/0/stdout")).read_text()
+        assert "linting refs/remotes/origin/trunk..HEAD" in output, output
+        assert "published legacy subject" not in output, output
+        assert _fixture_git(root, "symbolic-ref", "refs/remotes/origin/HEAD").endswith("/stale")
+
+
+def changing_a_job_default_ref_stops_later_history_consumers() -> None:
+    """A job may not silently change the history another step will lint."""
+    workflow = (
+        "jobs:\n  j:\n    steps:\n"
+        "      - run: git update-ref -d refs/remotes/origin/trunk\n"
+        "      - run: echo WRONG-HISTORY-CONSUMER\n"
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        directory = pathlib.Path(tmp)
+        root = directory / "source"
+        path = _fixture(workflow, root)
+        packet = _fixture_authority(root)
+        evidence = directory / "evidence"
+        with _local_input(root):
+            rc = GATE.execute([path], evidence, packet)  # type: ignore[attr-defined]
+        result = json.loads((evidence / "result.json").read_bytes())
+        assert rc == 1 and result["ran"] == 1 and result["failed"] >= 1, result
+        assert not list(evidence.glob("*/steps/1/stdout")), (
+            "consumer ran after its base disappeared"
+        )
+        assert (
+            _fixture_git(root, "rev-parse", "refs/remotes/origin/trunk")
+            == packet["authority"]["frozen_published_tip"]
+        )
 
 
 def envelope_failure_keeps_executed_counts_and_later_jobs() -> None:
@@ -918,7 +1080,7 @@ def envelope_failure_keeps_executed_counts_and_later_jobs() -> None:
         )
         evidence = directory / "evidence"
         with _local_input(root):
-            rc = GATE.execute([path], evidence)  # type: ignore[attr-defined]
+            rc = GATE.execute([path], evidence, _fixture_authority(path.parents[2]))  # type: ignore[attr-defined]
         assert rc == 1
         result = json.loads((evidence / "result.json").read_text())
         assert result["ran"] == 3 and result["failed"] == 2, result
@@ -950,7 +1112,7 @@ def alternate_backed_input_produces_independent_job_objects() -> None:
         annotation = _fixture_git(borrowed, "rev-parse", "refs/tags/fixture-tag")
         path = borrowed / ".github/workflows/wf.yml"
         with _local_input(borrowed):
-            rc = GATE.execute([path])  # type: ignore[attr-defined]
+            rc = GATE.execute([path], branch_authority=_fixture_authority(path.parents[2]))  # type: ignore[attr-defined]
         assert rc == 0, "a job retained the managed input's alternate-object dependency"
         assert alternate.read_bytes() == before
         assert _fixture_git(borrowed, "rev-parse", "refs/tags/fixture-tag") == annotation
@@ -1313,7 +1475,7 @@ def matrix_mutations_and_envelopes_are_owned_by_each_combination() -> None:
             open(directory / "log", "w") as out,
             contextlib.redirect_stdout(out),
         ):
-            rc = GATE.execute([path], evidence)  # type: ignore[attr-defined]
+            rc = GATE.execute([path], evidence, _fixture_authority(path.parents[2]))  # type: ignore[attr-defined]
         assert rc == 0, (directory / "log").read_text()
         jobs = sorted(evidence.glob("*-wf-*"))
         assert len(jobs) == 3, jobs
@@ -1353,7 +1515,7 @@ def foreign_identity_and_mutations_survive_owned_cleanup() -> None:
             open(directory / "log", "w") as out,
             contextlib.redirect_stdout(out),
         ):
-            rc = GATE.execute([path], evidence)  # type: ignore[attr-defined]
+            rc = GATE.execute([path], evidence, _fixture_authority(path.parents[2]))  # type: ignore[attr-defined]
         assert rc == 0, (directory / "log").read_text()
         foreign = evidence / "001-wf-j/foreign/source/other"
         identity = json.loads((foreign / "identity.json").read_text())
@@ -1412,7 +1574,7 @@ def attempted_missing_tool_and_pip_failures_keep_native_status() -> None:
             open(directory / "log", "w") as out,
             contextlib.redirect_stdout(out),
         ):
-            rc = GATE.execute([path], evidence)  # type: ignore[attr-defined]
+            rc = GATE.execute([path], evidence, _fixture_authority(path.parents[2]))  # type: ignore[attr-defined]
         result = json.loads((evidence / "result.json").read_text())
         assert rc == 1 and result["ran"] == result["failed"] == 2, result
         steps = evidence / "001-wf-j/steps"
@@ -1502,7 +1664,9 @@ def remote_only_inputs_keep_their_reason_and_raw_evidence() -> None:
     """An unavailable remote dependency is irrelevant to a remote-only action."""
     expression = "${{ needs.visibility.outputs.public == 'true' }}"
     for action in (
-        "ossf/scorecard-action", "pypa/gh-action-pypi-publish", "actions/upload-artifact"
+        "ossf/scorecard-action",
+        "pypa/gh-action-pypi-publish",
+        "actions/upload-artifact",
     ):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp) / "source"
@@ -1510,20 +1674,22 @@ def remote_only_inputs_keep_their_reason_and_raw_evidence() -> None:
             workflow = (
                 "jobs:\n  j:\n    steps:\n"
                 f"      - uses: {action}@pinned\n"
-                f"        with:\n          publish_results: \"{expression}\"\n"
+                f'        with:\n          publish_results: "{expression}"\n'
                 "      - run: true\n"
             )
             path = _fixture(workflow, root)
             out = pathlib.Path(tmp) / "out.txt"
             with _local_input(root), open(out, "w") as handle, contextlib.redirect_stdout(handle):
-                rc = GATE.execute([path], evidence)  # type: ignore[attr-defined]
+                rc = GATE.execute([path], evidence, _fixture_authority(path.parents[2]))  # type: ignore[attr-defined]
             result = json.loads(next(evidence.glob("*/steps/0/result.json")).read_text())
             assert rc == 0 and result["status"] == "NOT_RUN" and not result["fault"], result
             reason = action + " " + GATE.CANNOT_RUN[action]  # type: ignore[attr-defined]
             assert result["reason"] == reason, result
             original = json.loads(next(evidence.glob("*/steps/0/input.json")).read_text())
             assert original == {
-                "uses": action + "@pinned", "with": {"publish_results": expression}, "if": ""
+                "uses": action + "@pinned",
+                "with": {"publish_results": expression},
+                "if": "",
             }, original
             assert "ran 1 steps, 0 failed" in out.read_text(), out.read_text()
 
@@ -1539,7 +1705,8 @@ def unknown_action_inputs_still_fault() -> None:
 
 def local_action_and_provider_inputs_still_fault() -> None:
     for action, key in (
-        ("actions/setup-python", "python-version"), ("actions/setup-go", "go-version")
+        ("actions/setup-python", "python-version"),
+        ("actions/setup-go", "go-version"),
     ):
         rc, log = _execute(
             f"jobs:\n  j:\n    steps:\n      - uses: {action}@pinned\n"
@@ -1586,6 +1753,14 @@ def main() -> int:
     )
 
     check("a default working directory is honoured", a_default_working_directory_is_honoured)
+    check(
+        "captured default metadata selects the real lint range",
+        current_default_metadata_selects_the_actual_commit_lint_range,
+    )
+    check(
+        "changed job default refs stop later history consumers",
+        changing_a_job_default_ref_stops_later_history_consumers,
+    )
     check("runner variables carry within a job", github_env_and_runner_temp_carry_within_a_job)
     check("corpus binaries belong to their job", corpus_harness_outputs_are_owned_by_the_job)
     check("job outputs require runner context", job_owned_outputs_require_runner_context)
