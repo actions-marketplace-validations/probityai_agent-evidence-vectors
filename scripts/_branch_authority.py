@@ -31,7 +31,7 @@ def default_branch_authority(
     origin: str,
     api_bytes: bytes,
     remote_bytes: bytes,
-    refs: list[dict[str, Any]],
+    refs: object,
 ) -> dict[str, str]:
     """Require two primary sources and keep the frozen local tip separate."""
     repository = repository_origin(origin)
@@ -88,7 +88,7 @@ def remote_authority(remote_bytes: bytes, full_ref: str) -> str:
     return live_head
 
 
-def frozen_branch_tip(refs: list[dict[str, Any]], remote_ref: str) -> str:
+def frozen_branch_tip(refs: object, remote_ref: str) -> str:
     """Require exactly one direct frozen reference for the selected branch."""
     if not isinstance(refs, list) or any(not isinstance(row, dict) for row in refs):
         raise ValueError("frozen tracking refs are not object records")
@@ -258,7 +258,7 @@ def capture_process(directory: Path, name: str, argv: list[str], root: Path) -> 
     return record
 
 
-def primary_bytes(record: dict[str, Any], argv: list[str]) -> bytes:
+def primary_bytes(record: object, argv: list[str]) -> bytes:
     """Check the exact primary command and original streams inside a request."""
     if not isinstance(record, dict):
         raise ValueError("branch authority primary record is not an object")
@@ -285,6 +285,8 @@ def packet_authority(packet: dict[str, Any]) -> dict[str, str]:
     if not isinstance(packet, dict) or packet.get("version") != "branch-authority/v1":
         raise ValueError("branch authority packet version is unsupported")
     origin = packet.get("origin")
+    if not isinstance(origin, str):
+        raise ValueError("origin is not a bound GitHub repository")
     repository = repository_origin(origin)
     primary = packet.get("primary")
     if not isinstance(primary, dict):
