@@ -46,8 +46,18 @@ def member_bytes(archive: tarfile.TarFile, name: str) -> bytes:
 
 BRIDGE = load("pre_push_pool", "pre-push-pool.py")
 GATE = load("workflow_steps_gate", "workflow-steps-gate.py")
-REAL_GIT = shutil.which("git")
-REAL_UV = shutil.which("uv")
+
+
+def required_tool(name: str) -> str:
+    """Resolve a required executable before any native control can run."""
+    executable = shutil.which(name)
+    if executable is None:
+        raise RuntimeError(f"pre-push-pool tests require {name} on PATH")
+    return executable
+
+
+REAL_GIT = required_tool("git")
+REAL_UV = required_tool("uv")
 FIXTURE_GATE = """import json, os, pathlib, subprocess, sys, tempfile
 root = pathlib.Path(__file__).resolve().parent.parent
 assert os.path.abspath(sys.prefix) == os.path.abspath(root/'.venv')
@@ -77,6 +87,22 @@ print('fixture gate reached')
 
 class Controls(unittest.TestCase):
     """Transport controls use an isolated real Git repository and actual children."""
+
+    def test_missing_required_tools_refuses_before_controls(self):
+        for missing, present in (("git", REAL_UV), ("uv", REAL_GIT)):
+            with self.subTest(missing=missing), tempfile.TemporaryDirectory() as directory:
+                binary = Path(directory)
+                (binary / ("uv" if missing == "git" else "git")).symlink_to(present)
+                result = subprocess.run(
+                    [sys.executable, "-B", str(HERE / "pre-push-pool-test.py")],
+                    env={**os.environ, "PATH": str(binary)},
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(f"tests require {missing} on PATH", result.stderr)
+                self.assertNotIn("Ran ", result.stderr)
+                self.assertEqual(result.stdout, "")
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="aev-pool-control-")
