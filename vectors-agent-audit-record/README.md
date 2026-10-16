@@ -5,7 +5,10 @@ The conformance corpus of the Internet-Draft
 Appendix B, published member for member. Every row of that table is one member
 here, and each [`MANIFEST.json`](MANIFEST.json) entry carries the row's
 identifier in `draftId` (`A1`, `F3b`, `TI4`, ...) and its `from` column in
-`parentDraftId`. [`INDEX.md`](INDEX.md) lists the rows beside their files.
+`parentDraftId`. After the last row come members for sentences of Sections 5.3,
+5.4 and 5.5 that Appendix B has no row for; each carries the section it tests in
+`draftSection` and continues the identifier series beside it (`E4`, `A12`,
+`EV5`, `OV3`, ...). [`INDEX.md`](INDEX.md) lists every member beside its file.
 
 Each member is a DSSE envelope whose payload is an in-toto Statement carrying one
 agent audit record. The bytes are in `statements/`; what a conforming verifier
@@ -29,7 +32,7 @@ uv run --extra generators python vectors-agent-audit-record/check_vectors.py
 To score your own verifier, run it over each `statements/<id>.json` with the
 observer public key from `keys.observer.publicKey`, then score each verdict:
 
-- an accept or reject member (53 rows) conforms when your verdict equals
+- an accept or reject member conforms when your verdict equals
   `expected.verdict`;
 - an indeterminate member (`N1`, `N2`) is a row the draft leaves open. It
   carries no `expected.verdict`, and your verifier conforms on it when its
@@ -49,6 +52,31 @@ conforms = my_verdict in conforming_verdicts(entry)
 draft does not define codes, so a verifier is scored on the verdict alone; the
 codes are published so two implementations can compare where they stopped.
 
+## Independent runs
+
+The first reader from outside this repository is Mayur Agnihotri's
+[agent-audit-record-reader](https://github.com/Mayur021/agent-audit-record-reader),
+written from the draft, RFC 8785, RFC 7493 and DSSE and sharing no code with the
+reference reader. It agreed on 47 of 47 members of v0.16.0, the revision 01
+corpus. Our rerun of it, pinned by digest, is in
+[`interop/wimse-agent-audit-record-reader-2026-10-01`](../interop/wimse-agent-audit-record-reader-2026-10-01/README.md).
+Members added after v0.16.0 have no outside run yet.
+
+## Replaying the write chain
+
+Section 5.3 requires the ordered writes to reproduce `afterRoot` from
+`beforeRoot`. The replay is four comparisons: a running root starts at
+`beforeRoot`; each write in `effect.writes`, in array order and whatever its
+attribution or `inScope`, carries a `preStateDigest` equal to the running root,
+and its `postStateDigest` becomes the running root; the root after the last
+write equals `afterRoot`; and a record with no write carries equal roots. Each
+comparison has its own reject member: `E4` breaks only the start, `E2` a link
+between two writes, `E5` only the end, and `E6` is the empty case. Appendix B
+has a row for `E2` only, so `E4`, `E5` and `E6` are Section 5.3 members.
+[`scripts/write-chain-replay-test.py`](../scripts/write-chain-replay-test.py)
+drops each comparison from the reference reader in turn and requires the judge
+to catch exactly that member.
+
 ## Could not evaluate, and the human act behind a permit
 
 `A2` and `A10` are one record twice. Both report a deny beside no effect, so
@@ -66,6 +94,31 @@ member a default, so it is malformed.
 behind the permit (`observation`, `check`, `decision` or `release`) and the
 digest of the overseer's own signed record. `OV1` and `OV2` refuse an act outside
 that set and a member the draft does not define.
+
+## Section members: what Appendix B does not reach
+
+Appendix B's accept rows carry one value of each closed set: `A10` names
+`standing-source` and `A11` names `check`. A reader that knew only those two
+values scored every row, and so did one that skipped several sentences of
+Sections 5.4 and 5.5. An outside reader written from the section text found
+this ([draft-ietf-wimse-aims#157](https://github.com/ietf-wg-wimse/draft-ietf-wimse-aims/pull/157#issuecomment-6084026969)),
+and these members close it:
+
+- `A12`, `A13` and `A14` name `key-source`, `consumption-state`, and all three
+  inputs at once, each once and in neither the draft's order nor sorted order.
+- `A15`, `A16` and `A17` carry the acts `observation`, `decision` and `release`;
+  `A16` also leaves out `recordDigest`, which Section 5.5 makes optional.
+- `EV5`, `EV6` and `EV7` refuse a not-evaluated `unavailableInput` that is
+  empty, that names one input twice, and that is a string rather than an array.
+- `EV8`, `EV9` and `EV10` refuse an evaluated record carrying `unavailableInput`
+  as `null`, the empty array and the empty string: the "in any spelling" of
+  Section 5.4, which `EV2` tests only in its canonical spelling.
+- `OV3` refuses an oversight member with no `act`, which Section 5.5 requires.
+
+`check_vectors.py` holds each of these to the sentence it tests: it weakens the
+reference reader one sentence at a time and requires the corpus to fail on
+exactly that sentence's members, so a member that stopped forcing its sentence
+would be caught.
 
 ## What the members are built from
 

@@ -27,7 +27,7 @@ name: forcing (full sweep)
 # than unforced and are excluded from the per-push subset precisely so they
 # cannot hold that job open.
 #
-# Measured on a 16-worker workstation: 808 sites, ~3370 CPU-seconds, 137-264 seconds
+# Measured on a 16-worker workstation: 810 sites, ~3370 CPU-seconds, 137-264 seconds
 # of wall time depending on load. Two independent full sweeps produced a
 # byte-identical baseline. The site count is derived and current; the CPU-second and
 # wall-time figures beside it were taken on that workstation before the quantifier
@@ -57,7 +57,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: '1.24'
+          go-version: '1.26'
       # The figure this suite quoted before the current one existed. It was seven
       # numbers typed into a script, and a typed number is indistinguishable from
       # a wrong one until somebody re-derives it. This re-derives it, from the

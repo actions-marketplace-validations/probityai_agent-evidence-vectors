@@ -358,7 +358,7 @@ func isFalsy(value any) bool {
 	case float64:
 		return v == 0
 	case json.Number:
-		return v.String() == "0"
+		return jsonNumberIsZero(v)
 	case []any:
 		return len(v) == 0
 	case map[string]any:

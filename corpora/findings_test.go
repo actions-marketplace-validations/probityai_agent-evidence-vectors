@@ -163,6 +163,7 @@ func TestEveryFindingIsReachable(t *testing.T) {
 	cases = append(cases, w3cFindings()...)
 	cases = append(cases, mcpFindings()...)
 	cases = append(cases, bindingFindings()...)
+	cases = append(cases, dependencySelectionFindings()...)
 	cases = append(cases, agentActionFindings()...)
 	cases = append(cases, agentActionChainFindings()...)
 	cases = append(cases, aeeFindings()...)
@@ -465,6 +466,25 @@ func acsFindings() []findingCase {
 				setDeep(t, row, -1.0, "expected", "codeValue")
 			})
 		}, "carries a code value the registry does not pair with that name"},
+		{"acs/forbids-code-and-names-one", dir, func(t *testing.T, d string) {
+			editManifest(t, d, func(m map[string]any) {
+				row := firstRowWhere(t, m, func(r map[string]any) bool {
+					expected, _ := r["expected"].(map[string]any)
+					return expected["code"] != nil
+				})
+				setDeep(t, row, true, "expected", "forbidsRegistryCode")
+			})
+		}, "names a registry code and forbids one"},
+		{"acs/forbids-code-off-deny", dir, func(t *testing.T, d string) {
+			editManifest(t, d, func(m map[string]any) {
+				setDeep(t, firstRowWhere(t, m, kindIs("accept")), true, "expected", "forbidsRegistryCode")
+			})
+		}, "forbids a registry code on a verdict other than deny"},
+		{"acs/forbids-code-false", dir, func(t *testing.T, d string) {
+			editManifest(t, d, func(m map[string]any) {
+				setDeep(t, firstRowWhere(t, m, kindIs("reject")), false, "expected", "forbidsRegistryCode")
+			})
+		}, "carries forbidsRegistryCode false"},
 		{"acs/accept-not-allow", dir, func(t *testing.T, d string) {
 			editManifest(t, d, func(m map[string]any) {
 				setDeep(t, firstRowWhere(t, m, kindIs("accept")), "deny", "expected", "verdict")
@@ -790,6 +810,25 @@ func bindingFindings() []findingCase {
 				row := firstRowWhere(t, m, kindIs("accept"))
 				writeFile(t, d, row["signature"].(string), strings.Repeat("00", 64))
 			})
+		}, "the reference verifier answered"},
+	}
+}
+
+// dependencySelectionFindings proves the two consumer-held inputs this corpus
+// adds are load-bearing: without the in-force pin the skill-not-in-force member
+// answers verified, and a profile the reader does not know is refused rather
+// than judged against an empty role list.
+func dependencySelectionFindings() []findingCase {
+	const dir = "vectors-dependency-selection"
+	return []findingCase{
+		{"depsel/in-force-dropped", dir, func(t *testing.T, d string) {
+			editManifest(t, d, func(m map[string]any) { delete(m, "inForce") })
+		}, "the reference verifier answered \"verified\""},
+		{"depsel/unknown-profile", dir, func(t *testing.T, d string) {
+			editManifest(t, d, func(m map[string]any) { m["profile"] = "no-such-profile/v1" })
+		}, "which this reader does not know"},
+		{"depsel/harbor-profile", dir, func(t *testing.T, d string) {
+			editManifest(t, d, func(m map[string]any) { m["profile"] = "harbor/single-step/v1" })
 		}, "the reference verifier answered"},
 	}
 }

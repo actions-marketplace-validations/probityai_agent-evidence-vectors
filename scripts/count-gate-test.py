@@ -32,12 +32,14 @@ Exit 0 when every case holds; 1 on the first summary of failures.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -304,6 +306,38 @@ def remove_first_statement(root: Path) -> None:
     target.unlink()
 
 
+def flip_w3c_selected_accept(root: Path) -> None:
+    """Relabel one accept member of the w3c-report section 10 selection as reject.
+
+    This is the shape of the v0.18.0 change in reverse: the selection keeps its
+    size and its split moves. The README sentence has to fail when the manifest
+    moves under it, not only when somebody retypes the sentence.
+    """
+    rel = "vectors-w3c-report/MANIFEST.json"
+
+    def flip(text: str) -> str:
+        manifest = json.loads(text)
+        agreed = {row["id"] for row in manifest["requirements"] if row.get("status") == "agreed"}
+        for entry in manifest["vectors"]:
+            if (
+                entry["subjectType"] == "report"
+                and entry["kind"] == "accept"
+                and all(req in agreed for req in entry["requirements"])
+            ):
+                entry["kind"] = "reject"
+                # Keep the manifest's own tally true, so the integrity check
+                # passes and the claim check is what has to refuse.
+                manifest["counts"]["accept"] -= 1
+                manifest["counts"]["reject"] += 1
+                return json.dumps(manifest, indent=2)
+        raise SystemExit(
+            f"test setup: {rel} has no selected accept member, so this case would "
+            "assert nothing. Fix the case, never the gate."
+        )
+
+    revise(root, rel, flip)
+
+
 # The sentences a case expects back name figures too, and one that quotes the
 # right figure rots exactly as fast as a mutation that quotes it. These are read
 # from the manifest the staged copy is copied from, so they are the same figures
@@ -349,6 +383,39 @@ CLAIM_CASES: list[Case] = [
             ),
         ),
         ("the Gemara profile case count says",),
+    ),
+    (
+        "the w3c-report README's section 10 reject figure is retyped",
+        lambda root: retype(
+            root,
+            "vectors-w3c-report/README.md",
+            r"The section 10 selection is \d+ members, (\d+) to reject",
+        ),
+        ("the section 10 selection and its split says",),
+    ),
+    (
+        "the w3c-report selection split moves and the README does not",
+        flip_w3c_selected_accept,
+        ("the section 10 selection and its split says",),
+    ),
+    (
+        "the w3c-report README says the split stays when it moved",
+        lambda root: reword(
+            root,
+            "vectors-w3c-report/README.md",
+            r"The section 10 selection is \d+ members,",
+            "The section 10 selection stays the same size,",
+        ),
+        ("the section 10 selection and its split", "was found 0 time(s)"),
+    ),
+    (
+        "the w3c-report split before v0.18.0 is made to track the manifest",
+        lambda root: retype(
+            root,
+            "vectors-w3c-report/README.md",
+            r"but (\d+) to reject and \d+ to accept, at",
+        ),
+        ("the section 10 split before v0.18.0",),
     ),
     (
         "the Gemara historic author result is retyped",
@@ -749,7 +816,22 @@ CENSUS_CASES.append(
             "BUILD-NOTES.md",
             f"\nThe sweep records {OBSERVED_EFFECT_REJECT} unforced rules today.\n",
         ),
-        ("equal to the reject count of vectors-observed-effect",),
+        # Not "equal to the reject count of ...": when another published count
+        # shares the value the refusal names every source it equals, and this
+        # case asks only that the observed-effect reject count is among them.
+        ("the reject count of vectors-observed-effect",),
+    )
+)
+
+CENSUS_CASES.append(
+    (
+        "a count beside a span of days is still a count",
+        lambda root: append(
+            root,
+            "BUILD-NOTES.md",
+            f"\nIt took 3 days to write {OBSERVED_EFFECT_REJECT} vectors.\n",
+        ),
+        ("is an integer counting vectors",),
     )
 )
 
@@ -791,6 +873,16 @@ ACCEPT_CASES: list[Case] = [
         ("are accounted for",),
     ),
     (
+        "an issue number in a GitHub URL is an identifier, not a count",
+        lambda root: append(
+            root,
+            "BUILD-NOTES.md",
+            "\nThe report is at https://github.com/probityai/agent-evidence-vectors/"
+            f"issues/{OBSERVED_EFFECT_REJECT}#issuecomment-1 and nowhere else.\n",
+        ),
+        ("are accounted for",),
+    ),
+    (
         "ordinary numbers that stand for nothing about the corpus",
         lambda root: append(
             root,
@@ -799,42 +891,101 @@ ACCEPT_CASES: list[Case] = [
         ),
         ("are accounted for",),
     ),
+    (
+        "an exponent and a span of days count nothing",
+        lambda root: append(
+            root,
+            "BUILD-NOTES.md",
+            f"\nThe double is 2**{OBSERVED_EFFECT_REJECT}, its slug two-to-the-"
+            f"{OBSERVED_EFFECT_REJECT}, and the thread ran {OBSERVED_EFFECT_REJECT} days.\n",
+        ),
+        ("are accounted for",),
+    ),
 ]
 
 
-def check(group: str, cases: list[Case], want_refusal: bool, tmp: Path) -> list[str]:
-    failures: list[str] = []
-    for index, (name, mutate, phrases) in enumerate(cases):
-        root = tmp / f"{group}{index}"
-        root.mkdir()
-        stage(root)
-        mutate(root)
-        code, output = run(root)
-        if want_refusal and code == 0:
-            failures.append(f"{name}: the gate accepted it")
-            continue
-        if not want_refusal and code != 0:
-            failures.append(f"{name}: the gate refused it:\n{output}")
-            continue
-        missing = [phrase for phrase in phrases if phrase not in output]
-        if missing:
-            failures.append(
-                f"{name}: the right exit status, and the output does not carry "
-                f"{missing!r}. A refusal that names the wrong thing sends the next "
-                f"person to the wrong file.\n{output}"
+def copy_staged(template: Path, destination: Path) -> None:
+    """Give one case its own copy of the staged checkout.
+
+    Staging hashes every tracked file into a fresh index, which cost about five
+    seconds a case, forty-four times a run. The template is staged once and each
+    case gets a byte copy of it, `.git` included: the same index entries, the
+    same objects and the same files, so `git ls-files` and every blob read see
+    what a fresh stage would have given them. The case then edits only its own
+    copy, so no case can see another's mutation.
+    """
+    shutil.copytree(template, destination, symlinks=True)
+
+
+def workers() -> int:
+    """How many cases run at once: COUNT_GATE_TEST_WORKERS, else up to four.
+
+    Each case is one single-threaded gate process, so this pool is the only layer
+    here that owns parallelism and the number is the number of processes. The
+    default never exceeds the processors this process may use, and never exceeds
+    four, so a run on a loaded workstation adds at most four busy processes.
+    """
+    raw = os.environ.get("COUNT_GATE_TEST_WORKERS", "")
+    if raw:
+        if not raw.isdigit() or int(raw) < 1:
+            raise SystemExit(
+                f"COUNT_GATE_TEST_WORKERS={raw!r} is not a positive integer; refusing "
+                "to guess a worker count."
             )
-    return failures
+        return int(raw)
+    return max(1, min(4, len(os.sched_getaffinity(0))))
+
+
+def judge(case: Case, want_refusal: bool, root: Path, template: Path) -> str | None:
+    """Run one case in its own copy and return its failure, or None if it holds."""
+    name, mutate, phrases = case
+    copy_staged(template, root)
+    mutate(root)
+    code, output = run(root)
+    if want_refusal and code == 0:
+        return f"{name}: the gate accepted it"
+    if not want_refusal and code != 0:
+        return f"{name}: the gate refused it:\n{output}"
+    missing = [phrase for phrase in phrases if phrase not in output]
+    if missing:
+        return (
+            f"{name}: the right exit status, and the output does not carry "
+            f"{missing!r}. A refusal that names the wrong thing sends the next "
+            f"person to the wrong file.\n{output}"
+        )
+    return None
 
 
 def main() -> int:
+    groups = (
+        ("claim", CLAIM_CASES, True),
+        ("census", CENSUS_CASES, True),
+        ("source", SOURCE_CASES, True),
+        ("accept", ACCEPT_CASES, False),
+    )
     failures: list[str] = []
     with tempfile.TemporaryDirectory() as raw:
         tmp = Path(raw)
-        failures.extend(check("claim", CLAIM_CASES, True, tmp))
-        failures.extend(check("census", CENSUS_CASES, True, tmp))
-        failures.extend(check("source", SOURCE_CASES, True, tmp))
-        failures.extend(check("accept", ACCEPT_CASES, False, tmp))
+        template = tmp / "template"
+        template.mkdir()
+        stage(template)
+        # Every case is submitted, and every result is collected in submission
+        # order, so the report reads the same as the serial run did. A case that
+        # raises (a rig that no longer matches its file) re-raises here when its
+        # result is read, exactly as it stopped the serial run.
+        with ThreadPoolExecutor(max_workers=workers()) as pool:
+            futures = [
+                pool.submit(judge, case, want_refusal, tmp / f"{group}{index}", template)
+                for group, cases, want_refusal in groups
+                for index, case in enumerate(cases)
+            ]
+            for future in futures:
+                failure = future.result()
+                if failure is not None:
+                    failures.append(failure)
     total = len(CLAIM_CASES) + len(CENSUS_CASES) + len(SOURCE_CASES) + len(ACCEPT_CASES)
+    if len(futures) != total:
+        raise SystemExit(f"judged {len(futures)} case(s) of {total}; refusing to report a pass")
     if failures:
         print(f"FAIL: {len(failures)} of {total} case(s) do not hold:", file=sys.stderr)
         for failure in failures:

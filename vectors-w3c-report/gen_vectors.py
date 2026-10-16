@@ -44,7 +44,8 @@ from agent_evidence_vectors import contextdiscovery, runmetrics, w3creport  # no
 
 SUITE = w3creport.SUITE
 SPEC_VERSION = "0.1"
-ARCHIVE = "https://lists.w3.org/Archives/Public/public-agent-conformance/2026Sep/"
+ARCHIVE_ROOT = "https://lists.w3.org/Archives/Public/public-agent-conformance/"
+ARCHIVE = ARCHIVE_ROOT + "2026Sep/"
 DATATRACKER = "https://datatracker.ietf.org/doc/"
 
 #: The vendored texts, keyed by the archive number or the draft name each carries.
@@ -63,6 +64,11 @@ VENDORED = {
     "0077": "spec-vendored/0077-rocchia-2026-09-23-v01-answers.txt",
     "0087": "spec-vendored/0087-arsentev-2026-09-30-v01.txt",
     "0088": "spec-vendored/0088-schuurkes-2026-09-30-v01-row4.txt",
+    # The digest encoding proposed after v0.1 froze: Kroehl's jcs-sha256
+    # paragraph and Ives's numeric profile. Keyed by month as well as number,
+    # because the October archive numbers again from 0000.
+    "2026Oct-0038": "spec-vendored/2026Oct-0038-kroehl-2026-10-10-digest-encoding.txt",
+    "2026Oct-0040": "spec-vendored/2026Oct-0040-ives-2026-10-10-numeric-profile.txt",
     "draft-arsentev-agent-run-metrics-00": "spec-vendored/draft-arsentev-agent-run-metrics-00.txt",
     "draft-arsentev-llm-context-discovery-00": (
         "spec-vendored/draft-arsentev-llm-context-discovery-00.txt"
@@ -85,6 +91,8 @@ AUTHORS = {
     "0077": "Nicolas Rocchia",
     "0087": "Evgenii Arsentev",
     "0088": "Roel Schuurkes",
+    "2026Oct-0038": "Lars Kersten Kroehl",
+    "2026Oct-0040": "Kenne Ives",
     "draft-arsentev-agent-run-metrics-00": "Evgenii Arsentev",
     "draft-arsentev-llm-context-discovery-00": "Evgenii Arsentev",
 }
@@ -93,6 +101,9 @@ AUTHORS = {
 def source_url(key: str) -> str:
     if key.startswith("draft-"):
         return f"{DATATRACKER}{key[:-3]}/"
+    if "-" in key:
+        month, number = key.split("-", 1)
+        return f"{ARCHIVE_ROOT}{month}/{number}.html"
     return f"{ARCHIVE}{key}.html"
 
 
@@ -213,9 +224,9 @@ W3C_REQUIREMENTS: tuple[dict[str, str], ...] = (
         CONSISTENCY,
     ),
     requirement(
-        "W3C-R-016", "2 declared slots", "0087",
+        "W3C-R-016", "2 recomputed moved contained", "0087",
         "an object whose moved\nis not contained in its declared compared set is rejected",
-        CONSISTENCY,
+        EVIDENCE,
     ),
     requirement(
         "W3C-R-021", "2 recomputed moved", "0087",
@@ -272,6 +283,15 @@ W3C_REQUIREMENTS: tuple[dict[str, str], ...] = (
         "The control runs under the same checker revision and the same\n    relevant configuration and constraints as the declared checks\n    whose negative capability it is reported for",
         CONSISTENCY,
     ),
+    # The second half of 0087 change log entry 12: the prior-run filling of
+    # 5.4 carries the binding its control-run sibling carries under W3C-R-029.
+    # Its own sentence, so a reword of either condition stops the build.
+    requirement(
+        "W3C-R-033", "5.4 prior-run binding", "0087",
+        "The reference lets the reader\n    establish the same revision and configuration binding for the\n"
+        "    declared checks it supports",
+        CONSISTENCY,
+    ),
     # Kenne Ives's coverage block (0001) is not in the v0.1 text: no section of
     # 0087 carries it. It stays proposed, and the appendix lists it among the
     # places the corpus and the text still differ.
@@ -281,6 +301,41 @@ W3C_REQUIREMENTS: tuple[dict[str, str], ...] = (
         "0001",
         "a sampled / full_coverage flag\n"
         "with the count of scannable files recorded before the per-repo cap",
+        FORM,
+        PROPOSED,
+    ),
+    # The digest encoding, proposed on the list after v0.1 froze and carried
+    # here as W3C-R-022 is: its members rest on a rule the text does not hold,
+    # so they sit outside the section 10 selection, in the class the list named
+    # excluded-under-proposed-rule (2026Oct/0030). A report's own digests over
+    # a JSON value are taken under RFC 8785 (W3C-R-030), every number in them
+    # an integer below 2^53 (W3C-R-031, rejected under W3C-R-020 naming the
+    # cause), and an encoding a binding declares comes from the closed set
+    # (W3C-R-032, rejected under W3C-R-015).
+    requirement(
+        "W3C-R-030",
+        "3.1 digest encoding",
+        "2026Oct-0038",
+        "A digest taken over a JSON value is computed over the RFC 8785 canonical form of "
+        "that value.",
+        EVIDENCE,
+        PROPOSED,
+    ),
+    requirement(
+        "W3C-R-031",
+        "3.1 numeric profile",
+        "2026Oct-0040",
+        "A reader rejects a report whose\ndigested value violates this, under W3C-R-020, "
+        "naming the cause.",
+        FORM,
+        PROPOSED,
+    ),
+    requirement(
+        "W3C-R-032",
+        "3.1 declared encoding",
+        "2026Oct-0038",
+        "A reader that does not implement a report's declared digest encoding rejects the "
+        "report and says so.",
         FORM,
         PROPOSED,
     ),
@@ -470,9 +525,13 @@ FAMILIES = {
         "section 3.1: a digest over a set binds its leaf count and names its tree "
         "shape; domain separation alone is not the fix"
     ),
-    "w3c-f-16": "declared slots: moved is contained in the declared compared set",
+    "w3c-f-16": "section 2: moved, recomputed, is contained in the declared compared set",
     "w3c-f-29": (
         "section 5.4: a control built to fail is bound to the checker and constraint set of "
+        "the checks it speaks for"
+    ),
+    "w3c-f-33": (
+        "section 5.4: a prior discriminating run is bound to the checker and constraint set of "
         "the checks it speaks for"
     ),
     "w3c-f-17": "roll-up: the aggregate carries its complete denominator",
@@ -513,6 +572,38 @@ FAMILIES = {
     "arm-f-totals": "agent run metrics: the totals as the sum of the steps",
     "arm-f-serialization": (
         "agent run metrics: timestamps, identifiers, labels, cost and extensions"
+    ),
+    "w3c-f-jcs-u007f": (
+        "digest encoding (proposed): RFC 8785 writes U+007F as itself, where an ASCII-escaping "
+        "encoder writes \\u007f"
+    ),
+    "w3c-f-jcs-non-ascii": (
+        "digest encoding (proposed): RFC 8785 writes a character above U+007F as UTF-8, where "
+        "an ASCII-escaping encoder writes \\uXXXX or a surrogate pair"
+    ),
+    "w3c-f-jcs-member-order": (
+        "digest encoding (proposed): RFC 8785 orders member names by UTF-16 code unit, which "
+        "parts from code-point order on a supplementary-plane name"
+    ),
+    "w3c-f-jcs-number-value": (
+        "digest encoding (proposed): a number is written as its value, so -0 and -0.0 read 0 "
+        "and 1.0 and 1e2 read 1 and 100, never as the token written"
+    ),
+    "w3c-f-jcs-safe-range": (
+        "numeric profile (proposed): an integer of magnitude 2^53 or more is refused, both "
+        "boundaries and their neighbours, and travels as a string"
+    ),
+    "w3c-f-jcs-1e21": (
+        "numeric profile (proposed): 10^21 is refused in digits and as an exponent, so its "
+        "two spellings never reach a digest, and travels as a string"
+    ),
+    "w3c-f-jcs-non-integer": (
+        "numeric profile (proposed): a number whose exact value is not an integer is refused, "
+        "a token that rounds to an integer double included, and travels as a string"
+    ),
+    "w3c-f-jcs-declaration": (
+        "declared encoding (proposed): a set binding declares jcs-sha256 or nothing; any "
+        "other declaration is refused rather than read as the reader's own"
     ),
     "lcd-f-publisher": "context discovery: what the origin advertises and serves",
     "lcd-f-consumer": "context discovery: what a consumer resolves, retrieves and attributes",
@@ -668,6 +759,7 @@ def report(
     negative: dict[str, Any] | None = None,
     domain: dict[str, Any] | None = None,
     fixed: dict[str, str] | None = None,
+    weaken: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     checks = copy.deepcopy(checks)
     evidence_list = copy.deepcopy(evidence_list or [])
@@ -685,7 +777,7 @@ def report(
         "evidence": evidence_list,
         "roll-up": rollup,
         "check-set": {
-            "sha256": w3creport.check_set_root(checks, shape),
+            "sha256": w3creport.check_set_root(checks, shape, weaken),
             "leaf-count": len(checks),
             "tree-shape": shape,
         },
@@ -712,7 +804,17 @@ class Members:
         subject_type: str = "report",
         origin: dict[str, Any] | None = None,
         resolves: dict[str, Any] | None = None,
+        rejects: list[str] | None = None,
+        cause: str | None = None,
     ) -> None:
+        """One member. A reject member is rejected under its one requirement unless
+        ``rejects`` names the row among several it cites, and ``cause`` is the code
+        that rejection must name, for a row whose name alone does not say why."""
+        if rejects is None:
+            rejects = requirements if kind == "reject" else []
+        expected: dict[str, Any] = {"verdict": kind, "rejects": rejects}
+        if cause is not None:
+            expected["cause"] = cause
         member: dict[str, Any] = {
             "kind": kind,
             "family": family,
@@ -720,7 +822,7 @@ class Members:
             "specVersion": SPEC_VERSION,
             "subjectType": subject_type,
             "subject": subject,
-            "expected": {"verdict": kind, "rejects": requirements if kind == "reject" else []},
+            "expected": expected,
             "cites": cites,
         }
         if subject_type == "report":
@@ -968,6 +1070,64 @@ def build_control_binding(m: Members) -> None:
              "record that would carry it is not normative (section 5.5, open item O7)")
 
 
+def build_prior_binding(m: Members) -> None:
+    """A prior discriminating run binds the checker and constraint set it ran under.
+
+    Two of the conditions v0.1 section 5.4 (0087) sets on the fillings of the
+    roll-up field are a binding. W3C-R-029 carries the one for a control built
+    to fail. This is the one for a prior run: "The reference lets the reader establish the
+    same revision and configuration binding for the declared checks it
+    supports: a matching artifact digest shows which prior report was
+    obtained, not that it is about the relevant checks and settings (Roel,
+    0076 item 2)." The text adopts both halves in one entry, change log 12:
+    "Control bound to the same checker revision and relevant configuration and
+    constraints as the checks it speaks for; prior-run reference must let the
+    reader establish the same binding", carried by Roel (0076 item 2) with +1
+    from Nicolas (0077), Sankalp (0078) and Kenne (0079), and nothing on the
+    list objected in the window 0087 counts. So the row is agreed, as W3C-R-029
+    is, and its members enter the section 10 selection.
+
+    It is its own row and not W3C-R-029 read across, because the sentence is
+    its own: W3C-R-029 binds to the control sentence, and a member rejected
+    under it would cite a sentence about controls for a defect in a prior run.
+
+    The prior run is otherwise sound in every member: it binds the check
+    identity that survived (W3C-R-014) and names its set of observations with
+    a count and a tree shape (W3C-R-015), so only the binding can fire. The
+    near miss is the one the list gave for the control: the check keeps its
+    identifier while its configuration changes. As under W3C-R-029, a prior
+    run whose binding the run cannot be compared with is not refused: v0.1
+    fixes no slot for the run's binding, since the fixture record that would
+    carry it is not normative (section 5.5, open item O7).
+    """
+    def prior(checker: str, constraint_set: str) -> dict[str, Any]:
+        return {
+            "kind": "prior-discriminating-run",
+            "reference": {"sha256": sha(b"prior-run"), "leaf-count": 2, "tree-shape": "flat"},
+            "check-identity": ["c-pass", "c-pass-2"],
+            "fixed": {"checker": checker, "constraint-set": constraint_set},
+        }
+
+    m.reject("w3c-f-33", "W3C-R-033",
+             report(ALL_PASS, negative=prior("checker-1", "cs-2"), fixed=RUN_FIXED),
+             "a prior run that failed under constraint set cs-2, offered for checks that ran "
+             "under cs-1: the check identifiers survived and the configuration changed, so "
+             "the prior failure is evidence about another configuration")
+    m.reject("w3c-f-33", "W3C-R-033",
+             report(ALL_PASS, negative=prior("checker-2", "cs-1"), fixed=RUN_FIXED),
+             "a prior run that failed under another checker than the one the reported checks "
+             "ran under, with the same check identifiers")
+    m.accept("w3c-f-33", "W3C-R-033",
+             report(ALL_PASS, negative=prior("checker-1", "cs-1"), fixed=RUN_FIXED),
+             "the same prior run bound to the checker and constraint set the reported checks "
+             "ran under")
+    m.accept("w3c-f-33", "W3C-R-033",
+             report(ALL_PASS, negative=prior("checker-1", "cs-2")),
+             "a prior run that declares its binding in a run that declares none: nothing to "
+             "compare, and v0.1 fixes no slot for the run's binding, since the fixture "
+             "record that would carry it is not normative (section 5.5, open item O7)")
+
+
 def build_set_binding(m: Members) -> None:
     """Late addition (b): a digest over a set binds its count and names its shape."""
     unbound = report(ALL_PASS)
@@ -1008,14 +1168,18 @@ def build_set_binding(m: Members) -> None:
 
 
 def build_rules(m: Members) -> None:
-    """The declared-slot rule, the roll-up rules, the vocabulary rule, the mismatch rule."""
+    """The compared-set rule, the roll-up rules, the vocabulary rule, the mismatch rule."""
     demonstrated = with_slots(FAIL, other_verdict=qualifier("demonstrated", "e-1"))
     m.pair(
         "w3c-f-16", "W3C-R-016",
+        report([PASS, demonstrated], [evidence("e-1", compared=["verdict"])]),
         report([PASS, demonstrated], [evidence("e-1", moved=WITH_ERRORS)]),
-        report([PASS, demonstrated], [evidence("e-1", moved=WITH_ERRORS, compared=WITH_ERRORS)]),
-        "moved names the error list and the declared compared set does not hold it",
-        "the error list declared compared, so moved is contained; no row reads the opaque slot",
+        "the observations differ in the fired-rule list as well as the verdict, and the "
+        "declared compared set holds the verdict alone, so the recomputed moved is not "
+        "contained in it",
+        "moved also declares the error list, outside the declared compared set; the recomputed "
+        "moved is contained in it, and no rejection row reads the recompute-opaque error list "
+        "(section 2.1)",
     )
     short = report([PASS, FAIL, EXCLUDED])
     short["roll-up"]["exercised"] = 3
@@ -1046,7 +1210,7 @@ def build_rules(m: Members) -> None:
     three = [PASS, PASS_2, check("c-pass-3", "pass")]
     padded = report(three, shape="rfc6962")
     padded["check-set"]["sha256"] = w3creport.rfc6962_root(
-        [w3creport.compact(c) for c in [*three, three[-1]]]
+        [w3creport.jcs_sha256(c) for c in [*three, three[-1]]]
     )
     m.pair(
         "w3c-f-20", "W3C-R-020", padded, report(three, shape="rfc6962"),
@@ -1327,7 +1491,7 @@ def pair_store(origin: dict[str, Any], pair: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_disensor(m: Members) -> None:
-    """The 42 pairs, each as it was emitted and as v0.1 re-cuts it."""
+    """The 42 pairs, each as it was emitted and as v0.1 re-cuts it, both accepted."""
     origin = json.loads(read(ORIGIN_FILE))
     for pair in origin["pairs"]:
         version = pair["version"]
@@ -1347,13 +1511,14 @@ def build_disensor(m: Members) -> None:
         }
         resolves = pair_store(origin, pair)
         m.add(
-            kind="reject", family="w3c-f-disensor", requirements=["W3C-R-016"],
+            kind="accept", family="w3c-f-disensor", requirements=["W3C-R-016"],
             subject=report(checks, [as_emitted], domain=DISENSOR_DOMAIN), resolves=resolves,
-            cites="the pair as emitted on 2026-09-16: moved names the error list the checker "
-                  "produced, which the compared vocabulary does not hold, so the object is "
-                  "rejected under the declared-slot rule",
-            origin=dict(provenance, cause="moved asserts the recompute-opaque error list "
-                                          "outside the declared compared set"),
+            cites="the pair as emitted on 2026-09-16: moved also declares the error list the "
+                  "checker produced, outside the declared compared set; moved is recomputed, "
+                  "not declared, the recomputed moved is contained in the compared set, and no "
+                  "rejection row reads the recompute-opaque error list",
+            origin=dict(provenance, cause="none: the declared error list is a declaration no "
+                                          "row reads, and the recomputed moved is contained"),
         )
         m.add(
             kind="accept", family="w3c-f-disensor", requirements=["W3C-R-016"],
@@ -1486,6 +1651,11 @@ def build_run_metrics(m: Members) -> None:
                  run_with_usage(cache_writes=None),
                  "a ledger that does not sum to the aggregate counter",
                  "the ledger omitted where the source does not reconcile")
+    m.add(kind="reject", family="arm-f-usage", requirements=["ARM-R-014"],
+          subject=run_with_usage(cache_writes=[{"lifetime": "PT5M", "tokens": "10"}]),
+          cites="a ledger element whose tokens is a string, which is not a count and so "
+                "cannot sum to the aggregate counter",
+          subject_type=arm)
     m.typed_pair(arm, "arm-f-usage", "ARM-R-022",
                  run_with_usage(reasoning_tokens=40), run_with_usage(reasoning_tokens=30),
                  "reasoning tokens exceeding the output they are a subset of",
@@ -1630,17 +1800,207 @@ def build_context_discovery(m: Members) -> None:
                  "the same advertisement left unretrieved because the exclusion covers it")
 
 
+# --------------------------------------------------------------------------
+# The digest encoding pair (proposed). Each case is one check carrying the
+# value under test in its annotations, in a report that declares jcs-sha256.
+# The accept member's root is the reader's own; each reject member's root is
+# the one a reader computes with exactly one rule of the encoding weakened,
+# so that rule is what the member rests on, and the mutation sweep below shows
+# it flips when that rule, and no other, is weakened.
+# --------------------------------------------------------------------------
+
+#: Which rule of the encoding each family rests on (w3creport.WEAKENABLE).
+FAMILY_RULES = {
+    "w3c-f-jcs-u007f": "raw-u007f",
+    "w3c-f-jcs-non-ascii": "raw-non-ascii",
+    "w3c-f-jcs-member-order": "utf16-member-order",
+    "w3c-f-jcs-number-value": "number-by-value",
+    "w3c-f-jcs-safe-range": "safe-range",
+    "w3c-f-jcs-1e21": "safe-range",
+    "w3c-f-jcs-non-integer": "integers-only",
+    "w3c-f-jcs-declaration": "closed-encoding-set",
+}
+
+#: The requirements a family's members cite; the first is the row a reject
+#: member is rejected under, the rest the proposed rule it rests on.
+ENCODING_ROWS = ["W3C-R-020", "W3C-R-030"]
+PROFILE_ROWS = ["W3C-R-020", "W3C-R-031"]
+DECLARATION_ROWS = ["W3C-R-015", "W3C-R-032"]
+
+#: A number written as its token: an integer, or one with a fraction or exponent.
+INT = w3creport.IntToken
+NUM = w3creport.NumberToken
+
+
+def declared(checks: list[dict[str, Any]], weaken: frozenset[str] = frozenset(),
+             encoding: str = w3creport.JCS_SHA256) -> dict[str, Any]:
+    """A report over ``checks`` whose check-set binding declares ``encoding``.
+
+    The root is the one a reader computes with the rules in ``weaken`` switched
+    off; with none switched off it is the root every conforming reader computes.
+    """
+    built = report(checks, weaken=weaken)
+    built["check-set"]["digest-encoding"] = encoding
+    return built
+
+
+def carrying(ident: str, annotations: dict[str, Any]) -> list[dict[str, Any]]:
+    """Two passing checks, the first carrying the value under test."""
+    return [check(ident, "pass", extra={"annotations": annotations}), PASS_2]
+
+
+def encoding_pair(m: Members, family: str, ident: str, annotations: dict[str, Any],
+                  why_reject: str, why_accept: str) -> None:
+    """One case of the encoding itself: a root the weakened rule writes is refused."""
+    rule = frozenset([FAMILY_RULES[family]])
+    checks = carrying(ident, annotations)
+    m.add(kind="reject", family=family, requirements=list(ENCODING_ROWS),
+          subject=declared(checks, rule), cites=why_reject, rejects=["W3C-R-020"],
+          cause=w3creport.DIGESTS_DIFFER)
+    m.add(kind="accept", family=family, requirements=list(ENCODING_ROWS),
+          subject=declared(checks), cites=why_accept)
+
+
+def refused(m: Members, family: str, ident: str, annotations: dict[str, Any],
+            cause: str, why: str) -> None:
+    """One number the profile refuses, with the root a reader without the rule writes."""
+    rule = frozenset([FAMILY_RULES[family]])
+    checks = carrying(ident, annotations)
+    m.add(kind="reject", family=family, requirements=list(PROFILE_ROWS),
+          subject=declared(checks, rule), cites=why, rejects=["W3C-R-020"], cause=cause)
+
+
+def admitted(m: Members, family: str, ident: str, annotations: dict[str, Any],
+             why: str) -> None:
+    m.add(kind="accept", family=family, requirements=list(PROFILE_ROWS),
+          subject=declared(carrying(ident, annotations)), cites=why)
+
+
+def build_digest_encoding(m: Members) -> None:
+    """The cases 2026Oct/0026, 0031 and 0041 listed, as one pair or more each."""
+    encoding_pair(
+        m, "w3c-f-jcs-u007f", "c-u007f", {"text": "delete \x7f"},
+        "a root over the leaf with U+007F written as \\u007f, as the readers wrote it before "
+        "RFC 8785",
+        "the root over the leaf with U+007F written as the byte 0x7f, as RFC 8785 writes it",
+    )
+    for ident, char, name in (
+        ("c-u00e9", "\u00e9", "U+00E9, two bytes of UTF-8"),
+        ("c-u20ac", "\u20ac", "U+20AC, three bytes of UTF-8"),
+        ("c-u2028", "\u2028", "U+2028, the line separator ECMAScript once refused raw"),
+        ("c-u1f600", "\U0001F600", "U+1F600, a supplementary-plane character"),
+    ):
+        encoding_pair(
+            m, "w3c-f-jcs-non-ascii", ident, {"text": f"{char}"},
+            f"a root over the leaf with {name} written as \\uXXXX escapes, as the readers "
+            "wrote it before RFC 8785",
+            f"the root over the leaf with {name} written as UTF-8, as RFC 8785 writes it",
+        )
+    encoding_pair(
+        m, "w3c-f-jcs-member-order", "c-member-order",
+        {"\ufb33": "U+FB33", "\U0001F600": "U+1F600"},
+        "a root over member names U+FB33 and U+1F600 sorted by code point, which puts U+FB33 "
+        "first",
+        "the root over the same names sorted by UTF-16 code unit, which puts U+1F600 first "
+        "(its lead surrogate is 0xD83D)",
+    )
+    encoding_pair(
+        m, "w3c-f-jcs-number-value", "c-negative-zero",
+        {"zero": INT("-0"), "zero-fraction": NUM("-0.0")},
+        "a root over the leaf with -0 and -0.0 written as their tokens",
+        "the root over the leaf with -0 and -0.0 written as 0, their value, as RFC 8785 "
+        "writes them",
+    )
+    encoding_pair(
+        m, "w3c-f-jcs-number-value", "c-negative-zero-integer", {"zero": INT("-0")},
+        "a root over the leaf with the integer token -0 alone written as its token, as a "
+        "reader that keeps the literal writes it",
+        "the root over the leaf with the integer token -0 alone written as 0, its value, as "
+        "RFC 8785 writes it",
+    )
+    encoding_pair(
+        m, "w3c-f-jcs-number-value", "c-integral-tokens",
+        {"one": NUM("1.0"), "hundred": NUM("1e2")},
+        "a root over the leaf with 1.0 and 1e2 written as their tokens",
+        "the root over the leaf with 1.0 and 1e2 written as 1 and 100, their values",
+    )
+    admitted(
+        m, "w3c-f-jcs-safe-range", "c-safe-range-boundaries",
+        {"max": INT("9007199254740991"), "below-max": INT("9007199254740990"),
+         "min": INT("-9007199254740991"), "above-min": INT("-9007199254740990")},
+        "both boundaries of the range, 2^53-1 and -(2^53-1), and the neighbours inside them",
+    )
+    admitted(
+        m, "w3c-f-jcs-safe-range", "c-safe-range-as-strings",
+        {"two-to-the-53": "9007199254740992", "two-to-the-53-plus-one": "9007199254740993",
+         "minus-two-to-the-53": "-9007199254740992", "negative-zero": "-0"},
+        "the neighbours outside the range carried as strings, which no reader parses as numbers",
+    )
+    for ident, token, why in (
+        ("c-two-to-the-53", "9007199254740992",
+         "2^53, the neighbour just outside the range, with the root a reader without the "
+         "bound writes over it"),
+        ("c-two-to-the-53-plus-one", "9007199254740993",
+         "2^53+1, whose nearest double is 2^53: a reader without the bound writes the root of "
+         "a different integer, the one written here"),
+        ("c-minus-two-to-the-53", "-9007199254740992",
+         "-2^53, the neighbour just outside the range below"),
+        ("c-minus-two-to-the-53-minus-one", "-9007199254740993",
+         "-(2^53+1), whose nearest double is -2^53"),
+    ):
+        refused(m, "w3c-f-jcs-safe-range", ident, {"count": INT(token)},
+                w3creport.OUTSIDE_SAFE_RANGE, why)
+    admitted(
+        m, "w3c-f-jcs-1e21", "c-1e21-as-strings",
+        {"digits": "1000000000000000000000", "exponent": "1e+21"},
+        "10^21 carried as a string in both spellings, so no digest has to choose one",
+    )
+    refused(m, "w3c-f-jcs-1e21", "c-1e21-in-digits", {"count": INT("1000000000000000000000")},
+            w3creport.OUTSIDE_SAFE_RANGE,
+            "10^21 in digits, the spelling the readers wrote before RFC 8785, refused; a reader "
+            "without the bound writes 1e+21 for it, the root written here")
+    refused(m, "w3c-f-jcs-1e21", "c-1e21-as-exponent", {"count": NUM("1e21")},
+            w3creport.OUTSIDE_SAFE_RANGE,
+            "10^21 as the exponent token 1e21, refused; a reader without the bound writes "
+            "1e+21, as RFC 8785 writes it")
+    admitted(
+        m, "w3c-f-jcs-non-integer", "c-fractions-as-strings",
+        {"half": "0.5", "small": "1e-7", "nines": "0.99999999999999999"},
+        "non-integral numbers carried as strings",
+    )
+    for ident, token, why in (
+        ("c-one-half", "0.5", "0.5, a non-integral number in a check leaf"),
+        ("c-1e-7", "1e-7", "1e-7, which RFC 8785 writes in exponent form"),
+        ("c-seventeen-nines", "0.99999999999999999",
+         "0.99999999999999999, whose nearest double is 1: refused on its exact value, which a "
+         "reader that judges the double instead would admit and write as 1"),
+    ):
+        refused(m, "w3c-f-jcs-non-integer", ident, {"ratio": NUM(token)},
+                w3creport.NON_INTEGER, why)
+    m.add(kind="accept", family="w3c-f-jcs-declaration", requirements=list(DECLARATION_ROWS),
+          subject=declared(carrying("c-declared", {"text": "plain"})),
+          cites="a binding that declares jcs-sha256, the one member of the closed set")
+    m.add(kind="reject", family="w3c-f-jcs-declaration", requirements=list(DECLARATION_ROWS),
+          subject=declared(carrying("c-declared", {"text": "plain"}),
+                           encoding="sorted-key-ascii-json-sha256"),
+          cites="a binding that declares the encoding the readers used before RFC 8785, outside "
+                "the closed set: refused by name, never read as the reader's own",
+          rejects=["W3C-R-015"], cause=w3creport.UNSUPPORTED_ENCODING)
+
+
 def build() -> list[dict[str, Any]]:
     m = Members()
     build_rows_1_to_7(m)
     build_rows_8_to_12(m)
     build_roll_up(m)
     build_control_binding(m)
+    build_prior_binding(m)
     build_set_binding(m)
     build_rules(m)
     build_people_rules(m)
     build_numbered_rows(m)
     build_gaps(m)
+    build_digest_encoding(m)
     build_disensor(m)
     build_run_metrics(m)
     build_context_discovery(m)
@@ -1697,6 +2057,93 @@ def mutation_sweep(members: list[dict[str, Any]], rows: list[str]) -> list[dict[
     return table
 
 
+def judged_weakened(member: dict[str, Any], weaken: frozenset[str]) -> bool:
+    """Whether a member is still judged as it declares, with rules of the encoding off."""
+    observed = w3creport.subject_rejections(
+        member["subjectType"], member["subject"], resolves=member.get("resolves"),
+        weaken=weaken,
+    )
+    if observed != sorted(member["expected"]["rejects"]):
+        return False
+    cause = member["expected"].get("cause")
+    return cause is None or w3creport.check_set_cause(member["subject"], weaken) == cause
+
+
+def encoding_sweep(members: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Weaken each rule of the digest encoding in turn and see which members flip.
+
+    A member rests on a rule when weakening that rule alone changes its
+    judgement. Every reject member of a family must flip under the family's
+    rule: its root is the one that rule's absence writes. No reject member of
+    another family may flip, and no member of a family without a rule may flip
+    at all. An accept member may flip under any rule its value touches: the
+    member-order accept carries non-ASCII names, so it also rests on raw UTF-8.
+    """
+    table = []
+    for rule in w3creport.WEAKENABLE:
+        weaken = frozenset([rule])
+        resting = [x for x in members if FAMILY_RULES.get(x["family"]) == rule]
+        flipped = [x for x in members if not judged_weakened(x, weaken)]
+        rejects_resting = [x for x in resting if x["kind"] == "reject"]
+        missed = [x for x in rejects_resting if x not in flipped]
+        stray_rejects = [x for x in flipped if x["kind"] == "reject" and x not in resting]
+        stray_unruled = [x for x in flipped if x["family"] not in FAMILY_RULES]
+        table.append({
+            "rule": rule,
+            "families": sorted({x["family"] for x in resting}),
+            "rejects": len(rejects_resting),
+            "rejectsFlipped": len(rejects_resting) - len(missed),
+            "acceptsFlipped": sum(1 for x in flipped if x["kind"] == "accept"),
+            "acceptFamilies": sorted({x["family"] for x in flipped if x["kind"] == "accept"}),
+            "strayRejects": len(stray_rejects),
+            "strayOther": len(stray_unruled),
+            "verdict": "isolated" if not (missed or stray_rejects or stray_unruled) else "LEAK",
+        })
+    return table
+
+
+def render_encoding_sweep(table: list[dict[str, Any]], members: list[dict[str, Any]]) -> str:
+    rows = "\n".join(
+        "| `{rule}` | {fams} | {rejects} | {rejectsFlipped} | {acceptsFlipped} ({afams}) | "
+        "{strayRejects} | {strayOther} | {verdict} |".format(
+            fams=", ".join(f"`{f}`" for f in entry["families"]),
+            afams=", ".join(f"`{f}`" for f in entry["acceptFamilies"]) or "none",
+            **entry,
+        )
+        for entry in table
+    )
+    per_member = "\n".join(
+        f"| `{w3creport.identify(x)}` | `{x['family']}` | `{FAMILY_RULES[x['family']]}` | "
+        f"{x['expected']['rejects'][0]} | {x['expected']['cause']} |"
+        for x in sorted(members, key=w3creport.identify)
+        if x["kind"] == "reject" and x["family"] in FAMILY_RULES
+    )
+    return f"""
+## The digest encoding, one rule at a time
+
+The members of the digest-encoding families (proposed: 2026Oct/0038 and 0040)
+are rejected under rows the text already has, W3C-R-020 and W3C-R-015, so
+relaxing a row above cannot say which rule of the encoding a member rests on.
+This table switches off one rule of the encoding at a time
+(`w3creport.WEAKENABLE`) and replays the corpus. Every reject member of a
+family must flip under the family's rule, because its root is the one that
+rule's absence writes; no reject member of another family may flip, and no
+member outside these families may flip at all. An accept member flips under
+every rule its value touches, which is why the accept column names families.
+
+| rule | families resting on it | reject members | reject members flipped | accept members flipped | other rejects flipped | other members flipped | verdict |
+|---|---|---|---|---|---|---|---|
+{rows}
+
+Each reject member, the rule it rests on, the row it is rejected under and the
+cause that rejection names:
+
+| member | family | rule | row | cause |
+|---|---|---|---|---|
+{per_member}
+"""
+
+
 def render_sweep(table: list[dict[str, Any]], total: int) -> str:
     rows = "\n".join(
         "| `{row}` | {naming} | {flipped} | {flippedElsewhere} | {verdict} |".format(**entry)
@@ -1724,6 +2171,31 @@ corpus and every row of its manifest. Rows that leak: {leaks}.
 
 
 # --------------------------------------------------------------------------
+
+
+def selection(manifest: dict[str, Any]) -> dict[str, Any]:
+    """The section 10 selection and the members outside it, from the manifest alone.
+
+    The sentence proposed for section 10 (2026Oct/0022) selects the members
+    whose subjectType is report and whose requirements are all marked agreed.
+    A report member citing a proposed requirement rests on a rule the text
+    does not hold: the list named that class excluded-under-proposed-rule
+    (2026Oct/0030) and counts it outside the selection's rejects and accepts.
+    """
+    status = {row["id"]: row.get("status") for row in manifest["requirements"]}
+    chosen = {"accept": 0, "reject": 0}
+    excluded: dict[str, dict[str, int]] = {}
+    for entry in manifest["vectors"]:
+        if entry["subjectType"] != "report":
+            continue
+        proposed = [r for r in entry["requirements"] if status.get(r) != AGREED]
+        if not proposed:
+            chosen[entry["kind"]] += 1
+            continue
+        key = ", ".join(sorted(proposed))
+        counts = excluded.setdefault(key, {"accept": 0, "reject": 0})
+        counts[entry["kind"]] += 1
+    return {"selected": chosen, "excluded": excluded}
 
 
 def render_index(manifest: dict[str, Any]) -> str:
@@ -1757,15 +2229,28 @@ def render_index(manifest: dict[str, Any]) -> str:
         kind: sum(1 for e in manifest["vectors"] if e["subjectType"] == kind)
         for kind in w3creport.SUBJECT_TYPES
     }
-    messages = sum(1 for key in manifest["specVendored"] if not key.startswith("draft-"))
+    messages = sum(
+        1 for key in manifest["specVendored"] if not key.startswith("draft-") and "-" not in key
+    )
+    proposals = sum(
+        1 for key in manifest["specVendored"] if not key.startswith("draft-") and "-" in key
+    )
     texts = len(manifest["specVendored"])
+    chosen = selection(manifest)
+    selected = chosen["selected"]
+    excluded_rows = "\n".join(
+        f"| {rule} | {counts['reject']} | {counts['accept']} |"
+        for rule, counts in sorted(chosen["excluded"].items())
+    )
+    excluded_total = sum(c["reject"] + c["accept"] for c in chosen["excluded"].values())
     return f"""# Conformance vectors (v0.1 per-check report)
 
 Every member of this suite in one table, rejected and accepted alike. Ground
 truth: {texts} texts vendored in `spec-vendored/` and pinned by sha256 in
 `MANIFEST.json`: {messages} messages of the W3C public-agent-conformance list that
-together fix what v0.1 of the reporting format freezes, and the two
-Internet-Drafts the format's editor holds.
+together fix what v0.1 of the reporting format freezes, {proposals} messages that
+propose the digest encoding after it froze, and the two Internet-Drafts the
+format's editor holds.
 
 This corpus is {total} vectors, of which {accept} a conformant verifier must not fail closed
 on and {reject} it must reject.
@@ -1775,6 +2260,16 @@ v0.1 reports, judged by the rows of the format; {by_subject["agent-run-metrics"]
 are Run objects of the agent-run-metrics draft; {by_subject["llm-context-discovery"]}
 are discovery snapshots of the context-discovery draft. Each member names its
 subject type and the reader selects the validator by it.
+
+**The section 10 selection is {selected["reject"] + selected["accept"]} members**:
+the report members whose requirements are all agreed, {selected["reject"]} to
+reject and {selected["accept"]} to accept. A report member that cites a
+proposed requirement rests on a rule the v0.1 text does not hold, so it is
+counted apart, as excluded-under-proposed-rule, {excluded_total} members:
+
+| proposed requirement cited | reject | accept |
+|---|---|---|
+{excluded_rows}
 
 **A report member is a whole report**, not one record, because two of the rules
 v0.1 carries are properties of the report: whether its roll-up says its checks
@@ -1796,15 +2291,18 @@ locates it in the vendored copy and hashes it, and a reword stops the build.
 **The {2 * origin["pairs"]} members of family `w3c-f-disensor`** are re-cut from the
 {origin["pairs"]} delta-related pairs {origin["author"]} counted in his own corpus at
 `{origin["repository"]}@{origin["commit"][:7]}`: each pair appears once as
-emitted before the freeze, rejected under the declared-slot rule with its cause,
-and once re-cut against v0.1, accepted. `origin/derive_pairs.py` derives the
-pairs from that repository and `origin/disensor-1e36257-pairs.json` is what it
+emitted before the freeze, with the error list declared moved, and once re-cut
+against v0.1. Both are accepted: moved is recomputed, not declared, and the
+recomputed moved of each is contained in its compared set.
+`origin/derive_pairs.py` derives the pairs from that repository and `origin/disensor-1e36257-pairs.json` is what it
 wrote.
 
 Regenerate byte-identically: `python3 gen_vectors.py`.
-Self-check: `aee-verify vectors-w3c-report/` from the repository root, or
-`python3 packaging/run_vectors.py --corpus vectors-w3c-report`; the two print
-the same lines.
+Self-check from the repository root: `aee-verify vectors-w3c-report/`,
+`python3 packaging/run_vectors.py --corpus vectors-w3c-report`, or the Rust
+reader, `cargo run --release --locked --manifest-path
+readers/w3c-report-rs/Cargo.toml -- vectors-w3c-report`; the three print the
+same lines.
 
 ## Vendored text
 
@@ -1839,6 +2337,180 @@ whether the v0.1 text adopts the row (agreed) or only this corpus carries it
 """
 
 
+def dump_member(document: dict[str, Any]) -> bytes:
+    """A member file: indented, sorted, ASCII-escaped JSON, each number as its token.
+
+    json.dumps writes an int's value and has no spelling for a Decimal, so a
+    number built from a token (w3creport.IntToken or NumberToken) is written
+    through a marker the dump cannot otherwise produce, and the marker is then
+    replaced by the token: -0, 1.0, 1e21 and 0.99999999999999999 reach the
+    file as written. A member without such a number dumps as it always has.
+    """
+    tokens: dict[str, str] = {}
+
+    def mark(value: Any) -> Any:
+        if isinstance(value, (w3creport.IntToken, w3creport.NumberToken)):
+            marker = f"@@number-token-{len(tokens)}@@"
+            tokens[marker] = value.token
+            return marker
+        if isinstance(value, dict):
+            return {k: mark(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [mark(v) for v in value]
+        return value
+
+    text = json.dumps(mark(document), indent=2, sort_keys=True)
+    for marker, token in tokens.items():
+        if text.count(f'"{marker}"') != 1:
+            raise SystemExit(f"FAIL: the number token marker {marker} is not unique")
+        text = text.replace(f'"{marker}"', token)
+    return text.encode("utf-8") + b"\n"
+
+
+def read_back(vid: str, member: dict[str, Any], payload: bytes) -> None:
+    """Refuse a file that, read as a reader reads it, is not the member it claims.
+
+    The identifier, the rows and the cause are recomputed from the bytes the
+    file holds rather than from the values built here, so a number token that
+    did not survive the dump, or a value the parse reads another way, stops the
+    build instead of shipping a member every reader rejects.
+    """
+    parsed = w3creport.load_json(payload)
+    if w3creport.identify(parsed) != vid:
+        raise SystemExit(f"FAIL: {vid} does not recompute its identifier from its own bytes")
+    observed = w3creport.subject_rejections(
+        parsed["subjectType"], parsed["subject"], resolves=parsed.get("resolves")
+    )
+    if observed != sorted(member["expected"]["rejects"]):
+        raise SystemExit(f"FAIL: {vid} read back is rejected under {observed}")
+    cause = member["expected"].get("cause")
+    if cause is not None and w3creport.check_set_cause(parsed["subject"]) != cause:
+        raise SystemExit(f"FAIL: {vid} read back does not name the cause {cause}")
+    if parsed.get("canonical") != canonical_block(parsed):
+        raise SystemExit(f"FAIL: {vid} read back carries canonical bytes its subject does not give")
+
+
+def printf_bytes(data: bytes) -> str:
+    """Bytes as a printf format argument: printable ASCII as itself, the rest as \\NNN.
+
+    Octal, because POSIX printf defines \\NNN and not \\xNN, and dash, the /bin/sh
+    of several distributions, writes \\x7f as four characters. The percent sign, the
+    single quote and the backslash are written in octal too, since each means
+    something to printf or to the shell.
+    """
+    out = []
+    for b in data:
+        if 0x20 <= b <= 0x7E and b not in (0x25, 0x27, 0x5C):
+            out.append(chr(b))
+        else:
+            out.append(f"\\{b:03o}")
+    return "".join(out)
+
+
+def root_command(leaves: list[bytes]) -> str:
+    """The shell command that prints the flat root over ``leaves``: printf, openssl, sha256sum."""
+    steps = " ".join(
+        f"printf '{printf_bytes(leaf)}' | openssl dgst -sha256 -binary;" for leaf in leaves
+    )
+    return f"( {steps} ) | sha256sum"
+
+
+def leaf_block(leaves: list[bytes]) -> dict[str, Any]:
+    """Leaf bytes in hex with their SHA-256, the flat root over them, and its command."""
+    return {
+        "leaves": [{"hex": leaf.hex(), "sha256": w3creport.sha(leaf)} for leaf in leaves],
+        "root": w3creport.flat_root(leaves),
+        "command": root_command(leaves),
+    }
+
+
+def canonical_block(member: dict[str, Any]) -> dict[str, Any] | None:
+    """What a digest-encoding member's check-set root is made of, carried in the member.
+
+    ``conforming`` is what a conforming reader produces: the jcs-sha256 bytes of
+    each check, the flat root over them and the command that prints it, or the
+    refusal a conforming reader names instead of a root. A reject member also
+    carries ``declared``: the bytes a reader writes with the family's rule
+    switched off, whose root is the one the member declares. So a reader that
+    fails the member learns from the member itself what it should have produced.
+    Members outside the digest-encoding families carry no block.
+    """
+    family = member["family"]
+    if family not in FAMILY_RULES:
+        return None
+    report_ = member["subject"]
+    if report_["check-set"]["tree-shape"] != "flat":
+        raise ValueError(f"{family}: the canonical block is written for the flat shape only")
+    checks = report_["checks"]
+    block: dict[str, Any] = {"encoding": w3creport.JCS_SHA256, "tree-shape": "flat"}
+    cause = w3creport.check_set_cause(report_)
+    if cause is None or cause == w3creport.DIGESTS_DIFFER:
+        block["conforming"] = leaf_block([w3creport.jcs_sha256(c) for c in checks])
+    else:
+        block["conforming"] = {"refused": w3creport.check_set_refusal(report_)}
+    if member["kind"] == "reject":
+        rule = FAMILY_RULES[family]
+        declared = leaf_block([w3creport.jcs_sha256(c, frozenset([rule])) for c in checks])
+        if declared["root"] != report_["check-set"]["sha256"]:
+            raise ValueError(f"{family}: the rule-off bytes do not give the declared root")
+        block["declared"] = dict(declared, **{"rule-switched-off": rule})
+    elif block["conforming"].get("root") != report_["check-set"]["sha256"]:
+        raise ValueError(f"{family}: an accept member's root does not recompute")
+    return block
+
+
+def worked_example(member: dict[str, Any]) -> str:
+    """One member's check-set digest, recomputable with printf and openssl alone.
+
+    The two leaves are the jcs-sha256 bytes of the two checks; the flat root is
+    SHA-256 over their two SHA-256 digests in order. A reject member's root is
+    the one a reader writes with its family's rule weakened, so its leaf bytes
+    are shown as that reader writes them, beside the refusal or the mismatch a
+    conforming reader reports. The command is the one the member file carries.
+    """
+    vid = w3creport.identify(member)
+    rule = FAMILY_RULES[member["family"]]
+    report_ = member["subject"]
+    binding = report_["check-set"]
+    block = canonical_block(member)
+    if block is None:
+        raise ValueError(f"{vid}: a digest-encoding member carries no canonical block")
+    lines = [f"**`{vid}`** ({member['kind']}, `{member['family']}`): {member['cites']}.", ""]
+    if member["kind"] == "reject":
+        finding = w3creport.check_set_refusal(report_)
+        lines.append(f"A conforming reader rejects it: {finding}. The root it declares is "
+                     f"the one a reader writes with `{rule}` switched off:")
+        command = block["declared"]["command"]
+    else:
+        lines.append("The root it declares, which a conforming reader recomputes:")
+        command = block["conforming"]["command"]
+    lines += ["", "```", command, f"# {binding['sha256']}", "```"]
+    return "\n".join(lines)
+
+
+def render_examples(members: list[dict[str, Any]]) -> str:
+    chosen = [x for x in members if x["family"] in FAMILY_RULES]
+    blocks = "\n\n".join(worked_example(x) for x in sorted(
+        chosen, key=lambda x: (list(FAMILY_RULES).index(x["family"]), x["kind"] != "accept",
+                               w3creport.identify(x))))
+    return f"""
+## Worked digests for the digest-encoding members
+
+Each block recomputes one member's check-set root from nothing but `printf`,
+`openssl` and `sha256sum`. A member carries two checks, and each check is one
+leaf: the bytes `jcs-sha256` writes for it, RFC 8785 under the integer profile.
+The root is the flat construction, SHA-256 over the SHA-256 of each leaf in
+order, and the comment under each command is the `check-set.sha256` the member
+declares. In the leaf bytes, printable ASCII is itself and any other byte is
+written as a POSIX octal escape, so U+007F is `\\177`, U+00E9 is `\\303\\251` and
+U+1F600 is `\\360\\237\\230\\200`: RFC 8785 writes them as UTF-8, never as `\\u`
+escapes. The commands run in any POSIX shell; where `sha256sum` is missing, use
+`shasum -a 256`.
+
+{blocks}
+"""
+
+
 def member_document(vid: str, member: dict[str, Any]) -> dict[str, Any]:
     document = {
         "id": vid, "suite": SUITE, "specVersion": SPEC_VERSION, "family": member["family"],
@@ -1850,6 +2522,9 @@ def member_document(vid: str, member: dict[str, Any]) -> dict[str, Any]:
         document["resolves"] = member["resolves"]
     if "origin" in member:
         document["origin"] = member["origin"]
+    block = canonical_block(member)
+    if block is not None:
+        document["canonical"] = block
     return document
 
 
@@ -1957,7 +2632,7 @@ def reference_emitter_runs() -> list[dict[str, Any]]:
 #: The evidence rows whose recomputed slot is a resolved observation, so the
 #: measurement above must agree with the class; the other evidence rows
 #: recompute from the report's own records (counts, roots, populations).
-RESOLVED_CLASS = frozenset({"W3C-R-020", "W3C-R-021", "W3C-R-025"})
+RESOLVED_CLASS = frozenset({"W3C-R-016", "W3C-R-020", "W3C-R-021", "W3C-R-025"})
 
 
 def build_manifest() -> tuple[dict[str, Any], dict[str, bytes]]:
@@ -1977,7 +2652,8 @@ def build_manifest() -> tuple[dict[str, Any], dict[str, bytes]]:
         self_check(vid, member, known)
         rel = f"vectors/{vid}.json"
         document = member_document(vid, member)
-        files[rel] = json.dumps(document, indent=2, sort_keys=True).encode("utf-8") + b"\n"
+        files[rel] = dump_member(document)
+        read_back(vid, member, files[rel])
         entries.append(manifest_entry(vid, rel, member))
     entries.sort(key=lambda entry: entry["id"])
     counts = {kind: sum(1 for e in entries if e["kind"] == kind) for kind in ("accept", "reject")}
@@ -1986,6 +2662,12 @@ def build_manifest() -> tuple[dict[str, Any], dict[str, bytes]]:
         leaks = [entry["row"] for entry in sweep if entry["verdict"] == "LEAK"]
         raise SystemExit(
             f"FAIL: the mutation sweep found rows the corpus does not isolate: {leaks}"
+        )
+    rules = encoding_sweep(members)
+    if any(entry["verdict"] == "LEAK" for entry in rules):
+        leaks = [entry["rule"] for entry in rules if entry["verdict"] == "LEAK"]
+        raise SystemExit(
+            f"FAIL: the encoding sweep found rules the corpus does not isolate: {leaks}"
         )
     manifest = {
         "suite": SUITE,
@@ -2011,6 +2693,8 @@ def build_manifest() -> tuple[dict[str, Any], dict[str, bytes]]:
             "discrimination": list(w3creport.DISCRIMINATION),
             "negative-capable": list(w3creport.NEGATIVE_CAPABLE),
             "tree-shape": list(w3creport.TREE_SHAPES),
+            "digest-encoding": list(w3creport.DIGEST_ENCODINGS),
+            "digest-cause": list(w3creport.CAUSE_CODES),
             "changed": list(w3creport.CHANGED),
             "slot": list(w3creport.SLOTS),
             "claim": list(w3creport.CLAIMS),
@@ -2035,7 +2719,10 @@ def build_manifest() -> tuple[dict[str, Any], dict[str, bytes]]:
                 "reference, moved recomputed from the two, the domain declared once."
             ),
         },
-        "mutationSweep": {"file": "MUTATION-SWEEP.md", "rows": len(sweep), "leaks": 0},
+        "mutationSweep": {
+            "file": "MUTATION-SWEEP.md", "rows": len(sweep), "leaks": 0,
+            "encodingRules": len(rules), "encodingLeaks": 0,
+        },
         "observedRuns": [],
         "referenceEmitterRuns": reference_emitter_runs(),
         "requirements": requirements,
@@ -2050,8 +2737,10 @@ def build_manifest() -> tuple[dict[str, Any], dict[str, bytes]]:
         "vectors": entries,
     }
     files["MANIFEST.json"] = json.dumps(manifest, indent=2).encode("utf-8") + b"\n"
-    files["INDEX.md"] = render_index(manifest).encode("utf-8")
-    files["MUTATION-SWEEP.md"] = render_sweep(sweep, len(members)).encode("utf-8")
+    files["INDEX.md"] = (render_index(manifest) + render_examples(members)).encode("utf-8")
+    files["MUTATION-SWEEP.md"] = (
+        render_sweep(sweep, len(members)) + render_encoding_sweep(rules, members)
+    ).encode("utf-8")
     return manifest, files
 
 

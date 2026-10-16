@@ -124,6 +124,29 @@ func TestTheEncoderRefusesRatherThanGuess(t *testing.T) {
 	}
 }
 
+// TestNegativeZeroIsWrittenAsCPythonWritesIt: CPython reads the integer token
+// -0 as the int 0 and json.dumps writes 0. This encoder used to copy the token
+// and wrote -0, so a digest the Go reader took over {"v":-0} differed from the
+// one the Python reader took over the same bytes (list message 2026Oct/0038
+// measured it: 7b2276223a2d307d against 7b2276223a307d). Every spelling option
+// is checked, because agentaction.go writes one record under all three.
+func TestNegativeZeroIsWrittenAsCPythonWritesIt(t *testing.T) {
+	value, err := decodeJSONNumbers([]byte(`{"v":-0,"w":[-0,0,-1,9007199254740993,-9007199254740993]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = `{"v":0,"w":[0,0,-1,9007199254740993,-9007199254740993]}`
+	for _, opts := range []pyEncodeOpts{{EnsureASCII: true}, {}, {UTF16Order: true}} {
+		got, err := pythonCompactJSONOpts(value, opts)
+		if err != nil {
+			t.Fatalf("%+v: %v", opts, err)
+		}
+		if string(got) != want {
+			t.Errorf("%+v: got %s want %s", opts, got, want)
+		}
+	}
+}
+
 // TestHasUnpairedSurrogateEscape covers the reader Go's JSON decoder cannot
 // provide: it replaces a lone surrogate escape with U+FFFD, so a member built
 // to carry one would be indistinguishable from a valid member after decoding.

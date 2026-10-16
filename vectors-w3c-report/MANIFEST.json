@@ -93,6 +93,18 @@
       "author": "Roel Schuurkes",
       "source": "https://lists.w3.org/Archives/Public/public-agent-conformance/2026Sep/0088.html"
     },
+    "2026Oct-0038": {
+      "path": "spec-vendored/2026Oct-0038-kroehl-2026-10-10-digest-encoding.txt",
+      "sha256": "9b71fe89b22c9f8b0a20b85e3a9cc9b0e5ee0909b629bddeb26fd4728d255ec1",
+      "author": "Lars Kersten Kroehl",
+      "source": "https://lists.w3.org/Archives/Public/public-agent-conformance/2026Oct/0038.html"
+    },
+    "2026Oct-0040": {
+      "path": "spec-vendored/2026Oct-0040-ives-2026-10-10-numeric-profile.txt",
+      "sha256": "051ff39f291884c2d5b01edf4d0c9c477bbe78fe698f91cd6e72883dddeab35b",
+      "author": "Kenne Ives",
+      "source": "https://lists.w3.org/Archives/Public/public-agent-conformance/2026Oct/0040.html"
+    },
     "draft-arsentev-agent-run-metrics-00": {
       "path": "spec-vendored/draft-arsentev-agent-run-metrics-00.txt",
       "sha256": "0ef9e7fbc39d04bf2e245ed12b6a15eb4988d56abf3b07a65aab7861ad14d7f0",
@@ -151,6 +163,15 @@
       "rfc6962",
       "RFC9162_SHA256"
     ],
+    "digest-encoding": [
+      "jcs-sha256"
+    ],
+    "digest-cause": [
+      "digests-differ",
+      "non-integer-number",
+      "integer-outside-safe-range",
+      "unsupported-digest-encoding"
+    ],
     "changed": [
       "input artifact",
       "checker rule",
@@ -199,8 +220,9 @@
     "w3c-f-13": "section 5.4: a roll-up says whether its checks could have gone negative",
     "w3c-f-14": "section 5.4: a prior discriminating run binds the check identity that survived",
     "w3c-f-15": "section 3.1: a digest over a set binds its leaf count and names its tree shape; domain separation alone is not the fix",
-    "w3c-f-16": "declared slots: moved is contained in the declared compared set",
+    "w3c-f-16": "section 2: moved, recomputed, is contained in the declared compared set",
     "w3c-f-29": "section 5.4: a control built to fail is bound to the checker and constraint set of the checks it speaks for",
+    "w3c-f-33": "section 5.4: a prior discriminating run is bound to the checker and constraint set of the checks it speaks for",
     "w3c-f-17": "roll-up: the aggregate carries its complete denominator",
     "w3c-f-18": "roll-up: the counter over carried against referenced recomputes",
     "w3c-f-19": "closed vocabulary: a value outside a registry is not read",
@@ -220,6 +242,14 @@
     "arm-f-usage": "agent run metrics: the Usage invariants and the cache-write ledger",
     "arm-f-totals": "agent run metrics: the totals as the sum of the steps",
     "arm-f-serialization": "agent run metrics: timestamps, identifiers, labels, cost and extensions",
+    "w3c-f-jcs-u007f": "digest encoding (proposed): RFC 8785 writes U+007F as itself, where an ASCII-escaping encoder writes \\u007f",
+    "w3c-f-jcs-non-ascii": "digest encoding (proposed): RFC 8785 writes a character above U+007F as UTF-8, where an ASCII-escaping encoder writes \\uXXXX or a surrogate pair",
+    "w3c-f-jcs-member-order": "digest encoding (proposed): RFC 8785 orders member names by UTF-16 code unit, which parts from code-point order on a supplementary-plane name",
+    "w3c-f-jcs-number-value": "digest encoding (proposed): a number is written as its value, so -0 and -0.0 read 0 and 1.0 and 1e2 read 1 and 100, never as the token written",
+    "w3c-f-jcs-safe-range": "numeric profile (proposed): an integer of magnitude 2^53 or more is refused, both boundaries and their neighbours, and travels as a string",
+    "w3c-f-jcs-1e21": "numeric profile (proposed): 10^21 is refused in digits and as an exponent, so its two spellings never reach a digest, and travels as a string",
+    "w3c-f-jcs-non-integer": "numeric profile (proposed): a number whose exact value is not an integer is refused, a token that rounds to an integer double included, and travels as a string",
+    "w3c-f-jcs-declaration": "declared encoding (proposed): a set binding declares jcs-sha256 or nothing; any other declaration is refused rather than read as the reader's own",
     "lcd-f-publisher": "context discovery: what the origin advertises and serves",
     "lcd-f-consumer": "context discovery: what a consumer resolves, retrieves and attributes"
   },
@@ -237,8 +267,10 @@
   },
   "mutationSweep": {
     "file": "MUTATION-SWEEP.md",
-    "rows": 62,
-    "leaks": 0
+    "rows": 66,
+    "leaks": 0,
+    "encodingRules": 7,
+    "encodingLeaks": 0
   },
   "observedRuns": [],
   "referenceEmitterRuns": [
@@ -484,16 +516,16 @@
     },
     {
       "id": "W3C-R-016",
-      "row": "2 declared slots",
+      "row": "2 recomputed moved contained",
       "file": "0087",
       "vendored": "spec-vendored/0087-arsentev-2026-09-30-v01.txt",
       "line": 164,
       "sentence": "an object whose moved\nis not contained in its declared compared set is rejected",
       "sentenceDigest": "913913ec0dc014c2413f1d1f238776b12f4d595d74544fcf025d081edd5b809f",
       "specVersion": "0.1",
-      "class": "consistency",
+      "class": "evidence",
       "status": "agreed",
-      "resolvedRead": false
+      "resolvedRead": true
     },
     {
       "id": "W3C-R-021",
@@ -639,6 +671,19 @@
       "resolvedRead": false
     },
     {
+      "id": "W3C-R-033",
+      "row": "5.4 prior-run binding",
+      "file": "0087",
+      "vendored": "spec-vendored/0087-arsentev-2026-09-30-v01.txt",
+      "line": 447,
+      "sentence": "The reference lets the reader\n    establish the same revision and configuration binding for the\n    declared checks it supports",
+      "sentenceDigest": "7c74646f727411df08e64e0487e01011fca92d3bca94af748446ae635e9ff831",
+      "specVersion": "0.1",
+      "class": "consistency",
+      "status": "agreed",
+      "resolvedRead": false
+    },
+    {
       "id": "W3C-R-022",
       "row": "coverage block",
       "file": "0001",
@@ -650,6 +695,42 @@
       "class": "form",
       "status": "proposed",
       "resolvedRead": false
+    },
+    {
+      "id": "W3C-R-030",
+      "row": "3.1 digest encoding",
+      "file": "2026Oct-0038",
+      "vendored": "spec-vendored/2026Oct-0038-kroehl-2026-10-10-digest-encoding.txt",
+      "line": 19,
+      "sentence": "A digest taken over a JSON value is computed over the RFC 8785 canonical form of that value.",
+      "sentenceDigest": "b53c8bf547875a598fa4a865db1e16ccb9fa965b640a5029f4a6b2f1d8a6b2ed",
+      "specVersion": "0.1",
+      "class": "evidence",
+      "status": "proposed"
+    },
+    {
+      "id": "W3C-R-031",
+      "row": "3.1 numeric profile",
+      "file": "2026Oct-0040",
+      "vendored": "spec-vendored/2026Oct-0040-ives-2026-10-10-numeric-profile.txt",
+      "line": 10,
+      "sentence": "A reader rejects a report whose\ndigested value violates this, under W3C-R-020, naming the cause.",
+      "sentenceDigest": "9c35050921fdefb75004142bc83b3073f139dbd65f750c08f291c69264f9ffa8",
+      "specVersion": "0.1",
+      "class": "form",
+      "status": "proposed"
+    },
+    {
+      "id": "W3C-R-032",
+      "row": "3.1 declared encoding",
+      "file": "2026Oct-0038",
+      "vendored": "spec-vendored/2026Oct-0038-kroehl-2026-10-10-digest-encoding.txt",
+      "line": 19,
+      "sentence": "A reader that does not implement a report's declared digest encoding rejects the report and says so.",
+      "sentenceDigest": "42f9ab8f012587a943a6f3b82a9c6c82e00397999ae51872176bd28c08ea77c5",
+      "specVersion": "0.1",
+      "class": "form",
+      "status": "proposed"
     },
     {
       "id": "ARM-R-001",
@@ -983,10 +1064,10 @@
     }
   ],
   "counts": {
-    "accept": 117,
-    "reject": 118
+    "accept": 175,
+    "reject": 98
   },
-  "corpusDigest": "f00d4443f14881b4102693da0b73ecc7524b7410aec25fe9dbef077e7f73f1fe",
+  "corpusDigest": "c93f7497264bd547a420713f33706243970d06ba00a4c54f2b5a0a72c8ef3a17",
   "note": "A member is a whole subject: a v0.1 report, a Run object, or a discovery snapshot. Each reject member is rejected under exactly one requirement and has an accepting twin in its family, so a validator that refuses every subject scores zero rather than full marks.",
   "vectors": [
     {
@@ -1040,35 +1121,6 @@
       "cites": "the same prior run binding the check identity that survived across runs"
     },
     {
-      "id": "v04b7811e691bd2c9",
-      "kind": "reject",
-      "file": "vectors/v04b7811e691bd2c9.json",
-      "family": "w3c-f-disensor",
-      "requirements": [
-        "W3C-R-016"
-      ],
-      "specVersion": "0.1",
-      "subjectType": "report",
-      "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
-      },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.3/valid_full_empty_findings",
-          "fail": "v0.3/r6_counts_without_findings",
-          "field": "metrics/counts/valid/incorporated"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
-      }
-    },
-    {
       "id": "v050e5667630b8bf7",
       "kind": "accept",
       "file": "vectors/v050e5667630b8bf7.json",
@@ -1112,33 +1164,24 @@
       "cites": "a step count larger than the array, which accounts for omitted Steps"
     },
     {
-      "id": "v086f61b528d28efd",
+      "id": "v0a887e6b24bdd940",
       "kind": "reject",
-      "file": "vectors/v086f61b528d28efd.json",
-      "family": "w3c-f-disensor",
+      "file": "vectors/v0a887e6b24bdd940.json",
+      "family": "w3c-f-jcs-safe-range",
       "requirements": [
-        "W3C-R-016"
+        "W3C-R-020",
+        "W3C-R-031"
       ],
       "specVersion": "0.1",
       "subjectType": "report",
       "expected": {
         "verdict": "reject",
         "rejects": [
-          "W3C-R-016"
-        ]
+          "W3C-R-020"
+        ],
+        "cause": "integer-outside-safe-range"
       },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.3/valid_diff_gate",
-          "fail": "v0.3/r5_level_a_gap_without_lead",
-          "field": "event/criticality_level"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
-      }
+      "cites": "-(2^53+1), whose nearest double is -2^53"
     },
     {
       "id": "v0e286b53de78162a",
@@ -1207,35 +1250,6 @@
       "cites": "the check set bound under RFC9162_SHA256, the RFC 9942 identifier for the RFC 9162 Merkle tree over SHA-256, with its count"
     },
     {
-      "id": "v10aaaebb49b0bcd3",
-      "kind": "reject",
-      "file": "vectors/v10aaaebb49b0bcd3.json",
-      "family": "w3c-f-disensor",
-      "requirements": [
-        "W3C-R-016"
-      ],
-      "specVersion": "0.1",
-      "subjectType": "report",
-      "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
-      },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.3/valid_diff_gate",
-          "fail": "v0.3/schema_invalid_commit",
-          "field": "event/head_commit"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
-      }
-    },
-    {
       "id": "v1158315f2ce233a8",
       "kind": "reject",
       "file": "vectors/v1158315f2ce233a8.json",
@@ -1272,6 +1286,33 @@
       "cites": "the well-known target taken while a Link relation was in hand"
     },
     {
+      "id": "v13b3c66e7fc7dae2",
+      "kind": "accept",
+      "file": "vectors/v13b3c66e7fc7dae2.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.3/valid_diff_gate",
+          "fail": "v0.3/schema_invalid_commit",
+          "field": "event/head_commit"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
+      }
+    },
+    {
       "id": "v148fc59046a8548a",
       "kind": "accept",
       "file": "vectors/v148fc59046a8548a.json",
@@ -1286,6 +1327,33 @@
         "rejects": []
       },
       "cites": "the check set bound under the RFC 6962 tree shape, with its count"
+    },
+    {
+      "id": "v159bcd24a7e74a43",
+      "kind": "accept",
+      "file": "vectors/v159bcd24a7e74a43.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.4/valid_declared_degraded_round",
+          "fail": "v0.4/r13_item_references_missing_reviewer",
+          "field": "residue/items/0/reviewer_ref"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
+      }
     },
     {
       "id": "v1660acd2e4efb7c7",
@@ -1304,6 +1372,53 @@
         ]
       },
       "cites": "shown-by-run asserted on a run whose only non-pass is inconclusive: a non-pass that is not a fail verdict"
+    },
+    {
+      "id": "v16bbc5bfef80043e",
+      "kind": "reject",
+      "file": "vectors/v16bbc5bfef80043e.json",
+      "family": "w3c-f-jcs-safe-range",
+      "requirements": [
+        "W3C-R-020",
+        "W3C-R-031"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "reject",
+        "rejects": [
+          "W3C-R-020"
+        ],
+        "cause": "integer-outside-safe-range"
+      },
+      "cites": "2^53+1, whose nearest double is 2^53: a reader without the bound writes the root of a different integer, the one written here"
+    },
+    {
+      "id": "v17b2ad943b1f051d",
+      "kind": "accept",
+      "file": "vectors/v17b2ad943b1f051d.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.4/valid_diff_gate",
+          "fail": "v0.4/schema_interpretive_without_human_attention",
+          "field": "residue/items/1/refutation_type"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
+      }
     },
     {
       "id": "v183b37dea5ad4159",
@@ -1331,6 +1446,23 @@
         },
         "cause": "none: moved is contained in the declared set and the verdict moved"
       }
+    },
+    {
+      "id": "v187e4435786b17f9",
+      "kind": "accept",
+      "file": "vectors/v187e4435786b17f9.json",
+      "family": "w3c-f-jcs-safe-range",
+      "requirements": [
+        "W3C-R-020",
+        "W3C-R-031"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the neighbours outside the range carried as strings, which no reader parses as numbers"
     },
     {
       "id": "v1910c8190bcd1b5c",
@@ -1381,9 +1513,9 @@
       "cites": "foreclosed with discrimination left unknown"
     },
     {
-      "id": "v1a5c0a7b37f5d2c4",
-      "kind": "reject",
-      "file": "vectors/v1a5c0a7b37f5d2c4.json",
+      "id": "v1afbcaac4b0d514d",
+      "kind": "accept",
+      "file": "vectors/v1afbcaac4b0d514d.json",
       "family": "w3c-f-disensor",
       "requirements": [
         "W3C-R-016"
@@ -1391,70 +1523,10 @@
       "specVersion": "0.1",
       "subjectType": "report",
       "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
+        "verdict": "accept",
+        "rejects": []
       },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.4/valid_minimized_profile",
-          "fail": "v0.4/schema_minimized_extensions_prose_key",
-          "field": "extensions/nota del incidente en claro"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
-      }
-    },
-    {
-      "id": "v1bb2e51524055d00",
-      "kind": "reject",
-      "file": "vectors/v1bb2e51524055d00.json",
-      "family": "w3c-f-disensor",
-      "requirements": [
-        "W3C-R-016"
-      ],
-      "specVersion": "0.1",
-      "subjectType": "report",
-      "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
-      },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.2/valid_real_02_diff_gate",
-          "fail": "v0.2/r4_same_family",
-          "field": "actors/reviewers/0/family"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
-      }
-    },
-    {
-      "id": "v1bc07a427d07bb7f",
-      "kind": "reject",
-      "file": "vectors/v1bc07a427d07bb7f.json",
-      "family": "w3c-f-disensor",
-      "requirements": [
-        "W3C-R-016"
-      ],
-      "specVersion": "0.1",
-      "subjectType": "report",
-      "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
-      },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
       "origin": {
         "repository": "NicolasRocchia/disensor",
         "commit": "1e36257779b4933814445423188ec099a78017ee",
@@ -1464,8 +1536,28 @@
           "fail": "v0.4/r1_nonexistent_reference",
           "field": "residue/items/0/finding_ref"
         },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
       }
+    },
+    {
+      "id": "v1afe0d60b2df5d39",
+      "kind": "reject",
+      "file": "vectors/v1afe0d60b2df5d39.json",
+      "family": "w3c-f-jcs-non-integer",
+      "requirements": [
+        "W3C-R-020",
+        "W3C-R-031"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "reject",
+        "rejects": [
+          "W3C-R-020"
+        ],
+        "cause": "non-integer-number"
+      },
+      "cites": "0.99999999999999999, whose nearest double is 1: refused on its exact value, which a reader that judges the double instead would admit and write as 1"
     },
     {
       "id": "v1c020dd1ed49874c",
@@ -1547,6 +1639,33 @@
       "cites": "labels with string values"
     },
     {
+      "id": "v22e6c34b776baff7",
+      "kind": "accept",
+      "file": "vectors/v22e6c34b776baff7.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.4/valid_minimized_profile",
+          "fail": "v0.4/schema_minimized_extensions_clear_text",
+          "field": "extensions/com.example.note"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
+      }
+    },
+    {
       "id": "v22f803622ac75918",
       "kind": "accept",
       "file": "vectors/v22f803622ac75918.json",
@@ -1574,35 +1693,6 @@
       }
     },
     {
-      "id": "v239dc2ee7b28a2bb",
-      "kind": "reject",
-      "file": "vectors/v239dc2ee7b28a2bb.json",
-      "family": "w3c-f-disensor",
-      "requirements": [
-        "W3C-R-016"
-      ],
-      "specVersion": "0.1",
-      "subjectType": "report",
-      "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
-      },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.4/valid_diff_gate",
-          "fail": "v0.4/schema_invalid_commit",
-          "field": "event/head_commit"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
-      }
-    },
-    {
       "id": "v254933bf314c82fc",
       "kind": "accept",
       "file": "vectors/v254933bf314c82fc.json",
@@ -1627,35 +1717,6 @@
           "field": "metrics/counts/total_findings"
         },
         "cause": "none: moved is contained in the declared set and the verdict moved"
-      }
-    },
-    {
-      "id": "v25ba541b9d311416",
-      "kind": "reject",
-      "file": "vectors/v25ba541b9d311416.json",
-      "family": "w3c-f-disensor",
-      "requirements": [
-        "W3C-R-016"
-      ],
-      "specVersion": "0.1",
-      "subjectType": "report",
-      "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
-      },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.3/valid_diff_gate",
-          "fail": "v0.3/schema_debt_without_id",
-          "field": "findings/0/final_state"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
       }
     },
     {
@@ -1702,6 +1763,26 @@
         },
         "cause": "none: moved is contained in the declared set and the verdict moved"
       }
+    },
+    {
+      "id": "v26a379aeeebabd1e",
+      "kind": "reject",
+      "file": "vectors/v26a379aeeebabd1e.json",
+      "family": "w3c-f-jcs-non-integer",
+      "requirements": [
+        "W3C-R-020",
+        "W3C-R-031"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "reject",
+        "rejects": [
+          "W3C-R-020"
+        ],
+        "cause": "non-integer-number"
+      },
+      "cites": "0.5, a non-integral number in a check leaf"
     },
     {
       "id": "v27a01b14321f6ae5",
@@ -1774,35 +1855,6 @@
       "cites": "the same cause as a registry value with the text carried as detail"
     },
     {
-      "id": "v2a90adc95b2fbdaf",
-      "kind": "reject",
-      "file": "vectors/v2a90adc95b2fbdaf.json",
-      "family": "w3c-f-disensor",
-      "requirements": [
-        "W3C-R-016"
-      ],
-      "specVersion": "0.1",
-      "subjectType": "report",
-      "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
-      },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.2/valid_real_02_diff_gate",
-          "fail": "v0.2/schema_item_reference_not_declared",
-          "field": "residue/items/0/finding_ref"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
-      }
-    },
-    {
       "id": "v2b052236457b678c",
       "kind": "accept",
       "file": "vectors/v2b052236457b678c.json",
@@ -1817,6 +1869,26 @@
         "rejects": []
       },
       "cites": "a zero counter, which is a non-negative integer"
+    },
+    {
+      "id": "v2b4990ad53fbf28b",
+      "kind": "reject",
+      "file": "vectors/v2b4990ad53fbf28b.json",
+      "family": "w3c-f-jcs-non-integer",
+      "requirements": [
+        "W3C-R-020",
+        "W3C-R-031"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "reject",
+        "rejects": [
+          "W3C-R-020"
+        ],
+        "cause": "non-integer-number"
+      },
+      "cites": "1e-7, which RFC 8785 writes in exponent form"
     },
     {
       "id": "v2ddb14c9194e0341",
@@ -1844,6 +1916,23 @@
         },
         "cause": "none: moved is contained in the declared set and the verdict moved"
       }
+    },
+    {
+      "id": "v2f563dc0b6fc9ec8",
+      "kind": "accept",
+      "file": "vectors/v2f563dc0b6fc9ec8.json",
+      "family": "w3c-f-jcs-non-ascii",
+      "requirements": [
+        "W3C-R-020",
+        "W3C-R-030"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the root over the leaf with U+20AC, three bytes of UTF-8 written as UTF-8, as RFC 8785 writes it"
     },
     {
       "id": "v320406e03fff4faa",
@@ -1880,9 +1969,9 @@
       "cites": "a root run identifier that is not the Run's own, with no parent"
     },
     {
-      "id": "v32c6afab9eb5888a",
-      "kind": "reject",
-      "file": "vectors/v32c6afab9eb5888a.json",
+      "id": "v36ba5fca23b6a162",
+      "kind": "accept",
+      "file": "vectors/v36ba5fca23b6a162.json",
       "family": "w3c-f-disensor",
       "requirements": [
         "W3C-R-016"
@@ -1890,51 +1979,20 @@
       "specVersion": "0.1",
       "subjectType": "report",
       "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
+        "verdict": "accept",
+        "rejects": []
       },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
       "origin": {
         "repository": "NicolasRocchia/disensor",
         "commit": "1e36257779b4933814445423188ec099a78017ee",
         "author": "Nicolas Rocchia",
         "pair": {
-          "pass": "v0.4/valid_full_empty_findings",
-          "fail": "v0.4/r10_empty_list_with_nonzero_total",
-          "field": "metrics/counts/total_findings"
+          "pass": "v0.4/valid_diff_gate",
+          "fail": "v0.4/r12_unverified_hardening_without_its_item",
+          "field": "actors/reviewers/0/hardening"
         },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
-      }
-    },
-    {
-      "id": "v36999d5568e9aacf",
-      "kind": "reject",
-      "file": "vectors/v36999d5568e9aacf.json",
-      "family": "w3c-f-disensor",
-      "requirements": [
-        "W3C-R-016"
-      ],
-      "specVersion": "0.1",
-      "subjectType": "report",
-      "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
-      },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.3/valid_minimized_profile",
-          "fail": "v0.3/schema_minimized_extensions_prose_key",
-          "field": "extensions/nota del incidente en claro"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
       }
     },
     {
@@ -1956,6 +2014,33 @@
       "cites": "no declared check is void, counted over the verdict records rather than the declared checks it quantifies over"
     },
     {
+      "id": "v37d8ddc87ed265e8",
+      "kind": "accept",
+      "file": "vectors/v37d8ddc87ed265e8.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.2/valid_real_02_diff_gate",
+          "fail": "v0.2/r0_no_human_arbiter",
+          "field": "actors/human_arbiter/present"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
+      }
+    },
+    {
       "id": "v388dee224f53c2c1",
       "kind": "reject",
       "file": "vectors/v388dee224f53c2c1.json",
@@ -1974,33 +2059,21 @@
       "cites": "a robots record advertising a file the same robots.txt disallows"
     },
     {
-      "id": "v3a14f94887e53e0d",
-      "kind": "reject",
-      "file": "vectors/v3a14f94887e53e0d.json",
-      "family": "w3c-f-disensor",
+      "id": "v392e5b863085868b",
+      "kind": "accept",
+      "file": "vectors/v392e5b863085868b.json",
+      "family": "w3c-f-jcs-non-ascii",
       "requirements": [
-        "W3C-R-016"
+        "W3C-R-020",
+        "W3C-R-030"
       ],
       "specVersion": "0.1",
       "subjectType": "report",
       "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
+        "verdict": "accept",
+        "rejects": []
       },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.3/valid_diff_gate",
-          "fail": "v0.3/r1_nonexistent_reference",
-          "field": "residue/items/0/finding_ref"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
-      }
+      "cites": "the root over the leaf with U+2028, the line separator ECMAScript once refused raw written as UTF-8, as RFC 8785 writes it"
     },
     {
       "id": "v3add8861d36c2543",
@@ -2048,6 +2121,33 @@
       }
     },
     {
+      "id": "v3cf361bbfb973f7d",
+      "kind": "accept",
+      "file": "vectors/v3cf361bbfb973f7d.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.4/valid_diff_gate",
+          "fail": "v0.4/r6_inflated_count",
+          "field": "metrics/counts/valid/incorporated"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
+      }
+    },
+    {
       "id": "v3d5079f23e498451",
       "kind": "accept",
       "file": "vectors/v3d5079f23e498451.json",
@@ -2062,6 +2162,26 @@
         "rejects": []
       },
       "cites": "a running Run, which carries no end"
+    },
+    {
+      "id": "v3fd6a6a262a72f91",
+      "kind": "reject",
+      "file": "vectors/v3fd6a6a262a72f91.json",
+      "family": "w3c-f-jcs-non-ascii",
+      "requirements": [
+        "W3C-R-020",
+        "W3C-R-030"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "reject",
+        "rejects": [
+          "W3C-R-020"
+        ],
+        "cause": "digests-differ"
+      },
+      "cites": "a root over the leaf with U+00E9, two bytes of UTF-8 written as \\uXXXX escapes, as the readers wrote it before RFC 8785"
     },
     {
       "id": "v3fef7c8cc4ed5e4b",
@@ -2080,6 +2200,46 @@
         ]
       },
       "cites": "the other verdict asserted demonstrated by an object whose two observations both fail: moved, recomputed, holds the fired-rule list and not the verdict"
+    },
+    {
+      "id": "v40ab7c6deec16438",
+      "kind": "reject",
+      "file": "vectors/v40ab7c6deec16438.json",
+      "family": "w3c-f-jcs-1e21",
+      "requirements": [
+        "W3C-R-020",
+        "W3C-R-031"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "reject",
+        "rejects": [
+          "W3C-R-020"
+        ],
+        "cause": "integer-outside-safe-range"
+      },
+      "cites": "10^21 as the exponent token 1e21, refused; a reader without the bound writes 1e+21, as RFC 8785 writes it"
+    },
+    {
+      "id": "v4193637206138b32",
+      "kind": "reject",
+      "file": "vectors/v4193637206138b32.json",
+      "family": "w3c-f-jcs-non-ascii",
+      "requirements": [
+        "W3C-R-020",
+        "W3C-R-030"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "reject",
+        "rejects": [
+          "W3C-R-020"
+        ],
+        "cause": "digests-differ"
+      },
+      "cites": "a root over the leaf with U+1F600, a supplementary-plane character written as \\uXXXX escapes, as the readers wrote it before RFC 8785"
     },
     {
       "id": "v42d2d180b1c0b5b3",
@@ -2157,35 +2317,6 @@
         ]
       },
       "cites": "the counter says two referenced while one observation is carried"
-    },
-    {
-      "id": "v48d22035dc3a5f54",
-      "kind": "reject",
-      "file": "vectors/v48d22035dc3a5f54.json",
-      "family": "w3c-f-disensor",
-      "requirements": [
-        "W3C-R-016"
-      ],
-      "specVersion": "0.1",
-      "subjectType": "report",
-      "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
-      },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.4/valid_minimized_profile",
-          "fail": "v0.4/schema_minimized_extensions_clear_text",
-          "field": "extensions/com.example.note"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
-      }
     },
     {
       "id": "v494ac13464d685ee",
@@ -2312,6 +2443,23 @@
       "cites": "a control built to fail that ran and reached no conclusion: failing to execute does not show the check can reject the input"
     },
     {
+      "id": "v4e8fc1ab4f3fc5b3",
+      "kind": "accept",
+      "file": "vectors/v4e8fc1ab4f3fc5b3.json",
+      "family": "w3c-f-jcs-number-value",
+      "requirements": [
+        "W3C-R-020",
+        "W3C-R-030"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the root over the leaf with 1.0 and 1e2 written as 1 and 100, their values"
+    },
+    {
       "id": "v4f343e8bd3d6af08",
       "kind": "accept",
       "file": "vectors/v4f343e8bd3d6af08.json",
@@ -2328,10 +2476,50 @@
       "cites": "the RFC 9162 tree recomputed over exactly the three leaves the count binds"
     },
     {
-      "id": "v518aa8d55ab5460b",
+      "id": "v5196f1761ea14b2b",
+      "kind": "reject",
+      "file": "vectors/v5196f1761ea14b2b.json",
+      "family": "w3c-f-jcs-non-ascii",
+      "requirements": [
+        "W3C-R-020",
+        "W3C-R-030"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "reject",
+        "rejects": [
+          "W3C-R-020"
+        ],
+        "cause": "digests-differ"
+      },
+      "cites": "a root over the leaf with U+20AC, three bytes of UTF-8 written as \\uXXXX escapes, as the readers wrote it before RFC 8785"
+    },
+    {
+      "id": "v522b0a6b91e74c95",
+      "kind": "reject",
+      "file": "vectors/v522b0a6b91e74c95.json",
+      "family": "w3c-f-jcs-safe-range",
+      "requirements": [
+        "W3C-R-020",
+        "W3C-R-031"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "reject",
+        "rejects": [
+          "W3C-R-020"
+        ],
+        "cause": "integer-outside-safe-range"
+      },
+      "cites": "-2^53, the neighbour just outside the range below"
+    },
+    {
+      "id": "v53dd1aa630064e4c",
       "kind": "accept",
-      "file": "vectors/v518aa8d55ab5460b.json",
-      "family": "w3c-f-16",
+      "file": "vectors/v53dd1aa630064e4c.json",
+      "family": "w3c-f-disensor",
       "requirements": [
         "W3C-R-016"
       ],
@@ -2341,65 +2529,35 @@
         "verdict": "accept",
         "rejects": []
       },
-      "cites": "the error list declared compared, so moved is contained; no row reads the opaque slot"
-    },
-    {
-      "id": "v5390d3d7133f3963",
-      "kind": "reject",
-      "file": "vectors/v5390d3d7133f3963.json",
-      "family": "w3c-f-disensor",
-      "requirements": [
-        "W3C-R-016"
-      ],
-      "specVersion": "0.1",
-      "subjectType": "report",
-      "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
-      },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
       "origin": {
         "repository": "NicolasRocchia/disensor",
         "commit": "1e36257779b4933814445423188ec099a78017ee",
         "author": "Nicolas Rocchia",
         "pair": {
           "pass": "v0.3/valid_diff_gate",
-          "fail": "v0.3/r2_generic_marker",
-          "field": "residue/items/0/description"
+          "fail": "v0.3/r5_level_a_gap_without_lead",
+          "field": "event/criticality_level"
         },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
       }
     },
     {
-      "id": "v54dea8bab0674755",
-      "kind": "reject",
-      "file": "vectors/v54dea8bab0674755.json",
-      "family": "w3c-f-disensor",
+      "id": "v55772816f872150f",
+      "kind": "accept",
+      "file": "vectors/v55772816f872150f.json",
+      "family": "w3c-f-jcs-non-ascii",
       "requirements": [
-        "W3C-R-016"
+        "W3C-R-020",
+        "W3C-R-030"
       ],
       "specVersion": "0.1",
       "subjectType": "report",
       "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
+        "verdict": "accept",
+        "rejects": []
       },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.4/valid_diff_gate",
-          "fail": "v0.4/r2_template_marker",
-          "field": "actors/reviewers/0/model"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
-      }
+      "cites": "the root over the leaf with U+00E9, two bytes of UTF-8 written as UTF-8, as RFC 8785 writes it"
     },
     {
       "id": "v568e8a1311ecb396",
@@ -2459,6 +2617,33 @@
         "rejects": []
       },
       "cites": "the rejected report read by a reader that cannot resolve either reference: unchecked, so the row reading moved degrades and does not fire"
+    },
+    {
+      "id": "v59b5c22988c70b05",
+      "kind": "accept",
+      "file": "vectors/v59b5c22988c70b05.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.3/valid_diff_gate",
+          "fail": "v0.3/r4_no_decorrelation",
+          "field": "actors/reviewers/0/family"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
+      }
     },
     {
       "id": "v5a2ff35648828621",
@@ -2524,6 +2709,107 @@
       "cites": "an accounting claim over a population the report does not carry"
     },
     {
+      "id": "v5f92e1d7ef255730",
+      "kind": "accept",
+      "file": "vectors/v5f92e1d7ef255730.json",
+      "family": "w3c-f-jcs-safe-range",
+      "requirements": [
+        "W3C-R-020",
+        "W3C-R-031"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "both boundaries of the range, 2^53-1 and -(2^53-1), and the neighbours inside them"
+    },
+    {
+      "id": "v606504b1125a3885",
+      "kind": "accept",
+      "file": "vectors/v606504b1125a3885.json",
+      "family": "w3c-f-jcs-non-ascii",
+      "requirements": [
+        "W3C-R-020",
+        "W3C-R-030"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the root over the leaf with U+1F600, a supplementary-plane character written as UTF-8, as RFC 8785 writes it"
+    },
+    {
+      "id": "v60bd06deca6e832d",
+      "kind": "reject",
+      "file": "vectors/v60bd06deca6e832d.json",
+      "family": "w3c-f-jcs-u007f",
+      "requirements": [
+        "W3C-R-020",
+        "W3C-R-030"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "reject",
+        "rejects": [
+          "W3C-R-020"
+        ],
+        "cause": "digests-differ"
+      },
+      "cites": "a root over the leaf with U+007F written as \\u007f, as the readers wrote it before RFC 8785"
+    },
+    {
+      "id": "v6397c3de47a1882c",
+      "kind": "accept",
+      "file": "vectors/v6397c3de47a1882c.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.3/valid_minimized_profile",
+          "fail": "v0.3/schema_minimized_extensions_prose_key",
+          "field": "extensions/nota del incidente en claro"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
+      }
+    },
+    {
+      "id": "v64e02942221729d2",
+      "kind": "reject",
+      "file": "vectors/v64e02942221729d2.json",
+      "family": "w3c-f-jcs-declaration",
+      "requirements": [
+        "W3C-R-015",
+        "W3C-R-032"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "reject",
+        "rejects": [
+          "W3C-R-015"
+        ],
+        "cause": "unsupported-digest-encoding"
+      },
+      "cites": "a binding that declares the encoding the readers used before RFC 8785, outside the closed set: refused by name, never read as the reader's own"
+    },
+    {
       "id": "v668c618f2a50e26e",
       "kind": "accept",
       "file": "vectors/v668c618f2a50e26e.json",
@@ -2556,35 +2842,6 @@
         ]
       },
       "cites": "a prior run offered with no binding of which declared checks survived into it"
-    },
-    {
-      "id": "v67727ceb5f2f7932",
-      "kind": "reject",
-      "file": "vectors/v67727ceb5f2f7932.json",
-      "family": "w3c-f-disensor",
-      "requirements": [
-        "W3C-R-016"
-      ],
-      "specVersion": "0.1",
-      "subjectType": "report",
-      "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
-      },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.3/valid_diff_gate",
-          "fail": "v0.3/r6_inflated_count",
-          "field": "metrics/counts/valid/incorporated"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
-      }
     },
     {
       "id": "v67e996a3fa03e959",
@@ -2659,9 +2916,9 @@
       "cites": "a root computed with RFC 6962 domain separation over the leaf set with its last leaf repeated: the count says three and the digest does not recompute, so domain separation retained beside duplicate-last padding is still a mismatch"
     },
     {
-      "id": "v6cfd1d72b49d8853",
-      "kind": "reject",
-      "file": "vectors/v6cfd1d72b49d8853.json",
+      "id": "v6f15889cec93060d",
+      "kind": "accept",
+      "file": "vectors/v6f15889cec93060d.json",
       "family": "w3c-f-disensor",
       "requirements": [
         "W3C-R-016"
@@ -2669,22 +2926,47 @@
       "specVersion": "0.1",
       "subjectType": "report",
       "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
+        "verdict": "accept",
+        "rejects": []
       },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
       "origin": {
         "repository": "NicolasRocchia/disensor",
         "commit": "1e36257779b4933814445423188ec099a78017ee",
         "author": "Nicolas Rocchia",
         "pair": {
-          "pass": "v0.4/valid_declared_degraded_round",
-          "fail": "v0.4/r13_item_references_missing_reviewer",
-          "field": "residue/items/0/reviewer_ref"
+          "pass": "v0.3/valid_diff_gate",
+          "fail": "v0.3/r0_no_human_arbiter",
+          "field": "actors/human_arbiter/present"
         },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
+      }
+    },
+    {
+      "id": "v6f4ff1db603ecfec",
+      "kind": "accept",
+      "file": "vectors/v6f4ff1db603ecfec.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.3/valid_diff_gate",
+          "fail": "v0.3/schema_interpretive_without_human_attention",
+          "field": "residue/items/1/refutation_type"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
       }
     },
     {
@@ -2704,6 +2986,60 @@
         ]
       },
       "cites": "a consumer with no ceiling on what it will retrieve"
+    },
+    {
+      "id": "v70bdf863fb9cd6ac",
+      "kind": "accept",
+      "file": "vectors/v70bdf863fb9cd6ac.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.4/valid_declared_degraded_round",
+          "fail": "v0.4/r4_same_model_declared_as_distinct",
+          "field": "actors/reviewers/0/model"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
+      }
+    },
+    {
+      "id": "v719b5f3fe23d8c03",
+      "kind": "accept",
+      "file": "vectors/v719b5f3fe23d8c03.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.3/valid_minimized_profile",
+          "fail": "v0.3/r9_text_leak_in_minimized",
+          "field": "findings/0/title"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
+      }
     },
     {
       "id": "v7257ad4efb1d0638",
@@ -2808,35 +3144,6 @@
       "cites": "the same assertion citing an object whose observations pass and fail, so the verdict is in moved"
     },
     {
-      "id": "v77f27a301818a512",
-      "kind": "reject",
-      "file": "vectors/v77f27a301818a512.json",
-      "family": "w3c-f-disensor",
-      "requirements": [
-        "W3C-R-016"
-      ],
-      "specVersion": "0.1",
-      "subjectType": "report",
-      "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
-      },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.3/valid_minimized_profile",
-          "fail": "v0.3/r9_clear_url_in_minimized",
-          "field": "event/repository"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
-      }
-    },
-    {
       "id": "v79266aba771310af",
       "kind": "reject",
       "file": "vectors/v79266aba771310af.json",
@@ -2871,33 +3178,21 @@
       "cites": "the same control bound to the checker and constraint set the reported checks ran under"
     },
     {
-      "id": "v7aca350e00458527",
-      "kind": "reject",
-      "file": "vectors/v7aca350e00458527.json",
-      "family": "w3c-f-disensor",
+      "id": "v79bebd0793e2fa7b",
+      "kind": "accept",
+      "file": "vectors/v79bebd0793e2fa7b.json",
+      "family": "w3c-f-jcs-number-value",
       "requirements": [
-        "W3C-R-016"
+        "W3C-R-020",
+        "W3C-R-030"
       ],
       "specVersion": "0.1",
       "subjectType": "report",
       "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
+        "verdict": "accept",
+        "rejects": []
       },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.4/valid_declared_degraded_round",
-          "fail": "v0.4/r4_same_model_declared_as_distinct",
-          "field": "actors/reviewers/0/model"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
-      }
+      "cites": "the root over the leaf with the integer token -0 alone written as 0, its value, as RFC 8785 writes it"
     },
     {
       "id": "v7bc7c1460093e973",
@@ -2954,9 +3249,9 @@
       "cites": "a declared exclusion reported as a pass"
     },
     {
-      "id": "v7ead0086cb766b10",
-      "kind": "reject",
-      "file": "vectors/v7ead0086cb766b10.json",
+      "id": "v7ce1218057f32f1c",
+      "kind": "accept",
+      "file": "vectors/v7ce1218057f32f1c.json",
       "family": "w3c-f-disensor",
       "requirements": [
         "W3C-R-016"
@@ -2964,51 +3259,20 @@
       "specVersion": "0.1",
       "subjectType": "report",
       "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
+        "verdict": "accept",
+        "rejects": []
       },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
       "origin": {
         "repository": "NicolasRocchia/disensor",
         "commit": "1e36257779b4933814445423188ec099a78017ee",
         "author": "Nicolas Rocchia",
         "pair": {
-          "pass": "v0.2/valid_real_02_diff_gate",
-          "fail": "v0.2/r0_no_human_arbiter",
-          "field": "actors/human_arbiter/present"
+          "pass": "v0.3/valid_full_empty_findings",
+          "fail": "v0.3/r6_counts_without_findings",
+          "field": "metrics/counts/valid/incorporated"
         },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
-      }
-    },
-    {
-      "id": "v7ec5cc451c0c1564",
-      "kind": "reject",
-      "file": "vectors/v7ec5cc451c0c1564.json",
-      "family": "w3c-f-disensor",
-      "requirements": [
-        "W3C-R-016"
-      ],
-      "specVersion": "0.1",
-      "subjectType": "report",
-      "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
-      },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.4/valid_minimized_profile",
-          "fail": "v0.4/r9_clear_url_in_minimized",
-          "field": "event/repository"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
       }
     },
     {
@@ -3087,6 +3351,23 @@
       "cites": "the same record with a cause that describes a unit left out of the count"
     },
     {
+      "id": "v822c4bed9ba714d3",
+      "kind": "accept",
+      "file": "vectors/v822c4bed9ba714d3.json",
+      "family": "w3c-f-jcs-u007f",
+      "requirements": [
+        "W3C-R-020",
+        "W3C-R-030"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the root over the leaf with U+007F written as the byte 0x7f, as RFC 8785 writes it"
+    },
+    {
       "id": "v827901388ec40c23",
       "kind": "accept",
       "file": "vectors/v827901388ec40c23.json",
@@ -3144,6 +3425,26 @@
         "rejects": []
       },
       "cites": "a model invocation carrying usage and model"
+    },
+    {
+      "id": "v8474a83c45f293fc",
+      "kind": "reject",
+      "file": "vectors/v8474a83c45f293fc.json",
+      "family": "w3c-f-jcs-non-ascii",
+      "requirements": [
+        "W3C-R-020",
+        "W3C-R-030"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "reject",
+        "rejects": [
+          "W3C-R-020"
+        ],
+        "cause": "digests-differ"
+      },
+      "cites": "a root over the leaf with U+2028, the line separator ECMAScript once refused raw written as \\uXXXX escapes, as the readers wrote it before RFC 8785"
     },
     {
       "id": "v84f8c68bc5fc2810",
@@ -3223,6 +3524,33 @@
       "cites": "the check set bound under the flat shape, with its count"
     },
     {
+      "id": "v876f8aa31676cf48",
+      "kind": "accept",
+      "file": "vectors/v876f8aa31676cf48.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.4/valid_diff_gate",
+          "fail": "v0.4/r2_generic_marker",
+          "field": "residue/items/0/description"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
+      }
+    },
+    {
       "id": "v88935f0b29397a80",
       "kind": "reject",
       "file": "vectors/v88935f0b29397a80.json",
@@ -3275,9 +3603,9 @@
       "cites": "the same pass with no cause slot"
     },
     {
-      "id": "v8b06a7e78dc8d039",
-      "kind": "reject",
-      "file": "vectors/v8b06a7e78dc8d039.json",
+      "id": "v8a8da062cba9fce5",
+      "kind": "accept",
+      "file": "vectors/v8a8da062cba9fce5.json",
       "family": "w3c-f-disensor",
       "requirements": [
         "W3C-R-016"
@@ -3285,23 +3613,39 @@
       "specVersion": "0.1",
       "subjectType": "report",
       "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
+        "verdict": "accept",
+        "rejects": []
       },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
       "origin": {
         "repository": "NicolasRocchia/disensor",
         "commit": "1e36257779b4933814445423188ec099a78017ee",
         "author": "Nicolas Rocchia",
         "pair": {
-          "pass": "v0.3/valid_diff_gate",
-          "fail": "v0.3/r4_no_decorrelation",
-          "field": "actors/reviewers/0/family"
+          "pass": "v0.4/valid_minimized_profile",
+          "fail": "v0.4/schema_minimized_extensions_prose_key",
+          "field": "extensions/nota del incidente en claro"
         },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
       }
+    },
+    {
+      "id": "v8aec53e0502ced65",
+      "kind": "reject",
+      "file": "vectors/v8aec53e0502ced65.json",
+      "family": "w3c-f-33",
+      "requirements": [
+        "W3C-R-033"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "reject",
+        "rejects": [
+          "W3C-R-033"
+        ]
+      },
+      "cites": "a prior run that failed under constraint set cs-2, offered for checks that ran under cs-1: the check identifiers survived and the configuration changed, so the prior failure is evidence about another configuration"
     },
     {
       "id": "v8c15455bb3d933cb",
@@ -3349,10 +3693,10 @@
       "cites": "timestamps carrying a local offset"
     },
     {
-      "id": "v96087777a4afe26f",
+      "id": "v8ec1375690daa188",
       "kind": "reject",
-      "file": "vectors/v96087777a4afe26f.json",
-      "family": "w3c-f-disensor",
+      "file": "vectors/v8ec1375690daa188.json",
+      "family": "w3c-f-16",
       "requirements": [
         "W3C-R-016"
       ],
@@ -3364,7 +3708,23 @@
           "W3C-R-016"
         ]
       },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
+      "cites": "the observations differ in the fired-rule list as well as the verdict, and the declared compared set holds the verdict alone, so the recomputed moved is not contained in it"
+    },
+    {
+      "id": "v8f818aaaa7cdc7ed",
+      "kind": "accept",
+      "file": "vectors/v8f818aaaa7cdc7ed.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
       "origin": {
         "repository": "NicolasRocchia/disensor",
         "commit": "1e36257779b4933814445423188ec099a78017ee",
@@ -3374,8 +3734,107 @@
           "fail": "v0.3/schema_minimized_extensions_clear_text",
           "field": "extensions/com.example.note"
         },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
       }
+    },
+    {
+      "id": "v900fc651cea938e9",
+      "kind": "accept",
+      "file": "vectors/v900fc651cea938e9.json",
+      "family": "w3c-f-jcs-1e21",
+      "requirements": [
+        "W3C-R-020",
+        "W3C-R-031"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "10^21 carried as a string in both spellings, so no digest has to choose one"
+    },
+    {
+      "id": "v91f45fe53b9cb4f7",
+      "kind": "accept",
+      "file": "vectors/v91f45fe53b9cb4f7.json",
+      "family": "w3c-f-jcs-non-integer",
+      "requirements": [
+        "W3C-R-020",
+        "W3C-R-031"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "non-integral numbers carried as strings"
+    },
+    {
+      "id": "v920852737e02ae49",
+      "kind": "reject",
+      "file": "vectors/v920852737e02ae49.json",
+      "family": "w3c-f-jcs-number-value",
+      "requirements": [
+        "W3C-R-020",
+        "W3C-R-030"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "reject",
+        "rejects": [
+          "W3C-R-020"
+        ],
+        "cause": "digests-differ"
+      },
+      "cites": "a root over the leaf with the integer token -0 alone written as its token, as a reader that keeps the literal writes it"
+    },
+    {
+      "id": "v9614879a484c4fc0",
+      "kind": "accept",
+      "file": "vectors/v9614879a484c4fc0.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.3/valid_full_empty_findings",
+          "fail": "v0.3/r10_empty_list_with_nonzero_total",
+          "field": "metrics/counts/total_findings"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
+      }
+    },
+    {
+      "id": "v973e82c1857b0a7e",
+      "kind": "reject",
+      "file": "vectors/v973e82c1857b0a7e.json",
+      "family": "w3c-f-33",
+      "requirements": [
+        "W3C-R-033"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "reject",
+        "rejects": [
+          "W3C-R-033"
+        ]
+      },
+      "cites": "a prior run that failed under another checker than the one the reported checks ran under, with the same check identifiers"
     },
     {
       "id": "v9815e1f08a7e0664",
@@ -3412,6 +3871,33 @@
         ]
       },
       "cites": "a not-exercised record whose cause is a failure of evidence it never examined"
+    },
+    {
+      "id": "v98ee154eeceb9c55",
+      "kind": "accept",
+      "file": "vectors/v98ee154eeceb9c55.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.4/valid_minimized_profile",
+          "fail": "v0.4/r9_text_leak_in_minimized",
+          "field": "findings/0/title"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
+      }
     },
     {
       "id": "v9b7c8cf7d1b9f679",
@@ -3464,6 +3950,26 @@
       "cites": "a robots record advertising a file its exclusion rules allow"
     },
     {
+      "id": "v9d05fc7c9c249317",
+      "kind": "reject",
+      "file": "vectors/v9d05fc7c9c249317.json",
+      "family": "w3c-f-jcs-member-order",
+      "requirements": [
+        "W3C-R-020",
+        "W3C-R-030"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "reject",
+        "rejects": [
+          "W3C-R-020"
+        ],
+        "cause": "digests-differ"
+      },
+      "cites": "a root over member names U+FB33 and U+1F600 sorted by code point, which puts U+FB33 first"
+    },
+    {
       "id": "v9dc96e6ca225e6e2",
       "kind": "accept",
       "file": "vectors/v9dc96e6ca225e6e2.json",
@@ -3494,6 +4000,26 @@
         "rejects": []
       },
       "cites": "the same run reporting the empty population as not claimable"
+    },
+    {
+      "id": "v9ff65c5b03dd074c",
+      "kind": "reject",
+      "file": "vectors/v9ff65c5b03dd074c.json",
+      "family": "w3c-f-jcs-number-value",
+      "requirements": [
+        "W3C-R-020",
+        "W3C-R-030"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "reject",
+        "rejects": [
+          "W3C-R-020"
+        ],
+        "cause": "digests-differ"
+      },
+      "cites": "a root over the leaf with -0 and -0.0 written as their tokens"
     },
     {
       "id": "va0620b488f2ff2f5",
@@ -3598,6 +4124,33 @@
       "cites": "a run that already shows a non-pass, so the counts carry the answer"
     },
     {
+      "id": "va2ba93081d3a6c13",
+      "kind": "accept",
+      "file": "vectors/va2ba93081d3a6c13.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.4/valid_full_empty_findings",
+          "fail": "v0.4/r6_counts_without_findings",
+          "field": "metrics/counts/valid/incorporated"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
+      }
+    },
+    {
       "id": "va32bdaeb5f8aed8f",
       "kind": "accept",
       "file": "vectors/va32bdaeb5f8aed8f.json",
@@ -3659,6 +4212,60 @@
       }
     },
     {
+      "id": "va64493c76c57f982",
+      "kind": "accept",
+      "file": "vectors/va64493c76c57f982.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.4/valid_full_empty_findings",
+          "fail": "v0.4/r10_empty_list_with_nonzero_total",
+          "field": "metrics/counts/total_findings"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
+      }
+    },
+    {
+      "id": "va83db4001b89e73e",
+      "kind": "accept",
+      "file": "vectors/va83db4001b89e73e.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.4/valid_diff_gate",
+          "fail": "v0.4/r13_duplicate_residue_id",
+          "field": "residue/items/1/id"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
+      }
+    },
+    {
       "id": "va86e962a5024f152",
       "kind": "reject",
       "file": "vectors/va86e962a5024f152.json",
@@ -3675,6 +4282,26 @@
         ]
       },
       "cites": "a control that failed under another checker than the one the reported checks ran under"
+    },
+    {
+      "id": "va8dfb25c6d62d458",
+      "kind": "reject",
+      "file": "vectors/va8dfb25c6d62d458.json",
+      "family": "w3c-f-jcs-safe-range",
+      "requirements": [
+        "W3C-R-020",
+        "W3C-R-031"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "reject",
+        "rejects": [
+          "W3C-R-020"
+        ],
+        "cause": "integer-outside-safe-range"
+      },
+      "cites": "2^53, the neighbour just outside the range, with the root a reader without the bound writes over it"
     },
     {
       "id": "va91d537fa714f2d3",
@@ -3756,35 +4383,6 @@
       "cites": "a fail record carrying the same slot, which a verdict state may"
     },
     {
-      "id": "vab06fd8893fe7da9",
-      "kind": "reject",
-      "file": "vectors/vab06fd8893fe7da9.json",
-      "family": "w3c-f-disensor",
-      "requirements": [
-        "W3C-R-016"
-      ],
-      "specVersion": "0.1",
-      "subjectType": "report",
-      "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
-      },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.4/valid_diff_gate",
-          "fail": "v0.4/r13_finding_attributed_to_nobody",
-          "field": "findings/0/origin"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
-      }
-    },
-    {
       "id": "vab508347e605c0af",
       "kind": "reject",
       "file": "vectors/vab508347e605c0af.json",
@@ -3803,9 +4401,9 @@
       "cites": "a referenced observation that resolves to bytes whose digest is not the one the reference carries: the reading table's second line, an integrity failure"
     },
     {
-      "id": "vac685ed4f2b7b142",
-      "kind": "reject",
-      "file": "vectors/vac685ed4f2b7b142.json",
+      "id": "vac146420618655c5",
+      "kind": "accept",
+      "file": "vectors/vac146420618655c5.json",
       "family": "w3c-f-disensor",
       "requirements": [
         "W3C-R-016"
@@ -3813,22 +4411,20 @@
       "specVersion": "0.1",
       "subjectType": "report",
       "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
+        "verdict": "accept",
+        "rejects": []
       },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
       "origin": {
         "repository": "NicolasRocchia/disensor",
         "commit": "1e36257779b4933814445423188ec099a78017ee",
         "author": "Nicolas Rocchia",
         "pair": {
-          "pass": "v0.4/valid_diff_gate",
-          "fail": "v0.4/r6_inflated_count",
-          "field": "metrics/counts/valid/incorporated"
+          "pass": "v0.3/valid_diff_gate",
+          "fail": "v0.3/schema_debt_without_id",
+          "field": "findings/0/final_state"
         },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
       }
     },
     {
@@ -3856,6 +4452,33 @@
           "field": "actors/reviewers/0/family"
         },
         "cause": "none: moved is contained in the declared set and the verdict moved"
+      }
+    },
+    {
+      "id": "vad9b72227e24e32f",
+      "kind": "accept",
+      "file": "vectors/vad9b72227e24e32f.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.3/valid_diff_gate",
+          "fail": "v0.3/r1_nonexistent_reference",
+          "field": "residue/items/0/finding_ref"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
       }
     },
     {
@@ -3925,6 +4548,26 @@
         "rejects": []
       },
       "cites": "cached reads equal to the input tokens"
+    },
+    {
+      "id": "vb37f841c9e91bf18",
+      "kind": "reject",
+      "file": "vectors/vb37f841c9e91bf18.json",
+      "family": "w3c-f-jcs-1e21",
+      "requirements": [
+        "W3C-R-020",
+        "W3C-R-031"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "reject",
+        "rejects": [
+          "W3C-R-020"
+        ],
+        "cause": "integer-outside-safe-range"
+      },
+      "cites": "10^21 in digits, the spelling the readers wrote before RFC 8785, refused; a reader without the bound writes 1e+21 for it, the root written here"
     },
     {
       "id": "vb450f39bace98641",
@@ -4015,35 +4658,6 @@
       }
     },
     {
-      "id": "vb6be26b7111909cb",
-      "kind": "reject",
-      "file": "vectors/vb6be26b7111909cb.json",
-      "family": "w3c-f-disensor",
-      "requirements": [
-        "W3C-R-016"
-      ],
-      "specVersion": "0.1",
-      "subjectType": "report",
-      "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
-      },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.4/valid_diff_gate",
-          "fail": "v0.4/schema_debt_without_id",
-          "field": "findings/0/final_state"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
-      }
-    },
-    {
       "id": "vb6e8cb7973f1fab5",
       "kind": "accept",
       "file": "vectors/vb6e8cb7973f1fab5.json",
@@ -4076,9 +4690,9 @@
       "cites": "a robots record with an absolute URI, the name compared case-insensitively"
     },
     {
-      "id": "vb7ec64962345ec63",
-      "kind": "reject",
-      "file": "vectors/vb7ec64962345ec63.json",
+      "id": "vb7ef2cf28c013f46",
+      "kind": "accept",
+      "file": "vectors/vb7ef2cf28c013f46.json",
       "family": "w3c-f-disensor",
       "requirements": [
         "W3C-R-016"
@@ -4086,28 +4700,26 @@
       "specVersion": "0.1",
       "subjectType": "report",
       "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
+        "verdict": "accept",
+        "rejects": []
       },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
       "origin": {
         "repository": "NicolasRocchia/disensor",
         "commit": "1e36257779b4933814445423188ec099a78017ee",
         "author": "Nicolas Rocchia",
         "pair": {
           "pass": "v0.4/valid_diff_gate",
-          "fail": "v0.4/r12_unverified_hardening_without_its_item",
-          "field": "actors/reviewers/0/hardening"
+          "fail": "v0.4/r0_no_human_arbiter",
+          "field": "actors/human_arbiter/present"
         },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
       }
     },
     {
-      "id": "vb8c546609d4103b0",
-      "kind": "reject",
-      "file": "vectors/vb8c546609d4103b0.json",
+      "id": "vba057012581af13b",
+      "kind": "accept",
+      "file": "vectors/vba057012581af13b.json",
       "family": "w3c-f-disensor",
       "requirements": [
         "W3C-R-016"
@@ -4115,22 +4727,20 @@
       "specVersion": "0.1",
       "subjectType": "report",
       "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
+        "verdict": "accept",
+        "rejects": []
       },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
       "origin": {
         "repository": "NicolasRocchia/disensor",
         "commit": "1e36257779b4933814445423188ec099a78017ee",
         "author": "Nicolas Rocchia",
         "pair": {
-          "pass": "v0.3/valid_diff_gate",
-          "fail": "v0.3/r0_no_human_arbiter",
-          "field": "actors/human_arbiter/present"
+          "pass": "v0.4/valid_diff_gate",
+          "fail": "v0.4/schema_debt_without_id",
+          "field": "findings/0/final_state"
         },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
       }
     },
     {
@@ -4161,6 +4771,33 @@
       }
     },
     {
+      "id": "vbb5bb72ed5c3bcb1",
+      "kind": "accept",
+      "file": "vectors/vbb5bb72ed5c3bcb1.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.4/valid_diff_gate",
+          "fail": "v0.4/schema_invalid_commit",
+          "field": "event/head_commit"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
+      }
+    },
+    {
       "id": "vbba71aa9e6a41e1c",
       "kind": "accept",
       "file": "vectors/vbba71aa9e6a41e1c.json",
@@ -4175,35 +4812,6 @@
         "rejects": []
       },
       "cites": "an amount as a decimal string"
-    },
-    {
-      "id": "vbbeed17aecbe9848",
-      "kind": "reject",
-      "file": "vectors/vbbeed17aecbe9848.json",
-      "family": "w3c-f-disensor",
-      "requirements": [
-        "W3C-R-016"
-      ],
-      "specVersion": "0.1",
-      "subjectType": "report",
-      "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
-      },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.4/valid_diff_gate",
-          "fail": "v0.4/r5_level_a_gap_without_lead",
-          "field": "event/criticality_level"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
-      }
     },
     {
       "id": "vbca0a5030104e2f3",
@@ -4233,64 +4841,6 @@
       }
     },
     {
-      "id": "vbdcffc81f99b2078",
-      "kind": "reject",
-      "file": "vectors/vbdcffc81f99b2078.json",
-      "family": "w3c-f-disensor",
-      "requirements": [
-        "W3C-R-016"
-      ],
-      "specVersion": "0.1",
-      "subjectType": "report",
-      "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
-      },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.4/valid_diff_gate",
-          "fail": "v0.4/r4_no_decorrelation",
-          "field": "actors/reviewers/0/family"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
-      }
-    },
-    {
-      "id": "vbdf5d0dc993f1310",
-      "kind": "reject",
-      "file": "vectors/vbdf5d0dc993f1310.json",
-      "family": "w3c-f-disensor",
-      "requirements": [
-        "W3C-R-016"
-      ],
-      "specVersion": "0.1",
-      "subjectType": "report",
-      "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
-      },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.4/valid_diff_gate",
-          "fail": "v0.4/schema_interpretive_without_human_attention",
-          "field": "residue/items/1/refutation_type"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
-      }
-    },
-    {
       "id": "vbe6937292f4f1614",
       "kind": "reject",
       "file": "vectors/vbe6937292f4f1614.json",
@@ -4309,9 +4859,9 @@
       "cites": "foreclosed with neither a constraint set nor a domain"
     },
     {
-      "id": "vbec908a03edd1250",
-      "kind": "reject",
-      "file": "vectors/vbec908a03edd1250.json",
+      "id": "vbee48753abe90e1a",
+      "kind": "accept",
+      "file": "vectors/vbee48753abe90e1a.json",
       "family": "w3c-f-disensor",
       "requirements": [
         "W3C-R-016"
@@ -4319,22 +4869,20 @@
       "specVersion": "0.1",
       "subjectType": "report",
       "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
+        "verdict": "accept",
+        "rejects": []
       },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
       "origin": {
         "repository": "NicolasRocchia/disensor",
         "commit": "1e36257779b4933814445423188ec099a78017ee",
         "author": "Nicolas Rocchia",
         "pair": {
-          "pass": "v0.4/valid_diff_gate",
-          "fail": "v0.4/r2_generic_marker",
-          "field": "residue/items/0/description"
+          "pass": "v0.2/valid_real_02_diff_gate",
+          "fail": "v0.2/r6_counts_do_not_close",
+          "field": "metrics/counts/total_findings"
         },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
       }
     },
     {
@@ -4352,6 +4900,33 @@
         "rejects": []
       },
       "cites": "a tool call carrying its tool and no usage"
+    },
+    {
+      "id": "vc12a1c0f00be35f3",
+      "kind": "accept",
+      "file": "vectors/vc12a1c0f00be35f3.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.4/valid_minimized_profile",
+          "fail": "v0.4/r9_clear_url_in_minimized",
+          "field": "event/repository"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
+      }
     },
     {
       "id": "vc17bb5b854981008",
@@ -4399,6 +4974,33 @@
       }
     },
     {
+      "id": "vc34eb74f8bbc70ca",
+      "kind": "accept",
+      "file": "vectors/vc34eb74f8bbc70ca.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.4/valid_diff_gate",
+          "fail": "v0.4/r4_no_decorrelation",
+          "field": "actors/reviewers/0/family"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
+      }
+    },
+    {
       "id": "vc39c75a8c00ab957",
       "kind": "accept",
       "file": "vectors/vc39c75a8c00ab957.json",
@@ -4424,6 +5026,69 @@
         },
         "cause": "none: moved is contained in the declared set and the verdict moved"
       }
+    },
+    {
+      "id": "vc3fa59108d1ead8a",
+      "kind": "reject",
+      "file": "vectors/vc3fa59108d1ead8a.json",
+      "family": "w3c-f-jcs-number-value",
+      "requirements": [
+        "W3C-R-020",
+        "W3C-R-030"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "reject",
+        "rejects": [
+          "W3C-R-020"
+        ],
+        "cause": "digests-differ"
+      },
+      "cites": "a root over the leaf with 1.0 and 1e2 written as their tokens"
+    },
+    {
+      "id": "vc46bee7a31918d67",
+      "kind": "accept",
+      "file": "vectors/vc46bee7a31918d67.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.4/valid_diff_gate",
+          "fail": "v0.4/r13_finding_attributed_to_nobody",
+          "field": "findings/0/origin"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
+      }
+    },
+    {
+      "id": "vc55768118bb88e53",
+      "kind": "accept",
+      "file": "vectors/vc55768118bb88e53.json",
+      "family": "w3c-f-16",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "moved also declares the error list, outside the declared compared set; the recomputed moved is contained in it, and no rejection row reads the recompute-opaque error list (section 2.1)"
     },
     {
       "id": "vc58647a590befbb7",
@@ -4471,6 +5136,33 @@
       }
     },
     {
+      "id": "vc66120fe5e1af394",
+      "kind": "accept",
+      "file": "vectors/vc66120fe5e1af394.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.4/valid_diff_gate",
+          "fail": "v0.4/r5_level_a_gap_without_lead",
+          "field": "event/criticality_level"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
+      }
+    },
+    {
       "id": "vc7c310827b9dbd10",
       "kind": "accept",
       "file": "vectors/vc7c310827b9dbd10.json",
@@ -4485,6 +5177,33 @@
         "rejects": []
       },
       "cites": "the version this specification assigns, \"1\""
+    },
+    {
+      "id": "vc82b6b45a103ce1d",
+      "kind": "accept",
+      "file": "vectors/vc82b6b45a103ce1d.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.4/valid_diff_gate",
+          "fail": "v0.4/r2_template_marker",
+          "field": "actors/reviewers/0/model"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
+      }
     },
     {
       "id": "vc938b2ab36cae34a",
@@ -4521,33 +5240,21 @@
       "cites": "a negotiated response with no Content-Language"
     },
     {
-      "id": "vcc4002f4776bac10",
-      "kind": "reject",
-      "file": "vectors/vcc4002f4776bac10.json",
-      "family": "w3c-f-disensor",
+      "id": "vccb24c478c736bc5",
+      "kind": "accept",
+      "file": "vectors/vccb24c478c736bc5.json",
+      "family": "w3c-f-jcs-member-order",
       "requirements": [
-        "W3C-R-016"
+        "W3C-R-020",
+        "W3C-R-030"
       ],
       "specVersion": "0.1",
       "subjectType": "report",
       "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
+        "verdict": "accept",
+        "rejects": []
       },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.4/valid_diff_gate",
-          "fail": "v0.4/r13_duplicate_residue_id",
-          "field": "residue/items/1/id"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
-      }
+      "cites": "the root over the same names sorted by UTF-16 code unit, which puts U+1F600 first (its lead surrogate is 0xD83D)"
     },
     {
       "id": "vccc374459c05dd52",
@@ -4767,24 +5474,6 @@
       "cites": "the same pair related by a stated delta under one pinned checker, constraints and domain"
     },
     {
-      "id": "vd4eb88d206b3abdd",
-      "kind": "reject",
-      "file": "vectors/vd4eb88d206b3abdd.json",
-      "family": "w3c-f-16",
-      "requirements": [
-        "W3C-R-016"
-      ],
-      "specVersion": "0.1",
-      "subjectType": "report",
-      "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
-      },
-      "cites": "moved names the error list and the declared compared set does not hold it"
-    },
-    {
       "id": "vd53bcd623743858d",
       "kind": "accept",
       "file": "vectors/vd53bcd623743858d.json",
@@ -4799,6 +5488,33 @@
         "rejects": []
       },
       "cites": "the ledger omitted where the source does not reconcile"
+    },
+    {
+      "id": "vd5cc438bcd34a9d5",
+      "kind": "accept",
+      "file": "vectors/vd5cc438bcd34a9d5.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.4/valid_declared_degraded_round",
+          "fail": "v0.4/r4_degraded_round_in_level_a",
+          "field": "event/criticality_level"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
+      }
     },
     {
       "id": "vd64679c8b7f9e736",
@@ -4855,64 +5571,6 @@
       }
     },
     {
-      "id": "vd841f2eea4d0651e",
-      "kind": "reject",
-      "file": "vectors/vd841f2eea4d0651e.json",
-      "family": "w3c-f-disensor",
-      "requirements": [
-        "W3C-R-016"
-      ],
-      "specVersion": "0.1",
-      "subjectType": "report",
-      "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
-      },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.4/valid_minimized_profile",
-          "fail": "v0.4/r9_text_leak_in_minimized",
-          "field": "findings/0/title"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
-      }
-    },
-    {
-      "id": "vd85d62c0213a9749",
-      "kind": "reject",
-      "file": "vectors/vd85d62c0213a9749.json",
-      "family": "w3c-f-disensor",
-      "requirements": [
-        "W3C-R-016"
-      ],
-      "specVersion": "0.1",
-      "subjectType": "report",
-      "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
-      },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.4/valid_declared_degraded_round",
-          "fail": "v0.4/r4_degraded_round_in_level_a",
-          "field": "event/criticality_level"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
-      }
-    },
-    {
       "id": "vd88fd757419269aa",
       "kind": "accept",
       "file": "vectors/vd88fd757419269aa.json",
@@ -4943,6 +5601,67 @@
         "rejects": []
       },
       "cites": "a control built to fail that did fail, over the run's own declared checks"
+    },
+    {
+      "id": "vda5261ec1d0bd74e",
+      "kind": "accept",
+      "file": "vectors/vda5261ec1d0bd74e.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.3/valid_diff_gate",
+          "fail": "v0.3/r2_generic_marker",
+          "field": "residue/items/0/description"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
+      }
+    },
+    {
+      "id": "vda6c078e77700b28",
+      "kind": "reject",
+      "file": "vectors/vda6c078e77700b28.json",
+      "family": "arm-f-usage",
+      "requirements": [
+        "ARM-R-014"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "agent-run-metrics",
+      "expected": {
+        "verdict": "reject",
+        "rejects": [
+          "ARM-R-014"
+        ]
+      },
+      "cites": "a ledger element whose tokens is a string, which is not a count and so cannot sum to the aggregate counter"
+    },
+    {
+      "id": "vdca2c29b3d1d31b7",
+      "kind": "accept",
+      "file": "vectors/vdca2c29b3d1d31b7.json",
+      "family": "w3c-f-33",
+      "requirements": [
+        "W3C-R-033"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "a prior run that declares its binding in a run that declares none: nothing to compare, and v0.1 fixes no slot for the run's binding, since the fixture record that would carry it is not normative (section 5.5, open item O7)"
     },
     {
       "id": "vdcb0849fc754aaea",
@@ -4990,6 +5709,33 @@
       "cites": "a pass carrying a cause"
     },
     {
+      "id": "vdd9207f5aa2fc9e3",
+      "kind": "accept",
+      "file": "vectors/vdd9207f5aa2fc9e3.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.3/valid_minimized_profile",
+          "fail": "v0.3/r9_clear_url_in_minimized",
+          "field": "event/repository"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
+      }
+    },
+    {
       "id": "vdec1361509de89d4",
       "kind": "accept",
       "file": "vectors/vdec1361509de89d4.json",
@@ -5031,64 +5777,6 @@
         "rejects": []
       },
       "cites": "one carried against one referenced, as the evidence holds them"
-    },
-    {
-      "id": "ve14d385f9bcbd83b",
-      "kind": "reject",
-      "file": "vectors/ve14d385f9bcbd83b.json",
-      "family": "w3c-f-disensor",
-      "requirements": [
-        "W3C-R-016"
-      ],
-      "specVersion": "0.1",
-      "subjectType": "report",
-      "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
-      },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.3/valid_diff_gate",
-          "fail": "v0.3/r2_template_marker",
-          "field": "actors/reviewers/0/model"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
-      }
-    },
-    {
-      "id": "ve2460634487d8a8f",
-      "kind": "reject",
-      "file": "vectors/ve2460634487d8a8f.json",
-      "family": "w3c-f-disensor",
-      "requirements": [
-        "W3C-R-016"
-      ],
-      "specVersion": "0.1",
-      "subjectType": "report",
-      "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
-      },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.4/valid_diff_gate",
-          "fail": "v0.4/r0_no_human_arbiter",
-          "field": "actors/human_arbiter/present"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
-      }
     },
     {
       "id": "ve2b3a699bc06e53d",
@@ -5293,9 +5981,9 @@
       }
     },
     {
-      "id": "ve784e75da615e795",
-      "kind": "reject",
-      "file": "vectors/ve784e75da615e795.json",
+      "id": "ve75a143e2bdb4d61",
+      "kind": "accept",
+      "file": "vectors/ve75a143e2bdb4d61.json",
       "family": "w3c-f-disensor",
       "requirements": [
         "W3C-R-016"
@@ -5303,22 +5991,20 @@
       "specVersion": "0.1",
       "subjectType": "report",
       "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
+        "verdict": "accept",
+        "rejects": []
       },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
       "origin": {
         "repository": "NicolasRocchia/disensor",
         "commit": "1e36257779b4933814445423188ec099a78017ee",
         "author": "Nicolas Rocchia",
         "pair": {
-          "pass": "v0.3/valid_minimized_profile",
-          "fail": "v0.3/r9_text_leak_in_minimized",
-          "field": "findings/0/title"
+          "pass": "v0.3/valid_diff_gate",
+          "fail": "v0.3/r6_inflated_count",
+          "field": "metrics/counts/valid/incorporated"
         },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
       }
     },
     {
@@ -5364,35 +6050,6 @@
           "field": "event/repository"
         },
         "cause": "none: moved is contained in the declared set and the verdict moved"
-      }
-    },
-    {
-      "id": "ve9ebdb7db94e0b9d",
-      "kind": "reject",
-      "file": "vectors/ve9ebdb7db94e0b9d.json",
-      "family": "w3c-f-disensor",
-      "requirements": [
-        "W3C-R-016"
-      ],
-      "specVersion": "0.1",
-      "subjectType": "report",
-      "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
-      },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.3/valid_full_empty_findings",
-          "fail": "v0.3/r10_empty_list_with_nonzero_total",
-          "field": "metrics/counts/total_findings"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
       }
     },
     {
@@ -5463,6 +6120,33 @@
           "field": "metrics/counts/total_findings"
         },
         "cause": "none: moved is contained in the declared set and the verdict moved"
+      }
+    },
+    {
+      "id": "veaee43cdb4a113d0",
+      "kind": "accept",
+      "file": "vectors/veaee43cdb4a113d0.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.2/valid_real_02_diff_gate",
+          "fail": "v0.2/r4_same_family",
+          "field": "actors/reviewers/0/family"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
       }
     },
     {
@@ -5554,9 +6238,9 @@
       "cites": "reasoning tokens exceeding the output they are a subset of"
     },
     {
-      "id": "vf0793a8c5fc26e52",
-      "kind": "reject",
-      "file": "vectors/vf0793a8c5fc26e52.json",
+      "id": "vef3f22a57a308f45",
+      "kind": "accept",
+      "file": "vectors/vef3f22a57a308f45.json",
       "family": "w3c-f-disensor",
       "requirements": [
         "W3C-R-016"
@@ -5564,22 +6248,20 @@
       "specVersion": "0.1",
       "subjectType": "report",
       "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
+        "verdict": "accept",
+        "rejects": []
       },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
       "origin": {
         "repository": "NicolasRocchia/disensor",
         "commit": "1e36257779b4933814445423188ec099a78017ee",
         "author": "Nicolas Rocchia",
         "pair": {
-          "pass": "v0.4/valid_full_empty_findings",
-          "fail": "v0.4/r6_counts_without_findings",
-          "field": "metrics/counts/valid/incorporated"
+          "pass": "v0.3/valid_diff_gate",
+          "fail": "v0.3/r2_template_marker",
+          "field": "actors/reviewers/0/model"
         },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
       }
     },
     {
@@ -5599,35 +6281,6 @@
         ]
       },
       "cites": "a ledger that does not sum to the aggregate counter"
-    },
-    {
-      "id": "vf2fde28af69a1348",
-      "kind": "reject",
-      "file": "vectors/vf2fde28af69a1348.json",
-      "family": "w3c-f-disensor",
-      "requirements": [
-        "W3C-R-016"
-      ],
-      "specVersion": "0.1",
-      "subjectType": "report",
-      "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
-      },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.3/valid_diff_gate",
-          "fail": "v0.3/schema_interpretive_without_human_attention",
-          "field": "residue/items/1/refutation_type"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
-      }
     },
     {
       "id": "vf374114fe7f28e7d",
@@ -5664,6 +6317,50 @@
         ]
       },
       "cites": "an unprefixed member the specification does not define"
+    },
+    {
+      "id": "vf3fbd991d8e666a4",
+      "kind": "accept",
+      "file": "vectors/vf3fbd991d8e666a4.json",
+      "family": "w3c-f-jcs-number-value",
+      "requirements": [
+        "W3C-R-020",
+        "W3C-R-030"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the root over the leaf with -0 and -0.0 written as 0, their value, as RFC 8785 writes them"
+    },
+    {
+      "id": "vf407ebb4a9cb8a3d",
+      "kind": "accept",
+      "file": "vectors/vf407ebb4a9cb8a3d.json",
+      "family": "w3c-f-disensor",
+      "requirements": [
+        "W3C-R-016"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the pair as emitted on 2026-09-16: moved also declares the error list the checker produced, outside the declared compared set; moved is recomputed, not declared, the recomputed moved is contained in the compared set, and no rejection row reads the recompute-opaque error list",
+      "origin": {
+        "repository": "NicolasRocchia/disensor",
+        "commit": "1e36257779b4933814445423188ec099a78017ee",
+        "author": "Nicolas Rocchia",
+        "pair": {
+          "pass": "v0.2/valid_real_02_diff_gate",
+          "fail": "v0.2/schema_item_reference_not_declared",
+          "field": "residue/items/0/finding_ref"
+        },
+        "cause": "none: the declared error list is a declaration no row reads, and the recomputed moved is contained"
+      }
     },
     {
       "id": "vf414a4c9065ad7b8",
@@ -5798,6 +6495,23 @@
       "cites": "demonstrated with the reference that carries it"
     },
     {
+      "id": "vfacf2b3dafdb5c0a",
+      "kind": "accept",
+      "file": "vectors/vfacf2b3dafdb5c0a.json",
+      "family": "w3c-f-jcs-declaration",
+      "requirements": [
+        "W3C-R-015",
+        "W3C-R-032"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "a binding that declares jcs-sha256, the one member of the closed set"
+    },
+    {
       "id": "vfbc5db1c2a012359",
       "kind": "reject",
       "file": "vectors/vfbc5db1c2a012359.json",
@@ -5833,35 +6547,6 @@
       "cites": "the emitter's void slot populated by a rail that did not run, with the exit as cause"
     },
     {
-      "id": "vfbf04f56b585e3fa",
-      "kind": "reject",
-      "file": "vectors/vfbf04f56b585e3fa.json",
-      "family": "w3c-f-disensor",
-      "requirements": [
-        "W3C-R-016"
-      ],
-      "specVersion": "0.1",
-      "subjectType": "report",
-      "expected": {
-        "verdict": "reject",
-        "rejects": [
-          "W3C-R-016"
-        ]
-      },
-      "cites": "the pair as emitted on 2026-09-16: moved names the error list the checker produced, which the compared vocabulary does not hold, so the object is rejected under the declared-slot rule",
-      "origin": {
-        "repository": "NicolasRocchia/disensor",
-        "commit": "1e36257779b4933814445423188ec099a78017ee",
-        "author": "Nicolas Rocchia",
-        "pair": {
-          "pass": "v0.2/valid_real_02_diff_gate",
-          "fail": "v0.2/r6_counts_do_not_close",
-          "field": "metrics/counts/total_findings"
-        },
-        "cause": "moved asserts the recompute-opaque error list outside the declared compared set"
-      }
-    },
-    {
       "id": "vfeb5d1872929ab35",
       "kind": "accept",
       "file": "vectors/vfeb5d1872929ab35.json",
@@ -5876,6 +6561,22 @@
         "rejects": []
       },
       "cites": "a negotiated response naming its language"
+    },
+    {
+      "id": "vff1d02d89ab42ef7",
+      "kind": "accept",
+      "file": "vectors/vff1d02d89ab42ef7.json",
+      "family": "w3c-f-33",
+      "requirements": [
+        "W3C-R-033"
+      ],
+      "specVersion": "0.1",
+      "subjectType": "report",
+      "expected": {
+        "verdict": "accept",
+        "rejects": []
+      },
+      "cites": "the same prior run bound to the checker and constraint set the reported checks ran under"
     },
     {
       "id": "vff5545c0760d7544",

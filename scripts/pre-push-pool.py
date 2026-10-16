@@ -199,7 +199,11 @@ def remote(request: dict[str, Any]) -> int:
         raise ValueError("pool request nonce is not a fixed hexadecimal identifier")
     expected = request["bindings"]
     env = {key: value for key, value in os.environ.items() if key in KEEP_ENV}
-    scratch = Path(tempfile.mkdtemp(prefix="aev-pool-native-"))
+    # The gate refuses an evidence directory inside the checkout it judges, and
+    # a pool driver may point TMPDIR into that checkout: box_run.sh does, so a
+    # job's temporary files leave with it. Beside the checkout is outside it
+    # whatever TMPDIR names; the capture is removed below once it is archived.
+    scratch = Path(tempfile.mkdtemp(prefix="aev-pool-native-", dir=ROOT.resolve().parent))
     print(f"pre-push: original native capture retained at {scratch}", flush=True)
     capture = Path(scratch) / "capture"
     capture.mkdir()

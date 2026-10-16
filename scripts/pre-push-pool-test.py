@@ -70,7 +70,11 @@ if len(sys.argv) == 1:
     out = root / '.build/fixture'; out.mkdir(parents=True)
 else:
     assert sys.argv[1] == '--evidence-dir' and len(sys.argv) == 5
-    out = pathlib.Path(sys.argv[2]); out.mkdir()
+    out = pathlib.Path(sys.argv[2])
+    if out.resolve().is_relative_to(root):
+        print('FAULT: evidence-dir must be outside the input checkout')
+        sys.exit(1)
+    out.mkdir()
 result = {'ran': 1, 'failed': 0, 'not_run': ['hosting is not exercised by this transport fixture']}
 tags = git('for-each-ref','--format=%(refname) %(objectname)','refs/tags')
 source = {'head':git('rev-parse','HEAD'), 'tree':git('rev-parse','HEAD^{tree}'),
@@ -270,6 +274,24 @@ class Controls(unittest.TestCase):
             self.assertEqual(
                 member_bytes(archive, "capture/native/actual-bytes.sig"), bytes(range(64))
             )
+
+    def test_native_capture_stays_outside_a_checkout_that_holds_tmpdir(self):
+        # box_run.sh points TMPDIR into the job's own checkout. Every pool run
+        # made after that change refused with the gate's own words, because the
+        # capture followed TMPDIR into the checkout the gate judges.
+        inside = self.root / ".box-tmp"
+        inside.mkdir()
+        request = self.request()
+        with patch("tempfile.tempdir", str(inside)):
+            code, receipt = self.native(request)
+        self.assertEqual(code, 0)
+        self.assertEqual(receipt["gateExit"], 0)
+        with tarfile.open(receipt["archive"]) as archive:
+            self.assertNotIn(
+                b"evidence-dir must be outside", member_bytes(archive, "capture/gate.stdout")
+            )
+        self.assertEqual(list(inside.iterdir()), [])
+        self.assertEqual(list(self.root.parent.glob("aev-pool-native-*")), [])
 
     def test_wrong_source_coordinates_never_start_gate(self):
         for field in (
@@ -754,11 +776,18 @@ time.sleep(30)
                 stderr=err,
             )
             try:
-                deadline = time.monotonic() + 5
+                # Wait for the native child to start, not for a fixed time: on a
+                # loaded host the bridge, its venv and the child took longer
+                # than five seconds, and the test failed with no defect. It
+                # still fails at once if the bridge exits before the child runs.
+                deadline = time.monotonic() + 120
                 pid_path = self.root / ".build/native-pid"
-                while not pid_path.exists() and time.monotonic() < deadline:
-                    time.sleep(0.01)
-                self.assertTrue(pid_path.exists())
+                while (
+                    not pid_path.exists() and process.poll() is None and time.monotonic() < deadline
+                ):
+                    time.sleep(0.05)
+                err.seek(0)
+                self.assertTrue(pid_path.exists(), err.read().decode(errors="replace"))
                 native_pid = int(pid_path.read_text())
                 process.send_signal(signal.SIGTERM)
                 code = process.wait(timeout=10)

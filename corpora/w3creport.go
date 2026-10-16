@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -103,6 +104,10 @@ type w3cVector struct {
 type w3cExpected struct {
 	Verdict string    `json:"verdict"`
 	Rejects *[]string `json:"rejects"`
+	// Cause is the code a reject member's rejection must name, for a member
+	// whose row alone does not say why: a float and a root that does not
+	// recompute both land under W3C-R-020.
+	Cause *string `json:"cause,omitempty"`
 }
 
 func (w w3cReport) Judge(dir string, raw []byte) (*Result, error) {
@@ -208,6 +213,9 @@ func w3cCheckExpectation(v w3cVector, known map[string]bool, out *Member) {
 	if v.Expected.Verdict == "accept" && len(rejects) > 0 {
 		out.Findings = append(out.Findings, "is an accept member that expects a rejection")
 	}
+	if cause := v.Expected.Cause; cause != nil && (v.Expected.Verdict != "reject" || !w3cCauseCodes[*cause]) {
+		out.Findings = append(out.Findings, "expects the cause "+*cause+", which only a reject member names, from the closed set")
+	}
 	if v.Expected.Verdict == "reject" && len(rejects) != 1 {
 		out.Findings = append(out.Findings, "is a reject member that does not name exactly one row")
 	}
@@ -223,54 +231,72 @@ func w3cCheckExpectation(v w3cVector, known map[string]bool, out *Member) {
 }
 
 func (w w3cReport) checkFile(dir string, v w3cVector, out *Member) {
-	if !existsIn(dir, v.File) {
-		out.Findings = append(out.Findings, "the manifest names a vector file that does not exist")
+	object, finding := readW3CMember(dir, v)
+	if finding != "" {
+		out.Findings = append(out.Findings, finding)
 		return
+	}
+	out.Findings = append(out.Findings, w3cIdentityFindings(object, v)...)
+	out.Findings = append(out.Findings, w3cVerdictFindings(object, v)...)
+}
+
+// readW3CMember reads a member's vector file as a JSON object, or names why
+// it cannot be read as one.
+func readW3CMember(dir string, v w3cVector) (map[string]any, string) {
+	if !existsIn(dir, v.File) {
+		return nil, "the manifest names a vector file that does not exist"
 	}
 	body, err := readIn(dir, v.File)
 	if err != nil {
-		out.Findings = append(out.Findings, err.Error())
-		return
+		return nil, err.Error()
 	}
 	document, err := decodeJSONNumbers(body)
 	if err != nil {
-		out.Findings = append(out.Findings, "the vector file does not parse: "+err.Error())
-		return
+		return nil, "the vector file does not parse: " + err.Error()
 	}
 	object, ok := document.(map[string]any)
 	if !ok {
-		out.Findings = append(out.Findings, "the vector file is not a JSON object")
-		return
+		return nil, "the vector file is not a JSON object"
 	}
+	return object, ""
+}
+
+// w3cIdentityFindings holds the vector file to its manifest row and its
+// identifier to the member's own bytes.
+func w3cIdentityFindings(object map[string]any, v w3cVector) []string {
+	var findings []string
 	entryValue, err := decodeJSONNumbers(mustMarshal(v))
 	if err != nil {
-		out.Findings = append(out.Findings, err.Error())
-		return
+		return append(findings, err.Error())
 	}
 	entry, _ := entryValue.(map[string]any)
 	for _, field := range w3cAgreeFields {
 		if !jsonEqual(object[field], entry[field]) {
-			out.Findings = append(out.Findings, "the vector file and the manifest disagree about "+field)
+			findings = append(findings, "the vector file and the manifest disagree about "+field)
 		}
 	}
 	if id, _ := object["id"].(string); id != v.ID {
-		out.Findings = append(out.Findings, "the vector file carries a different identifier")
+		findings = append(findings, "the vector file carries a different identifier")
 	}
-	if payload, err := idPayloadFromFields(object, w3cIDFields); err != nil {
-		out.Findings = append(out.Findings, err.Error())
+	if payload, err := w3cIDPayload(object); err != nil {
+		findings = append(findings, "the member has no RFC 8785 form: "+err.Error())
 	} else if idFromBytes(payload) != v.ID {
-		out.Findings = append(out.Findings, "identifier does not recompute from the member's own bytes")
+		findings = append(findings, "identifier does not recompute from the member's own bytes")
 	}
+	return findings
+}
+
+// w3cVerdictFindings judges the member's subject and compares the verdict,
+// and for a report the cause, with what the manifest expects.
+func w3cVerdictFindings(object map[string]any, v w3cVector) []string {
 	if shape := subjectShapeErrors(v.SubjectType, object["subject"]); len(shape) > 0 {
-		out.Findings = append(out.Findings, "the subject is not the shape its definition gives: "+strings.Join(shape, "; "))
-		return
+		return []string{"the subject is not the shape its definition gives: " + strings.Join(shape, "; ")}
 	}
 	var resolves map[string]any
 	if raw, present := object["resolves"]; present && raw != nil {
 		store, ok := raw.(map[string]any)
 		if !ok {
-			out.Findings = append(out.Findings, "resolves is present and is not an object")
-			return
+			return []string{"resolves is present and is not an object"}
 		}
 		resolves = store
 	}
@@ -280,9 +306,32 @@ func (w w3cReport) checkFile(dir string, v w3cVector, out *Member) {
 		expected = sortedStrings(*v.Expected.Rejects)
 	}
 	if strings.Join(observed, ",") != strings.Join(expected, ",") {
-		out.Findings = append(out.Findings, fmt.Sprintf(
-			"the validator rejects under %s and the manifest expects %s", w3cList(observed), w3cList(expected)))
+		return []string{fmt.Sprintf(
+			"the validator rejects under %s and the manifest expects %s", w3cList(observed), w3cList(expected))}
 	}
+	if stated := v.Expected.Cause; stated != nil && v.SubjectType == "report" {
+		named := w3cCheckSetCause(object["subject"].(map[string]any))
+		if named != *stated {
+			if named == "" {
+				named = "none"
+			}
+			return []string{fmt.Sprintf(
+				"the validator names the cause %s and the manifest expects %s", named, *stated)}
+		}
+	}
+	return nil
+}
+
+// w3cIDPayload is the RFC 8785 form of the fields a member's identifier
+// covers, a missing field read as null: RFC 8785 as written, numbers as IEEE
+// 754 doubles, so a member carrying a number the jcs-sha256 profile refuses
+// still has a name.
+func w3cIDPayload(document map[string]any) ([]byte, error) {
+	subset := map[string]any{}
+	for _, field := range w3cIDFields {
+		subset[field] = document[field]
+	}
+	return rfc8785Bytes(subset)
 }
 
 // subjectShapeErrors and subjectRejections select the validator the manifest
@@ -488,6 +537,35 @@ func w3cShapeCheck(check any, index int, out *[]string) {
 	}
 }
 
+// w3cShapeDelta: a delta, when present, is an object, and it lists its changes,
+// when present, as an array of objects (0087 section 1.3, "delta the concrete
+// change").
+func w3cShapeDelta(object map[string]any, where string, out *[]string) {
+	raw, present := object["delta"]
+	if !present {
+		return
+	}
+	delta, ok := raw.(map[string]any)
+	if !ok {
+		*out = append(*out, where+".delta is present and is not an object")
+		return
+	}
+	changes, listed := delta["changes"]
+	if !listed {
+		return
+	}
+	list, isList := changes.([]any)
+	if !isList {
+		*out = append(*out, where+".delta.changes is not an array")
+		return
+	}
+	for j, change := range list {
+		if !isObj(change) {
+			*out = append(*out, fmt.Sprintf("%s.delta.changes[%d] is not an object", where, j))
+		}
+	}
+}
+
 func w3cShapeEvidence(item any, index int, out *[]string) {
 	where := fmt.Sprintf("evidence[%d]", index)
 	object, ok := item.(map[string]any)
@@ -509,9 +587,7 @@ func w3cShapeEvidence(item any, index int, out *[]string) {
 			*out = append(*out, where+"."+slot+" is not a list of strings")
 		}
 	}
-	if delta, present := object["delta"]; present && !isObj(delta) {
-		*out = append(*out, where+".delta is present and is not an object")
-	}
+	w3cShapeDelta(object, where, out)
 	observations, ok := object["observations"].([]any)
 	if !ok {
 		*out = append(*out, where+".observations is not a list")
@@ -857,8 +933,12 @@ func w3cRecomputedMoved(item map[string]any, resolves map[string]any) (map[strin
 	return moved, w3cRead
 }
 
-// w3cRowRecomputedMoved is rule 21: moved is read as recomputed from the two
-// observations, never as the emitter declared it; a mismatch is rule 20.
+// w3cRowRecomputedMoved is rules 16 and 21: moved is read as recomputed from
+// the two observations, never as the emitter declared it. Rule 16 holds the
+// recomputed moved against the declared compared set (v0.1 section 2), rule 21
+// the declared moved against the recomputed one, both over the slots a reader
+// recomputes: no rejection row reads the recompute-opaque error list (section
+// 2.1). A mismatch is rule 20; observations that cannot be read fire neither.
 func w3cRowRecomputedMoved(item map[string]any, resolves map[string]any, out w3cRejects) {
 	recomputed, state := w3cRecomputedMoved(item, resolves)
 	if state == w3cMismatch {
@@ -867,6 +947,14 @@ func w3cRowRecomputedMoved(item map[string]any, resolves map[string]any, out w3c
 	}
 	if state != w3cRead {
 		return
+	}
+	compared, _ := stringList(item["compared"])
+	within := set(compared...)
+	for v := range recomputed {
+		if !within[v] {
+			out.add(16)
+			break
+		}
 	}
 	moved, _ := stringList(item["moved"])
 	declared := map[string]bool{}
@@ -927,16 +1015,9 @@ func w3cRowsEvidence(item map[string]any, resolves map[string]any, out w3cReject
 	}
 	compared, _ := stringList(item["compared"])
 	moved, _ := stringList(item["moved"])
-	declared := set(compared...)
 	for _, v := range append(append([]string{}, compared...), moved...) {
 		if !w3cSlots[v] {
 			out.add(19)
-			break
-		}
-	}
-	for _, v := range moved {
-		if !declared[v] {
-			out.add(16)
 			break
 		}
 	}
@@ -975,22 +1056,45 @@ func intValue(v any) (int64, bool) {
 	return n, true
 }
 
-func w3cSetBinding(ref any, out w3cRejects) (map[string]any, bool) {
+// w3cBindingRefusal is why a set binding does not bind (rule (b)), "" when it
+// binds: a digest over a set carries its leaf count and its tree shape, and an
+// encoding it declares comes from the closed set. Only the last refusal is a
+// coded cause; the others are this reader's own words.
+func w3cBindingRefusal(ref any) string {
 	object, ok := ref.(map[string]any)
 	if !ok || !isStr(object["sha256"]) {
-		out.add(15)
-		return nil, false
+		return "no digest"
 	}
-	count, ok := intValue(object["leaf-count"])
-	if !ok || count < 0 {
-		out.add(15)
-		return nil, false
+	if count, ok := intValue(object["leaf-count"]); !ok || count < 0 {
+		return "no leaf count"
 	}
 	if shape, _ := object["tree-shape"].(string); !w3cShapes[shape] {
+		return "no tree shape from the closed set"
+	}
+	if w3cUnsupportedDeclaration(object) {
+		return w3cUnsupportedEncoding
+	}
+	return ""
+}
+
+func w3cSetBinding(ref any, out w3cRejects) (map[string]any, bool) {
+	if w3cBindingRefusal(ref) != "" {
 		out.add(15)
 		return nil, false
 	}
-	return object, true
+	return ref.(map[string]any), true
+}
+
+// w3cUnsupportedDeclaration: an encoding a binding declares comes from the
+// closed set (proposed: 2026Oct/0038). A binding that declares none is
+// digested under jcs-sha256.
+func w3cUnsupportedDeclaration(binding map[string]any) bool {
+	declared, present := binding["digest-encoding"]
+	if !present {
+		return false
+	}
+	name, ok := declared.(string)
+	return !ok || !w3cDigestEncodings[name]
 }
 
 func w3cIdentity(v any, ids map[string]bool) bool {
@@ -1025,13 +1129,14 @@ func w3cRowsNegative(rollup map[string]any, counts map[string]int, ids map[strin
 		} else if state, _ := control["state"].(string); state != "fail" {
 			out.add(13)
 		} else {
-			w3cRowControlBinding(control["fixed"], runFixed, out)
+			w3cRowBinding(control["fixed"], runFixed, 29, out)
 		}
 	case kind == "prior-discriminating-run":
 		if !w3cIdentity(field["check-identity"], ids) {
 			out.add(14)
 		}
 		w3cSetBinding(field["reference"], out)
+		w3cRowBinding(field["fixed"], runFixed, 33, out)
 	}
 }
 
@@ -1228,24 +1333,27 @@ var w3cShapes = func() map[string]bool {
 	return out
 }()
 
-// w3cRowControlBinding is rule 29, v0.1 section 5.4: a control ran under the checker
-// and constraint set of the checks it speaks for. It is read only where both
-// the control and the run declare the binding, so a binding that differs from
-// the run's is refused and a missing one is not.
-func w3cRowControlBinding(bound, runFixed any, out w3cRejects) {
-	control, okControl := bound.(map[string]any)
+// w3cRowBinding reads a filling of v0.1 section 5.4 against the checker and
+// constraint set of the checks it speaks for: rule 29 a control's binding, rule
+// 33 a prior run's. It is read only where both the filling and the run declare
+// the binding, so a binding that differs from the run's is refused and a
+// missing one is not.
+func w3cRowBinding(bound, runFixed any, row int, out w3cRejects) {
+	filling, okFilling := bound.(map[string]any)
 	run, okRun := runFixed.(map[string]any)
-	if !okControl || !okRun {
+	if !okFilling || !okRun {
 		return
 	}
 	for _, slot := range []string{"checker", "constraint-set"} {
-		if !jsonEqual(control[slot], run[slot]) {
-			out.add(29)
+		if !jsonEqual(filling[slot], run[slot]) {
+			out.add(row)
 			return
 		}
 	}
 }
 
+// w3cCheckSetRoot is the root over the check set: each check's jcs-sha256
+// bytes, under the named tree shape.
 func w3cCheckSetRoot(checks []map[string]any, shape string) (string, error) {
 	root, registered := w3cRoots[shape]
 	if !registered {
@@ -1253,7 +1361,7 @@ func w3cCheckSetRoot(checks []map[string]any, shape string) (string, error) {
 	}
 	leaves := make([][]byte, 0, len(checks))
 	for _, check := range checks {
-		leaf, err := pythonCompactJSON(check)
+		leaf, err := jcsSHA256Bytes(check)
 		if err != nil {
 			return "", err
 		}
@@ -1295,20 +1403,50 @@ func mth(leaves [][]byte) []byte {
 	return h.Sum(nil)
 }
 
-func w3cRowsCheckSet(report map[string]any, checks []map[string]any, out w3cRejects) {
-	binding, ok := w3cSetBinding(report["check-set"], out)
-	if !ok {
-		return
+// w3cCheckSetFinding is the row the check-set binding is rejected under (0
+// when it holds) and the cause code it names ("" for a binding refused in
+// words no member names).
+func w3cCheckSetFinding(report map[string]any, checks []map[string]any) (int, string) {
+	if refusal := w3cBindingRefusal(report["check-set"]); refusal == w3cUnsupportedEncoding {
+		return 15, w3cUnsupportedEncoding
+	} else if refusal != "" {
+		return 15, ""
 	}
+	binding := report["check-set"].(map[string]any)
 	if count, _ := intValue(binding["leaf-count"]); count != int64(len(checks)) {
-		out.add(15)
-		return
+		return 15, ""
 	}
 	shape, _ := binding["tree-shape"].(string)
 	root, err := w3cCheckSetRoot(checks, shape)
-	if err != nil || binding["sha256"].(string) != root {
-		out.add(20)
+	if err != nil {
+		var refused *w3cDigestRefusal
+		if errors.As(err, &refused) {
+			return 20, refused.cause
+		}
+		return 20, ""
 	}
+	if binding["sha256"].(string) != root {
+		return 20, w3cDigestsDiffer
+	}
+	return 0, ""
+}
+
+func w3cRowsCheckSet(report map[string]any, checks []map[string]any, out w3cRejects) {
+	if row, _ := w3cCheckSetFinding(report, checks); row != 0 {
+		out.add(row)
+	}
+}
+
+// w3cCheckSetCause is the cause a rejection from the report's check-set
+// binding names, "" when it names none (check_set_cause in the Python module).
+func w3cCheckSetCause(report map[string]any) string {
+	rawChecks, _ := report["checks"].([]any)
+	checks := make([]map[string]any, 0, len(rawChecks))
+	for _, raw := range rawChecks {
+		checks = append(checks, raw.(map[string]any))
+	}
+	_, cause := w3cCheckSetFinding(report, checks)
+	return cause
 }
 
 // w3cRejections is rejections() in the Python module: the sorted requirement

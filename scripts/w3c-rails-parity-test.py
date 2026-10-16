@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
-"""The two rails that judge vectors-w3c-report/ print the same bytes.
+"""The three rails that judge vectors-w3c-report/ print the same bytes.
 
-``aee-verify <dir>`` judges the corpus through corpora/w3creport.go and
+``aee-verify <dir>`` judges the corpus through corpora/w3creport.go,
 ``packaging/run_vectors.py --corpus vectors-w3c-report`` judges it through
-packaging/agent_evidence_vectors/w3creport.py. Each is a full statement of the
-v0.1 rows, and two statements of one set of rules drift unless something holds
-them together. This holds them together: the committed corpus and a set of
-mutated copies are judged by both, and every line of output is compared.
+packaging/agent_evidence_vectors/w3creport.py, and ``w3c-report-rs <dir>``
+judges it through readers/w3c-report-rs, a Rust reader written from the v0.1
+text and the corpus alone, with no code path shared with the other two (see
+docs/research/w3c-reader-independence.md). Each is a full statement of the
+v0.1 rows, and three statements of one set of rules drift unless something
+holds them together. This holds them together: the committed corpus and a set
+of mutated copies are judged by all three, and every line of output is
+compared. A rail that cannot be built fails the test; none is skipped.
 
 The mutations are chosen so that different parts of the reader answer: a
 flipped byte (identifier and corpus digest), a manifest row expecting the wrong
@@ -17,11 +21,18 @@ store resolves a reference to other bytes (the reading table's mismatch line),
 a member whose fixed slot restates the domain (the domain-once row), a member
 whose check-set names a tree shape outside the closed set, a pass carrying the
 confinement cause (two rows at once), a control rebound to another constraint
-set, and the reference emitter's published run with a wrong digest and with a
-report the validator would reject.
+set, a prior run rebound to another checker, and the reference emitter's
+published run with a wrong digest and with a report the validator would
+reject. Four more give a member a field of the wrong
+JSON type: robots exclusion rules as an integer, step_count as a string, a
+cache ledger's tokens as a string, and a delta's changes as a string. One more
+states a cause a member's rejection does not name. The last lists the
+manifest's members in reverse order, which changes nothing a reader judges: the
+corpus digest is over the member files in identifier order, so all three must
+accept that copy as they accept the committed corpus.
 
 Usage: python3 scripts/w3c-rails-parity-test.py
-Exit 0 when every case prints identically on both rails; 1 otherwise.
+Exit 0 when every case prints identically on all three rails; 1 otherwise.
 """
 
 from __future__ import annotations
@@ -150,27 +161,109 @@ def confinement_on_pass(corpus: Path) -> None:
     edit_member(corpus, edit)
 
 
-def rebound_control(corpus: Path) -> None:
-    """A bound control moved to another constraint set than the run's (rule 29)."""
-    def edit(document: dict[str, Any]) -> None:
-        control = document["subject"]["roll-up"]["negative-capable"]["control"]
-        control["fixed"]["constraint-set"] = "cs-3"
-
-    def bound(document: dict[str, Any]) -> bool:
-        return "fixed" in document["subject"]
-
+def rebind(corpus: Path, family: str, edit: Callable[[dict[str, Any]], None]) -> None:
+    """Edit the first accept member of a binding family whose run declares a binding."""
     manifest = manifest_of(corpus)
     for entry in manifest["vectors"]:
-        if entry["family"] != "w3c-f-29" or entry["kind"] != "accept":
+        if entry["family"] != family or entry["kind"] != "accept":
             continue
         path = corpus / entry["file"]
         document = json.loads(path.read_text(encoding="utf-8"))
-        if bound(document):
-            edit(document)
+        if "fixed" in document["subject"]:
+            edit(document["subject"]["roll-up"]["negative-capable"])
             path.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n",
                             encoding="utf-8")
             return
-    raise SystemExit("no bound control member to rebind")
+    raise SystemExit(f"no bound {family} member to rebind")
+
+
+def rebound_control(corpus: Path) -> None:
+    """A bound control moved to another constraint set than the run's (rule 29)."""
+    def edit(field: dict[str, Any]) -> None:
+        field["control"]["fixed"]["constraint-set"] = "cs-3"
+
+    rebind(corpus, "w3c-f-29", edit)
+
+
+def rebound_prior(corpus: Path) -> None:
+    """A bound prior run moved to another checker than the run's (rule 33)."""
+    def edit(field: dict[str, Any]) -> None:
+        field["fixed"]["checker"] = "checker-3"
+
+    rebind(corpus, "w3c-f-33", edit)
+
+
+def edit_subject(corpus: Path, subject_type: str, edit: Callable[[dict[str, Any]], None]) -> None:
+    """Edit the subject of the first accept member of one subject type."""
+    entry = next(
+        e for e in manifest_of(corpus)["vectors"]
+        if e["kind"] == "accept" and e["subjectType"] == subject_type
+    )
+    path = corpus / entry["file"]
+    document = json.loads(path.read_text(encoding="utf-8"))
+    edit(document["subject"])
+    path.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def robots_integer(corpus: Path) -> None:
+    """robots.disallow as an integer: refused as malformed, and the run goes on."""
+    edit_subject(
+        corpus, "llm-context-discovery",
+        lambda subject: subject["robots"].__setitem__("disallow", 2),
+    )
+
+
+def string_step_count(corpus: Path) -> None:
+    """step_count as a string: the Run is malformed (draft section 3.1 makes it an integer)."""
+    edit_subject(
+        corpus, "agent-run-metrics", lambda subject: subject.__setitem__("step_count", "3")
+    )
+
+
+def string_ledger_tokens(corpus: Path) -> None:
+    """A ledger element's tokens as a string cannot sum to cache_write_tokens: row 14."""
+    def edit(subject: dict[str, Any]) -> None:
+        subject["steps"][0]["usage"]["cache_writes"][0]["tokens"] = "10"
+
+    edit_subject(corpus, "agent-run-metrics", edit)
+
+
+def string_delta_changes(corpus: Path) -> None:
+    """A stated delta whose changes is a string: the report is malformed."""
+    def edit(document: dict[str, Any]) -> None:
+        item = next(e for e in document["subject"]["evidence"] if "delta" in e)
+        item["delta"]["changes"] = "fired-rule list"
+
+    edit_member(corpus, edit, with_evidence=True)
+
+
+def wrong_cause(corpus: Path) -> None:
+    """A member stating a cause its rejection does not name.
+
+    The declared-encoding reject member is refused under W3C-R-015 for an
+    encoding outside the closed set. Its manifest entry and file are edited, as
+    text so no number token is respelled, to state digests-differ instead: each
+    reader still rejects it under W3C-R-015 and must say that the cause it names
+    is not the cause stated.
+    """
+    manifest = manifest_of(corpus)
+    entry = next(e for e in manifest["vectors"]
+                 if e["expected"].get("cause") == "unsupported-digest-encoding")
+    entry["expected"]["cause"] = "digests-differ"
+    write_manifest(corpus, manifest)
+    path = corpus / entry["file"]
+    text = path.read_text(encoding="utf-8")
+    old = '"cause": "unsupported-digest-encoding"'
+    if text.count(old) != 1:
+        raise SystemExit(f"FAIL wrong-cause: {path.name} does not state its cause once")
+    path.write_text(text.replace(old, '"cause": "digests-differ"'), encoding="utf-8")
+
+
+def reordered_manifest(corpus: Path) -> None:
+    """The manifest lists its members in reverse identifier order."""
+    manifest = manifest_of(corpus)
+    manifest["vectors"].reverse()
+    write_manifest(corpus, manifest)
 
 
 def emitter_run_digest(corpus: Path) -> None:
@@ -205,9 +298,49 @@ CASES: list[tuple[str, Callable[[Path], None] | None]] = [
     ("unregistered-shape", unregistered_shape),
     ("confinement-on-pass", confinement_on_pass),
     ("rebound-control", rebound_control),
+    ("rebound-prior", rebound_prior),
+    ("robots-integer", robots_integer),
+    ("string-step-count", string_step_count),
+    ("string-ledger-tokens", string_ledger_tokens),
+    ("string-delta-changes", string_delta_changes),
+    ("wrong-cause", wrong_cause),
     ("emitter-run-digest", emitter_run_digest),
     ("emitter-run-rejected", emitter_run_rejected),
+    ("reordered-manifest", reordered_manifest),
 ]
+
+#: Cases whose mutation changes nothing a reader judges: every rail must accept
+#: them, where every other mutation must be noticed.
+ACCEPTED = {"reordered-manifest"}
+
+#: What a case's output must say beyond a changed identifier, so a case whose
+#: mutation both rails let through as well-formed cannot pass on agreement.
+EXPECT: dict[str, str] = {
+    "robots-integer": "robots.disallow",
+    "string-step-count": "step_count",
+    "string-ledger-tokens": "ARM-R-014",
+    "string-delta-changes": "delta.changes",
+    "wrong-cause": "names the cause unsupported-digest-encoding",
+}
+
+
+def build_rust_reader(work: Path) -> Path | None:
+    """Build the Rust reader into ``work``; a missing toolchain is a failure."""
+    manifest = REPO / "readers" / "w3c-report-rs" / "Cargo.toml"
+    target = work / "rs-target"
+    try:
+        status, output = run(
+            ["cargo", "build", "--release", "--locked", "--manifest-path", str(manifest),
+             "--target-dir", str(target)],
+            REPO,
+        )
+    except FileNotFoundError:
+        print("FAIL: cargo is not installed, so the Rust rail cannot be built")
+        return None
+    if status != 0:
+        print(f"FAIL: w3c-report-rs did not build:\n{output}")
+        return None
+    return target / "release" / "w3c-report-rs"
 
 
 def main() -> int:
@@ -217,6 +350,9 @@ def main() -> int:
         status, output = run(["go", "build", "-o", str(binary), "./cmd/aee-verify"], REPO)
         if status != 0:
             print(f"FAIL: aee-verify did not build:\n{output}")
+            return 1
+        rust = build_rust_reader(work)
+        if rust is None:
             return 1
         failures = 0
         for name, mutate in CASES:
@@ -228,16 +364,30 @@ def main() -> int:
             py_status, py_out = run(
                 [sys.executable, "packaging/run_vectors.py", "--vectors", str(corpus)], REPO
             )
-            same = go_out == py_out and go_status == py_status
+            rs_status, rs_out = run([str(rust), str(corpus)], REPO)
+            same = (
+                go_out == py_out == rs_out
+                and go_status == py_status == rs_status
+            )
             findings = sum(1 for line in go_out.splitlines() if line.startswith("FAIL"))
             mark = "ok  " if same else "FAIL"
-            print(f"{mark} {name}: exit go={go_status} py={py_status}, {findings} finding line(s)")
-            if mutate is not None and go_status == 0:
+            print(
+                f"{mark} {name}: exit go={go_status} py={py_status} rs={rs_status}, "
+                f"{findings} finding line(s)"
+            )
+            if name in ACCEPTED and go_status != 0:
+                print(f"FAIL {name}: a copy that changes nothing a reader judges was refused")
+                failures += 1
+            elif mutate is not None and name not in ACCEPTED and go_status == 0:
                 print(f"FAIL {name}: the mutation was not noticed, so the case asserted nothing")
+                failures += 1
+            want = EXPECT.get(name)
+            if want is not None and (want not in go_out or want not in py_out):
+                print(f"FAIL {name}: the output does not name {want}")
                 failures += 1
             if not same:
                 failures += 1
-                for label, text in (("go", go_out), ("py", py_out)):
+                for label, text in (("go", go_out), ("py", py_out), ("rs", rs_out)):
                     print(f"--- {label}\n{text}")
         return 1 if failures else 0
 

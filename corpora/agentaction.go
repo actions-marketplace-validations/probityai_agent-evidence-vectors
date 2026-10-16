@@ -259,7 +259,8 @@ func (a agentAction) dispatchDeclaredChecks(v agentActionVector, statement map[s
 // condition names: the accepting member sits exactly at the maximum and the
 // rejecting member exactly one past it. It measured the extensions object
 // alone until the corpus shipped an accepting member whose extensions were
-// 128 deep inside a Statement 130 deep, which the normative rule rejects.
+// 128 deep inside a Statement two levels deeper, which the normative rule
+// rejects.
 func (agentAction) checkDeclaredDepth(v agentActionVector, statement map[string]any, out *Member) {
 	want := maximumStatementDepth
 	if v.Kind == "reject" {

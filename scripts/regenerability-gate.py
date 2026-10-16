@@ -78,6 +78,9 @@ GENERATORS = (
     # rather than single statements, which is a larger surface to hand-place
     # and therefore a larger reason to derive it.
     "vectors-artifact-binding/gen_vectors.py",
+    # The dependency-selection corpus: the same record format under a second
+    # consumer-held profile, so the same reason applies.
+    "vectors-dependency-selection/gen_vectors.py",
     # The SCITT/COSE carriage suite. Like the one above it builds its own
     # manifest and its own index in the same run, so it has no ordering
     # relationship with anything else and is listed last.
@@ -102,6 +105,10 @@ GENERATORS = (
     # whose signatures nobody recomputed. It builds its own manifest and index
     # in the same run and has no ordering relationship with anything else.
     "vectors-self-reported-record/gen_vectors.py",
+    # The agent-decision corpus. Every member is signed, and most carry a hash
+    # over disclosed argument bytes, so a hand-placed member is one whose hash and
+    # signature nobody recomputed. It builds its own manifest and index.
+    "vectors-agent-decision/gen_vectors.py",
     # The conformance appendix for the W3C report format is rendered from that
     # corpus's manifest: every identifier in it is a function of the vectors'
     # bytes, so it runs after the corpus generator and is owned like a vector.
@@ -121,6 +128,12 @@ GENERATORS = (
     "vectors-receipt-signature/gen_vectors.py",
     "vectors-source-coverage/gen_vectors.py",
     "vectors-anchored-chain/gen_vectors.py",
+    "vectors-trace-anchor/gen_vectors.py",
+    "vectors-grade-floor/gen_vectors.py",
+    "vectors-agent-change-admission/gen_vectors.py",
+    "vectors-agentic-process-evidence/gen_vectors.py",
+    "vectors-delegation-lifecycle/gen_vectors.py",
+    "vectors-mcp-owasp/gen_vectors.py",
     # The MCP receipt examples import the observed-effect generator's helpers,
     # so they run after it and regenerate with it.
     "examples/mcp-receipts/gen_examples.py",
@@ -168,6 +181,9 @@ OWNED = (
     ("vectors-artifact-binding", "MANIFEST.json"),
     ("vectors-artifact-binding", "INDEX.md"),
     ("vectors-artifact-binding", "public.key"),
+    ("vectors-dependency-selection", "MANIFEST.json"),
+    ("vectors-dependency-selection", "INDEX.md"),
+    ("vectors-dependency-selection", "public.key"),
     # The SCITT/COSE carriage suite. Its INDEX.md is OWNED here, unlike the
     # hand-authored indexes above, because that file is emitted from the
     # manifest: an index a person maintains beside a corpus drifts from it and
@@ -217,9 +233,27 @@ OWNED = (
     ("vectors-receipt-signature", "INDEX.md"),
     ("vectors-source-coverage", "MANIFEST.json"),
     ("vectors-anchored-chain", "MANIFEST.json"),
+    ("vectors-trace-anchor", "MANIFEST.json"),
+    ("vectors-grade-floor", "MANIFEST.json"),
+    ("vectors-grade-floor", "INDEX.md"),
+    ("vectors-grade-floor/cases", "**/case.json"),
+    ("vectors-agent-change-admission", "MANIFEST.json"),
+    ("vectors-agent-change-admission", "INDEX.md"),
+    ("vectors-agent-change-admission/cases", "**/*.json"),
+    ("vectors-agentic-process-evidence", "MANIFEST.json"),
+    ("vectors-agentic-process-evidence", "INDEX.md"),
+    ("vectors-agentic-process-evidence/cases", "**/*.json"),
+    ("vectors-delegation-lifecycle", "MANIFEST.json"),
+    ("vectors-delegation-lifecycle", "INDEX.md"),
+    ("vectors-delegation-lifecycle/cases", "**/*.json"),
+    ("vectors-mcp-owasp", "MANIFEST.json"),
+    ("vectors-mcp-owasp", "INDEX.md"),
+    ("vectors-mcp-owasp/records", "v*.json"),
+    ("vectors-mcp-owasp/drafts", "*.md"),
     ("vectors-anchored-chain/cases", "**/case.json"),
     ("vectors-anchored-chain/cases", "**/store.jsonl"),
     ("vectors-anchored-chain/cases", "**/anchor.json"),
+    ("vectors-trace-anchor/cases", "**/case.json"),
     ("vectors-source-coverage/cases", "**/case.json"),
     ("vectors-source-coverage/cases", "**/policy.json"),
     ("vectors-source-coverage/cases", "**/report.txt"),
@@ -227,6 +261,10 @@ OWNED = (
     ("vectors-self-reported-record/statements", "v*.json"),
     ("vectors-self-reported-record", "MANIFEST.json"),
     ("vectors-self-reported-record", "INDEX.md"),
+    ("vectors-agent-decision/statements", "v*.json"),
+    ("vectors-agent-decision/arguments", "v*.json"),
+    ("vectors-agent-decision", "MANIFEST.json"),
+    ("vectors-agent-decision", "INDEX.md"),
 )
 
 # Deliberately NOT owned above, for the two reasons the header already gives.

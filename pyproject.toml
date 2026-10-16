@@ -8,9 +8,9 @@
 
 [project]
 name = "agent-evidence-vectors"
-version = "0.17.5"
+version = "0.18.1"
 description = "Conformance corpora and reference verifiers for agent evidence records"
-requires-python = ">=3.13"
+requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
 readme = "README.md"
 authors = [{ name = "Sankalp Gilda", email = "sankalp.gilda@gmail.com" }]
@@ -20,6 +20,8 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Topic :: Security",
@@ -39,6 +41,14 @@ Changelog = "https://github.com/probityai/agent-evidence-vectors/releases"
 # reason a relying party would reach for the package instead of a clone.
 [project.scripts]
 agent-evidence-vectors = "agent_evidence_vectors.run_vectors:main"
+# The held-out runner: one child adapter per run, a steward-sealed slice, and
+# a record sealed at run end. See docs/HELD-OUT-CONFORMANCE.md.
+agent-evidence-heldout = "agent_evidence_vectors.heldout:main"
+
+# REMORA's runtime-surface-e7-v0.1 reader, with the frozen producer package it
+# was pinned to shipped beside it, so `pip install agent-evidence-vectors==X`
+# alone reproduces an E7 run without a clone.
+agent-evidence-vectors-remora-e7 = "agent_evidence_vectors.remora_e7.run:main"
 
 [build-system]
 requires = ["hatchling>=1.27"]
@@ -65,19 +75,29 @@ package = false
 only-include = [
     "packaging/agent_evidence_vectors",
     "vectors",
+    "vectors-a2a-jcs-v01",
     "vectors-agent-audit-record",
     "vectors-anchored-chain",
+    "vectors-trace-anchor",
+    "vectors-grade-floor",
+    "vectors-agent-change-admission",
+    "vectors-agentic-process-evidence",
+    "vectors-delegation-lifecycle",
+    "vectors-agent-decision",
+    "vectors-mcp-owasp",
     "vectors-aci",
     "vectors-acs-core",
     "vectors-ai-agent-action",
     "vectors-ai-generation",
     "vectors-anchor-stream",
     "vectors-artifact-binding",
+    "vectors-dependency-selection",
     "vectors-mcp-record-contract",
     "vectors-mcp-response-phase",
     "vectors-observed-effect",
     "vectors-receipt-signature",
     "vectors-scitt-cose",
+    "vectors-self-reported-record",
     "vectors-source-coverage",
     "vectors-w3c-report",
 ]
@@ -92,19 +112,29 @@ exclude = ["**/__pycache__", "**/.build", "**/*.pyc", "vectors/**/*.py", "vector
 [tool.hatch.build.targets.wheel.sources]
 "packaging/agent_evidence_vectors" = "agent_evidence_vectors"
 "vectors" = "agent_evidence_vectors/corpora/vectors"
+"vectors-a2a-jcs-v01" = "agent_evidence_vectors/corpora/vectors-a2a-jcs-v01"
 "vectors-agent-audit-record" = "agent_evidence_vectors/corpora/vectors-agent-audit-record"
 "vectors-anchored-chain" = "agent_evidence_vectors/corpora/vectors-anchored-chain"
+"vectors-trace-anchor" = "agent_evidence_vectors/corpora/vectors-trace-anchor"
+"vectors-grade-floor" = "agent_evidence_vectors/corpora/vectors-grade-floor"
+"vectors-agent-change-admission" = "agent_evidence_vectors/corpora/vectors-agent-change-admission"
+"vectors-agentic-process-evidence" = "agent_evidence_vectors/corpora/vectors-agentic-process-evidence"
+"vectors-delegation-lifecycle" = "agent_evidence_vectors/corpora/vectors-delegation-lifecycle"
+"vectors-agent-decision" = "agent_evidence_vectors/corpora/vectors-agent-decision"
+"vectors-mcp-owasp" = "agent_evidence_vectors/corpora/vectors-mcp-owasp"
 "vectors-aci" = "agent_evidence_vectors/corpora/vectors-aci"
 "vectors-acs-core" = "agent_evidence_vectors/corpora/vectors-acs-core"
 "vectors-ai-agent-action" = "agent_evidence_vectors/corpora/vectors-ai-agent-action"
 "vectors-ai-generation" = "agent_evidence_vectors/corpora/vectors-ai-generation"
 "vectors-anchor-stream" = "agent_evidence_vectors/corpora/vectors-anchor-stream"
 "vectors-artifact-binding" = "agent_evidence_vectors/corpora/vectors-artifact-binding"
+"vectors-dependency-selection" = "agent_evidence_vectors/corpora/vectors-dependency-selection"
 "vectors-mcp-record-contract" = "agent_evidence_vectors/corpora/vectors-mcp-record-contract"
 "vectors-mcp-response-phase" = "agent_evidence_vectors/corpora/vectors-mcp-response-phase"
 "vectors-observed-effect" = "agent_evidence_vectors/corpora/vectors-observed-effect"
 "vectors-receipt-signature" = "agent_evidence_vectors/corpora/vectors-receipt-signature"
 "vectors-scitt-cose" = "agent_evidence_vectors/corpora/vectors-scitt-cose"
+"vectors-self-reported-record" = "agent_evidence_vectors/corpora/vectors-self-reported-record"
 "vectors-source-coverage" = "agent_evidence_vectors/corpora/vectors-source-coverage"
 "vectors-w3c-report" = "agent_evidence_vectors/corpora/vectors-w3c-report"
 
@@ -118,11 +148,21 @@ exclude = ["**/__pycache__", "**/.build", "**/*.pyc", "vectors/**/*.py", "vector
 # specification ships at that path beside the corpora.
 "spec/predicates/observed-effect.md" = "agent_evidence_vectors/corpora/spec/predicates/observed-effect.md"
 "spec/schemas/observed-effect-code-digest-v0.5.schema.json" = "agent_evidence_vectors/corpora/spec/schemas/observed-effect-code-digest-v0.5.schema.json"
+# The self-reported-record reader checks its corpus against the vendored
+# contract at <corpus>/../spec/self-reported-record/v1.md.
+"spec/self-reported-record/v1.md" = "agent_evidence_vectors/corpora/spec/self-reported-record/v1.md"
 # The directory readers check each corpus's recorded criteria against these
 # source documents. Keep their repository-relative paths beside the corpora.
 "docs/proposals/ai-generation-v01-findings.md" = "agent_evidence_vectors/corpora/docs/proposals/ai-generation-v01-findings.md"
 "docs/INTEROP-EVIDENCE.md" = "agent_evidence_vectors/corpora/docs/INTEROP-EVIDENCE.md"
 "docs/mcp-response-phase.md" = "agent_evidence_vectors/corpora/docs/mcp-response-phase.md"
+# The RFC 8785 byte cases an SDK's CI reads after `pip install
+# agent-evidence-vectors==X`, rather than fetching them from a tag at run time.
+# They keep their repository-relative path under corpora/ so one locator,
+# run_vectors.jcs_byte_vectors_path(), resolves in a checkout and in the wheel.
+# check.mjs stays out: nothing in the package runs it.
+"corpora/jcs-byte-vectors/cases.json" = "agent_evidence_vectors/corpora/corpora/jcs-byte-vectors/cases.json"
+"corpora/jcs-byte-vectors/README.md" = "agent_evidence_vectors/corpora/corpora/jcs-byte-vectors/README.md"
 
 [tool.hatch.build.targets.sdist]
 only-include = [
@@ -132,24 +172,37 @@ only-include = [
     "packaging/run_vectors.py",
     "spec/predicates/observed-effect.md",
     "spec/schemas/observed-effect-code-digest-v0.5.schema.json",
+    "spec/self-reported-record/v1.md",
     "docs/proposals/ai-generation-v01-findings.md",
     "docs/INTEROP-EVIDENCE.md",
     "docs/mcp-response-phase.md",
+    "corpora/jcs-byte-vectors/cases.json",
+    "corpora/jcs-byte-vectors/README.md",
     "interop/observed-code-digest-candidate",
     "vectors",
+    "vectors-a2a-jcs-v01",
     "vectors-agent-audit-record",
     "vectors-anchored-chain",
+    "vectors-trace-anchor",
+    "vectors-grade-floor",
+    "vectors-agent-change-admission",
+    "vectors-agentic-process-evidence",
+    "vectors-delegation-lifecycle",
+    "vectors-agent-decision",
+    "vectors-mcp-owasp",
     "vectors-aci",
     "vectors-acs-core",
     "vectors-ai-agent-action",
     "vectors-ai-generation",
     "vectors-anchor-stream",
     "vectors-artifact-binding",
+    "vectors-dependency-selection",
     "vectors-mcp-record-contract",
     "vectors-mcp-response-phase",
     "vectors-observed-effect",
     "vectors-receipt-signature",
     "vectors-scitt-cose",
+    "vectors-self-reported-record",
     "vectors-source-coverage",
     "vectors-w3c-report",
     "README.md",
@@ -191,13 +244,17 @@ artifact-binding = ["cryptography>=43"]
 # numpy carries the surface-leakage gate's permutation null: two thousand
 # label shuffles per surface are count-matrix products, and in pure Python they
 # did not fit the CI budget, which is why the null used to rest on twenty.
+# mcp is the Python MCP SDK release the interop/mcp-sdks/python harness runs the
+# JCS byte corpus through; it is pinned to the same release the harness installs.
 # The source archive gate uses the PEP 508 parser maintained by PyPA. This is a development gate dependency; the rail stays
 # free of runtime dependencies.
+# pymupdf is pinned exactly because interop/nist-ai-300-1 binds digests to the text
+# it extracts from the NIST AI 300-1 PDF; another release may extract other text.
 dev = ["cryptography>=43", "pycose>=1.1,<2", "cbor2>=5.6,<6", "markdown>=3.9",
        "packaging>=25", "hypothesis==6.168.3", "pycryptodome==3.23.0", "jsonschema==4.25.1", "rfc8785==0.1.4",
        "mypy>=1.11", "pyright>=1.1.400", "pytest>=8", "pytest-cov>=5",
        "pyyaml>=6", "ruff>=0.6", "types-Markdown>=3.9", "types-PyYAML>=6",
-       "numpy>=2.1"]
+       "numpy>=2.1", "mcp==2.3.0", "pymupdf==1.26.7", "types-jsonschema==4.25.1.20251009"]
 
 [tool.mypy]
 # scripts/code-contract-gate.py imports the reference rail to drive its own
@@ -226,10 +283,10 @@ files = ["packaging", "vectors", "tools"]
 # Directories cannot forget. A file added to any of these is checked because it
 # is there, not because it was announced, and scripts/typecheck-gate.py refuses
 # to pass if a Python file exists outside them.
-include = ["docs/proposals", "docs/site", "examples/mcp-receipts", "interop", "packaging", "scripts", "tools", "vectors",
-           "vectors-agent-audit-record", "vectors-anchored-chain", "vectors-aci", "vectors-acs-core", "vectors-ai-agent-action", "vectors-ai-generation",
-           "vectors-anchor-stream", "vectors-artifact-binding",
-           "vectors-mcp-record-contract", "vectors-mcp-response-phase",
+include = ["docs/paper", "docs/proposals", "docs/site", "examples/mcp-receipts", "interop", "packaging", "scripts", "tools", "vectors",
+           "vectors-a2a-jcs-v01", "vectors-agent-audit-record", "vectors-agent-decision", "vectors-anchored-chain", "vectors-trace-anchor", "vectors-grade-floor", "vectors-agent-change-admission", "vectors-agentic-process-evidence", "vectors-delegation-lifecycle", "vectors-aci", "vectors-acs-core", "vectors-ai-agent-action", "vectors-ai-generation",
+           "vectors-anchor-stream", "vectors-artifact-binding", "vectors-dependency-selection",
+           "vectors-mcp-owasp", "vectors-mcp-record-contract", "vectors-mcp-response-phase",
            "vectors-observed-effect", "vectors-receipt-signature",
            "vectors-scitt-cose", "vectors-source-coverage", "vectors-self-reported-record",
            "vectors-w3c-report"]
@@ -274,6 +331,10 @@ root = "vectors-self-reported-record"
 root = "examples/mcp-receipts"
 extraPaths = ["vectors-observed-effect"]
 
+# The agent-decision corpus carries a third `canonical` module, for the same reason.
+[[tool.pyright.executionEnvironments]]
+root = "vectors-agent-decision"
+
 # The retained generator imports its own historical check_vectors module.
 [[tool.pyright.executionEnvironments]]
 root = "interop/govops-capability-id/history/vectors-capability-id"
@@ -282,6 +343,11 @@ root = "interop/govops-capability-id/history/vectors-capability-id"
 # directory would otherwise resolve first from the project root.
 [[tool.pyright.executionEnvironments]]
 root = "interop/govops-capability-id"
+
+# The NIST AI 300-1 test imports its own check_vectors and gen_vectors, which
+# corpora on the global extraPaths also define.
+[[tool.pyright.executionEnvironments]]
+root = "interop/nist-ai-300-1"
 
 # Scope the signed-map reader's shared definition import to its own tree.
 # A global path would make its generic run.py shadow unrelated native readers.

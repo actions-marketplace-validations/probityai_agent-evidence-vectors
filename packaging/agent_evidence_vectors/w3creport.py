@@ -34,6 +34,7 @@ import argparse
 import decimal
 import hashlib
 import json
+import math
 import os
 import sys
 from collections.abc import Callable
@@ -99,48 +100,244 @@ NEGATIVE_CAPABLE = ("shown-by-run", "control-failed", "prior-discriminating-run"
 CHANGED = ("input artifact", "checker rule", "constraint")
 #: What an evidence object may declare it compared or found moved. The error
 #: list is the recompute-opaque slot the editor recorded as a fourth kind
-#: that no row reads; it is named so an object can declare it, and rejected
-#: only where it is asserted moved without having been declared compared.
+#: that no rejection row reads (v0.1 section 2.1); it is named so an object
+#: can declare it, and a declaration of it never carries a rejection.
 SLOTS = ("verdict", "fired-rule list", "error list")
 
 #: Requirement identifiers, minted by the corpus. The sentence each binds to
 #: is in vectors-w3c-report/MANIFEST.json and the corpus's INDEX.md.
-R = {n: f"W3C-R-{n:03d}" for n in range(1, 30)}
+R = {n: f"W3C-R-{n:03d}" for n in (*range(1, 30), 33)}
 
 
 # --------------------------------------------------------------------------
-# Digests. Every digest in this module is over CPython compact JSON with
-# sorted keys and ASCII escaping, which the Go reader reproduces byte for
-# byte in corpora/pyjson.go.
+# Digests over a JSON value. The v0.1 text does not say which bytes enter one,
+# and the list proposed RFC 8785 under the identifier jcs-sha256 (2026Oct/0038)
+# with a numeric profile (0040, 0041). This module implements it, and so do the
+# Go reader (corpora/w3cjcs.go) and the Rust reader (readers/w3c-report-rs);
+# corpora/testdata/json-encodings.json holds the three to the same bytes.
+#
+#   jcs-sha256  a report's own digests over JSON values, each check-set leaf:
+#               the RFC 8785 canonical form, every number an integer of
+#               magnitude below 2^53 by its exact value. A number outside that
+#               profile has no jcs-sha256 form, and the report is rejected
+#               under W3C-R-020 with the cause named.
+#   rfc8785     a member identifier: RFC 8785 as written, numbers as IEEE 754
+#               doubles. A member rejected for carrying a number outside the
+#               profile still needs a name, so the corpus's naming takes none.
+#
+# Both coincide with the compact, sorted-key, ASCII-escaped JSON this module
+# used before on every member committed before them: none carries a non-ASCII
+# character, U+007F, a float, -0 or an integer outside the profile.
 # --------------------------------------------------------------------------
 
+#: The closed set of digest encodings a set binding may declare (proposed, not
+#: in v0.1). A binding that declares none is digested under jcs-sha256.
+JCS_SHA256 = "jcs-sha256"
+DIGEST_ENCODINGS = (JCS_SHA256,)
 
-class FloatRefused(ValueError):
-    """A float inside a digested payload, refused in the Go encoder's words.
+#: Integers of magnitude below this have an exact IEEE 754 double, which is what
+#: RFC 8785 serialises: the range 0040 writes as -(2^53-1) to 2^53-1.
+SAFE_INTEGER = 2**53
 
-    The Go reader's CPython-compatible encoder refuses a float rather than
-    guess whether repr() and strconv spell it the same way, and this module
-    says the same sentence so the two rails print one finding for it.
+#: The causes a rejection from a set binding names: W3C-R-020 when the digest
+#: over the check set does not hold, W3C-R-015 for a declared encoding outside
+#: the closed set. A member's expected cause is one of these.
+DIGESTS_DIFFER = "digests-differ"
+NON_INTEGER = "non-integer-number"
+OUTSIDE_SAFE_RANGE = "integer-outside-safe-range"
+UNSUPPORTED_ENCODING = "unsupported-digest-encoding"
+CAUSE_CODES = (DIGESTS_DIFFER, NON_INTEGER, OUTSIDE_SAFE_RANGE, UNSUPPORTED_ENCODING)
+#: A number RFC 8785 itself has no form for: a member identifier refuses it.
+NOT_FINITE = "number-not-finite"
+
+#: The rules of the two encodings the generator's mutation sweep weakens one at
+#: a time, to show which members rest on which rule. A reader never weakens one.
+WEAKENABLE = (
+    "utf16-member-order",  # members ordered by UTF-16 code unit, not code point
+    "raw-u007f",  # U+007F written as itself, not as an escape
+    "raw-non-ascii",  # a character above U+007F written as UTF-8, not escaped
+    "number-by-value",  # an admitted number written as its value, not its token
+    "integers-only",  # a number whose exact value is not an integer is refused
+    "safe-range",  # an integer of magnitude 2^53 or more is refused
+    "closed-encoding-set",  # a declared encoding outside the set is refused
+)
+NO_WEAKENING: frozenset[str] = frozenset()
+
+
+class DigestRefused(ValueError):
+    """A value with no form under an encoding: ``cause`` is a code, ``token`` the number."""
+
+    def __init__(self, cause: str, token: str) -> None:
+        super().__init__(f"{cause}: {token}")
+        self.cause = cause
+        self.token = token
+
+
+class IntToken(int):
+    """An integer that keeps the token it was written as, so -0 is still -0 here."""
+
+    token: str
+
+    def __new__(cls, text: str) -> IntToken:
+        made = super().__new__(cls, text)
+        made.token = text
+        return made
+
+
+class NumberToken(decimal.Decimal):
+    """A number written with a fraction or an exponent: its exact value and its token."""
+
+    token: str
+
+    def __new__(cls, text: str) -> NumberToken:
+        made = super().__new__(cls, text)
+        made.token = text
+        return made
+
+
+def _refuse_constant(name: str) -> Any:
+    raise ValueError(f"{name} is not a JSON number")
+
+
+def load_json(raw: bytes | str) -> Any:
+    """Parse JSON the way this reader reads it: every number keeps its token.
+
+    An integer parses to IntToken and any other number to NumberToken, an exact
+    Decimal, so a digest decides on the value the token denotes and a refusal
+    names the token as it was written. NaN and Infinity are not JSON.
     """
+    return json.loads(
+        raw, parse_int=IntToken, parse_float=NumberToken, parse_constant=_refuse_constant
+    )
 
 
-def _refuse_floats(value: Any) -> None:
-    if isinstance(value, (float, decimal.Decimal)):
-        raise FloatRefused(
-            f"corpora: {value} is a JSON float, and this encoder refuses one rather "
-            "than guess whether CPython's repr and Go's strconv agree on it"
-        )
+def _token(value: int | decimal.Decimal) -> str:
+    token: Any = getattr(value, "token", None)
+    return token if isinstance(token, str) else str(value)
+
+
+_SHORT_ESCAPES = {0x08: "\\b", 0x09: "\\t", 0x0A: "\\n", 0x0C: "\\f", 0x0D: "\\r"}
+
+
+def _utf16_units(text: str) -> list[int]:
+    data = text.encode("utf-16-be")
+    return [int.from_bytes(data[i : i + 2], "big") for i in range(0, len(data), 2)]
+
+
+def _jcs_string(text: str, weaken: frozenset[str]) -> str:
+    """RFC 8785 section 3.2.2.2: escape the quote, the backslash and U+0000 to U+001F."""
+    out = ['"']
+    for ch in text:
+        code = ord(ch)
+        if ch == '"':
+            out.append('\\"')
+        elif ch == "\\":
+            out.append("\\\\")
+        elif code < 0x20:
+            out.append(_SHORT_ESCAPES.get(code, f"\\u{code:04x}"))
+        elif code == 0x7F and "raw-u007f" in weaken:
+            out.append("\\u007f")
+        elif code > 0x7F and "raw-non-ascii" in weaken:
+            out.append("".join(f"\\u{unit:04x}" for unit in _utf16_units(ch)))
+        else:
+            out.append(ch)
+    out.append('"')
+    return "".join(out)
+
+
+def _es6(value: float) -> str:
+    """ECMAScript Number::toString of a finite double (RFC 8785 section 3.2.2.3).
+
+    repr() gives the shortest digits that round-trip, which is the digit string
+    ECMAScript chooses; the layout around them is ECMAScript's, not Python's.
+    """
+    if value == 0:
+        return "0"
+    shortest = decimal.Decimal(repr(abs(value))).normalize().as_tuple()
+    digits = "".join(str(d) for d in shortest.digits)
+    # A finite double's tuple has an integer exponent.
+    k, n = len(digits), int(shortest.exponent) + len(digits)
+    if k <= n <= 21:
+        body = digits + "0" * (n - k)
+    elif 0 < n <= 21:
+        body = digits[:n] + "." + digits[n:]
+    elif -6 < n <= 0:
+        body = "0." + "0" * -n + digits
+    else:
+        e = n - 1
+        body = digits[0] + ("." + digits[1:] if k > 1 else "") + ("e+" if e >= 0 else "e-")
+        body += str(abs(e))
+    return ("-" if value < 0 else "") + body
+
+
+def _double(value: int | decimal.Decimal) -> str:
+    """The number RFC 8785 writes for a token: the IEEE 754 double it parses to."""
+    try:
+        parsed = float(value)
+    except OverflowError:
+        raise DigestRefused(NOT_FINITE, _token(value)) from None
+    if not math.isfinite(parsed):
+        raise DigestRefused(NOT_FINITE, _token(value))
+    return _es6(parsed)
+
+
+def _profile_number(value: int | decimal.Decimal, weaken: frozenset[str]) -> str:
+    """A number under the jcs-sha256 profile: an integer below 2^53 by exact value."""
+    integral = not isinstance(value, decimal.Decimal) or value == value.to_integral_value()
+    if not integral:
+        if "integers-only" in weaken:
+            return _double(value)
+        raise DigestRefused(NON_INTEGER, _token(value))
+    if not -SAFE_INTEGER < value < SAFE_INTEGER:
+        if "safe-range" in weaken:
+            return _double(value)
+        raise DigestRefused(OUTSIDE_SAFE_RANGE, _token(value))
+    if "number-by-value" in weaken:
+        return _token(value)
+    return str(int(value))
+
+
+def _plain_number(value: int | decimal.Decimal) -> str:
+    """A number under RFC 8785 as written: the double it parses to, any magnitude."""
+    if not isinstance(value, decimal.Decimal) and -SAFE_INTEGER < value < SAFE_INTEGER:
+        return str(int(value))
+    return _double(value)
+
+
+def _jcs(value: Any, profile: bool, weaken: frozenset[str]) -> str:
+    if value is None:
+        return "null"
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    if isinstance(value, str):
+        return _jcs_string(value, weaken)
+    if isinstance(value, (int, decimal.Decimal)):
+        return _profile_number(value, weaken) if profile else _plain_number(value)
+    if isinstance(value, list):
+        return "[" + ",".join(_jcs(item, profile, weaken) for item in value) + "]"
     if isinstance(value, dict):
-        for item in value.values():
-            _refuse_floats(item)
-    elif isinstance(value, list):
-        for item in value:
-            _refuse_floats(item)
+        if "utf16-member-order" in weaken:
+            names = sorted(value)
+        else:
+            names = sorted(value, key=lambda name: name.encode("utf-16-be"))
+        return "{" + ",".join(
+            _jcs_string(name, weaken) + ":" + _jcs(value[name], profile, weaken) for name in names
+        ) + "}"
+    # A float built in Python rather than parsed has lost its token, and its
+    # repr is not necessarily what the producer wrote: refuse rather than guess.
+    raise TypeError(f"{type(value).__name__} has no RFC 8785 form here")
 
 
-def compact(value: Any) -> bytes:
-    _refuse_floats(value)
-    return json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+def jcs_sha256(value: Any, weaken: frozenset[str] = NO_WEAKENING) -> bytes:
+    """The bytes a jcs-sha256 digest is taken over: RFC 8785 under the integer profile."""
+    return _jcs(value, True, weaken).encode("utf-8")
+
+
+def rfc8785(value: Any) -> bytes:
+    """RFC 8785 as written, numbers as IEEE 754 doubles: what a member identifier names."""
+    return _jcs(value, False, NO_WEAKENING).encode("utf-8")
 
 
 def sha(data: bytes) -> str:
@@ -193,11 +390,14 @@ ROOTS: dict[str, Callable[[list[bytes]], str]] = {
 TREE_SHAPES = tuple(ROOTS)
 
 
-def check_set_root(checks: list[dict[str, Any]], shape: str) -> str:
+def check_set_root(
+    checks: list[dict[str, Any]], shape: str, weaken: frozenset[str] = NO_WEAKENING
+) -> str:
+    """The root over the check set: each check's jcs-sha256 bytes, under the named shape."""
     root = ROOTS.get(shape)
     if root is None:
         raise UnregisteredShape(f"tree shape {shape!r} is not in the closed set {TREE_SHAPES}")
-    return root([compact(check) for check in checks])
+    return root([jcs_sha256(check, weaken) for check in checks])
 
 
 # --------------------------------------------------------------------------
@@ -262,9 +462,27 @@ def _shape_evidence(item: Any, index: int, out: list[str]) -> None:
         values = item.get(slot)
         if not isinstance(values, list) or not all(_is_str(v) for v in values):
             out.append(f"{where}.{slot} is not a list of strings")
-    if "delta" in item and not _is_obj(item["delta"]):
-        out.append(f"{where}.delta is present and is not an object")
+    _shape_delta(item, where, out)
     _shape_observations(item.get("observations"), where, out)
+
+
+def _shape_delta(item: dict[str, Any], where: str, out: list[str]) -> None:
+    """A delta is an object listing its changes as an array of objects (0087 section 1.3)."""
+    if "delta" not in item:
+        return
+    delta = item["delta"]
+    if not _is_obj(delta):
+        out.append(f"{where}.delta is present and is not an object")
+        return
+    if "changes" not in delta:
+        return
+    changes = delta["changes"]
+    if not isinstance(changes, list):
+        out.append(f"{where}.delta.changes is not an array")
+        return
+    for j, change in enumerate(changes):
+        if not _is_obj(change):
+            out.append(f"{where}.delta.changes[{j}] is not an object")
 
 
 def _shape_observations(observations: Any, where: str, out: list[str]) -> None:
@@ -501,13 +719,25 @@ def _row_discrimination(
 
 
 def _row_recomputed_moved(item: dict[str, Any], resolves: dict[str, Any], out: set[str]) -> None:
-    """Rule 21: moved is read as recomputed from the two observations, never as declared."""
+    """Rules 16 and 21: moved is read as recomputed from the two observations, never as declared.
+
+    Section 2 of v0.1: "moved is recomputed, not declared. It is recomputed over
+    what the referenced observations actually contain, and an object whose moved
+    is not contained in its declared compared set is rejected." So rule 16 holds
+    the recomputed moved against the declared compared set, and rule 21 the
+    declared moved against the recomputed one. Both read only the slots a reader
+    recomputes, verdict and fired-rule list: the error list is recomputed-opaque
+    and no rejection row reads it (section 2.1). Where the observations cannot be
+    read, neither row fires.
+    """
     recomputed = _recomputed_moved(item, resolves)
     if recomputed == MISMATCH:
         out.add(R[20])
         return
     if not isinstance(recomputed, set):
         return
+    if not recomputed <= set(item["compared"]):
+        out.add(R[16])
     declared = {v for v in item["moved"] if v in ("verdict", "fired-rule list")}
     if declared != recomputed:
         out.add(R[21])
@@ -563,8 +793,6 @@ def _rows_evidence(item: dict[str, Any], resolves: dict[str, Any], out: set[str]
     compared, moved = item["compared"], item["moved"]
     if any(v not in SLOTS for v in compared + moved):
         out.add(R[19])
-    if not set(moved) <= set(compared):
-        out.add(R[16])
     _rows_evidence_form(item, out)
     _row_recomputed_moved(item, resolves, out)
 
@@ -582,16 +810,32 @@ def _counts(checks: list[dict[str, Any]]) -> dict[str, int]:
     return counts
 
 
-def _set_binding(ref: Any, out: set[str]) -> bool:
-    """Rule (b): a digest over a set carries its leaf count and its tree shape."""
+def _binding_refusal(ref: Any, weaken: frozenset[str] = NO_WEAKENING) -> str | None:
+    """Why a set binding does not bind (rule (b)), or None when it binds.
+
+    A digest over a set carries its leaf count and its tree shape, and an
+    encoding it declares is one from the closed set (proposed: 2026Oct/0038). Only
+    the last refusal is a coded cause; the others are this reader's own words.
+    """
     if not _is_obj(ref) or not _is_str(ref.get("sha256")):
-        out.add(R[15])
-        return False
+        return "no digest"
     count = ref.get("leaf-count")
     if not isinstance(count, int) or isinstance(count, bool) or count < 0:
-        out.add(R[15])
-        return False
+        return "no leaf count"
     if ref.get("tree-shape") not in TREE_SHAPES:
+        return "no tree shape from the closed set"
+    if (
+        "digest-encoding" in ref
+        and ref["digest-encoding"] not in DIGEST_ENCODINGS
+        and "closed-encoding-set" not in weaken
+    ):
+        return UNSUPPORTED_ENCODING
+    return None
+
+
+def _set_binding(ref: Any, out: set[str], weaken: frozenset[str] = NO_WEAKENING) -> bool:
+    """Rule (b): a digest over a set carries its leaf count and its tree shape."""
+    if _binding_refusal(ref, weaken) is not None:
         out.add(R[15])
         return False
     return True
@@ -616,20 +860,21 @@ def _row_control(
     elif control.get("state") != "fail":
         out.add(R[13])
     else:
-        _row_control_binding(control.get("fixed"), run_fixed, out)
+        _row_binding(control.get("fixed"), run_fixed, R[29], out)
 
 
-def _row_control_binding(bound: Any, run_fixed: Any, out: set[str]) -> None:
-    """Rule 29, v0.1 section 5.4: a control ran under the checker and constraint set it speaks for.
+def _row_binding(bound: Any, run_fixed: Any, row: str, out: set[str]) -> None:
+    """A filling of section 5.4 bound to the checker and constraint set it speaks for.
 
-    Read only where both the control and the run declare the binding: a
-    binding that differs from the run's is refused, and a missing one is not,
-    because v0.1 fixes no slot for the run's binding (section 5.5, open item O7).
+    Rule 29 reads a control's binding and rule 33 a prior run's, both against
+    the run's own. Read only where both declare the binding: a binding that
+    differs from the run's is refused, and a missing one is not, because v0.1
+    fixes no slot for the run's binding (section 5.5, open item O7).
     """
     if not (_is_obj(bound) and _is_obj(run_fixed)):
         return
     if any(bound.get(slot) != run_fixed.get(slot) for slot in BINDING_SLOTS):
-        out.add(R[29])
+        out.add(row)
 
 
 def _rows_negative_capable(
@@ -638,6 +883,7 @@ def _rows_negative_capable(
     ids: set[str],
     run_fixed: Any,
     out: set[str],
+    weaken: frozenset[str],
 ) -> None:
     field = _get(rollup, "negative-capable")
     if not _is_obj(field) or not _is_str(field.get("kind")):
@@ -653,7 +899,8 @@ def _rows_negative_capable(
     elif kind == "prior-discriminating-run":
         if not _identity(field.get("check-identity"), ids):
             out.add(R[14])
-        _set_binding(field.get("reference"), out)
+        _set_binding(field.get("reference"), out, weaken)
+        _row_binding(field.get("fixed"), run_fixed, R[33], out)
 
 
 COVERAGE_STRINGS = ("surface", "scan-depth", "point-in-time", "linked-repo")
@@ -764,7 +1011,9 @@ def _carried_referenced(report: dict[str, Any]) -> tuple[int, int]:
     return carried, referenced
 
 
-def _rows_rollup(report: dict[str, Any], checks: list[dict[str, Any]], out: set[str]) -> None:
+def _rows_rollup(
+    report: dict[str, Any], checks: list[dict[str, Any]], out: set[str], weaken: frozenset[str]
+) -> None:
     counts = _counts(checks)
     rollup = _get(report, "roll-up")
     if rollup is None:
@@ -776,31 +1025,72 @@ def _rows_rollup(report: dict[str, Any], checks: list[dict[str, Any]], out: set[
     if rollup.get("carried") != carried or rollup.get("referenced") != referenced:
         out.add(R[18])
     _rows_negative_capable(
-        rollup, counts, {c["check"] for c in checks}, report.get("fixed"), out
+        rollup, counts, {c["check"] for c in checks}, report.get("fixed"), out, weaken
     )
     _rows_completeness(rollup, checks, counts, out)
 
 
-def _rows_check_set(report: dict[str, Any], checks: list[dict[str, Any]], out: set[str]) -> None:
+def _check_set_finding(
+    report: dict[str, Any], checks: list[dict[str, Any]], weaken: frozenset[str]
+) -> tuple[str, str | None, str | None] | None:
+    """The row the check-set binding is rejected under, its cause and the token.
+
+    None when the binding holds. The cause is a code from CAUSE_CODES, or None
+    for a binding refused in words no member names; the token is the number a
+    refusal under the jcs-sha256 profile was about, as it was written.
+    """
     binding = _get(report, "check-set")
-    if not _set_binding(binding, out):
-        return
+    refusal = _binding_refusal(binding, weaken)
+    if refusal is not None:
+        return R[15], (UNSUPPORTED_ENCODING if refusal == UNSUPPORTED_ENCODING else None), None
     if binding["leaf-count"] != len(checks):
-        out.add(R[15])
-        return
+        return R[15], None, None
     try:
-        root = check_set_root(checks, binding["tree-shape"])
-    except FloatRefused:
-        out.add(R[20])
-        return
+        root = check_set_root(checks, binding["tree-shape"], weaken)
+    except DigestRefused as exc:
+        return R[20], exc.cause, exc.token
     if binding["sha256"] != root:
-        out.add(R[20])
+        return R[20], DIGESTS_DIFFER, None
+    return None
+
+
+def _rows_check_set(
+    report: dict[str, Any], checks: list[dict[str, Any]], out: set[str], weaken: frozenset[str]
+) -> None:
+    finding = _check_set_finding(report, checks, weaken)
+    if finding is not None:
+        out.add(finding[0])
+
+
+def check_set_cause(report: dict[str, Any], weaken: frozenset[str] = NO_WEAKENING) -> str | None:
+    """The cause a rejection from the report's check-set binding names, if any.
+
+    A well-shaped report only. The judge compares it with a member's
+    ``expected.cause``, so a member is rejected for the reason it states and
+    not merely under the row: a float and a root that does not recompute both
+    land under W3C-R-020, and only the cause tells them apart. ``weaken`` is
+    for the generator's mutation sweep, as in rejections().
+    """
+    finding = _check_set_finding(report, report["checks"], weaken)
+    return None if finding is None else finding[1]
+
+
+def check_set_refusal(report: dict[str, Any]) -> str | None:
+    """The check-set finding in words, row, cause and token, for a reader's output."""
+    finding = _check_set_finding(report, report["checks"], NO_WEAKENING)
+    if finding is None:
+        return None
+    row, cause, token = finding
+    if cause is None:
+        return row
+    return f"{row} ({cause}: {token})" if token is not None else f"{row} ({cause})"
 
 
 def rejections(
     report: dict[str, Any],
     relax: frozenset[str] = frozenset(),
     resolves: dict[str, Any] | None = None,
+    weaken: frozenset[str] = NO_WEAKENING,
 ) -> list[str]:
     """The requirement identifiers this report is rejected under, sorted.
 
@@ -810,7 +1100,9 @@ def rejections(
     ``resolves`` is what this reader can resolve a referenced observation to,
     keyed by the reference's vector locator; a reader with nothing to resolve
     against reads every reference as unchecked and the rows reading moved
-    degrade, which is the reading table's third line.
+    degrade, which is the reading table's third line. ``weaken`` names rules
+    of the digest encodings switched off (WEAKENABLE), which is how the
+    generator asks which members rest on which rule; a reader passes none.
     """
     out: set[str] = set()
     store: dict[str, Any] = resolves or {}
@@ -826,8 +1118,8 @@ def rejections(
         _row_qualifiers(check, state, evidence, store, out)
     for item in evidence.values():
         _rows_evidence(item, store, out)
-    _rows_rollup(report, checks, out)
-    _rows_check_set(report, checks, out)
+    _rows_rollup(report, checks, out, weaken)
+    _rows_check_set(report, checks, out, weaken)
     _rows_coverage(report, out)
     return sorted(out - set(relax))
 
@@ -846,13 +1138,14 @@ def subject_rejections(
     subject: dict[str, Any],
     relax: frozenset[str] = frozenset(),
     resolves: dict[str, Any] | None = None,
+    weaken: frozenset[str] = NO_WEAKENING,
 ) -> list[str]:
     """Rejections for a member's subject, by the type the manifest names."""
     if subject_type == "agent-run-metrics":
         return sorted(set(runmetrics.rejections(subject)) - set(relax))
     if subject_type == "llm-context-discovery":
         return sorted(set(contextdiscovery.rejections(subject)) - set(relax))
-    return rejections(subject, relax, resolves)
+    return rejections(subject, relax, resolves, weaken)
 
 
 # --------------------------------------------------------------------------
@@ -878,7 +1171,9 @@ def _render_counts(counts: Any) -> str:
 
 
 def identify(document: dict[str, Any]) -> str:
-    return "v" + sha(compact({k: document.get(k) for k in ID_FIELDS}))[:16]
+    """A member's identifier: v and the first 16 hex digits of SHA-256 over the
+    RFC 8785 form of its ID_FIELDS, a missing field read as null."""
+    return "v" + sha(rfc8785({k: document.get(k) for k in ID_FIELDS}))[:16]
 
 
 class Judged:
@@ -967,6 +1262,10 @@ def _member_expectation(
         return
     if verdict == "accept" and rejects:
         out.append("is an accept member that expects a rejection")
+    cause = expected.get("cause")
+    if cause is not None and (verdict != "reject" or cause not in CAUSE_CODES):
+        out.append(f"expects the cause {cause}, which only a reject member names, "
+                   "from the closed set")
     if verdict == "reject" and len(rejects) != 1:
         out.append("is a reject member that does not name exactly one row")
     for rid in rejects:
@@ -983,9 +1282,9 @@ def _load_member(directory: str, entry: dict[str, Any], out: list[str]) -> dict[
         return None
     try:
         with open(path, "rb") as handle:
-            # Floats are kept as Decimal so a non-canonical spelling survives
-            # into the refusal that names it, as the Go reader's does.
-            document = json.loads(handle.read(), parse_float=decimal.Decimal)
+            # Every number keeps the token it was written as, so a refusal
+            # names it as written, as the Go reader's json.Number does.
+            document = load_json(handle.read())
     except (OSError, ValueError) as exc:
         out.append(f"the vector file does not parse: {exc}")
         return None
@@ -1004,8 +1303,8 @@ def _member_identity(document: dict[str, Any], entry: dict[str, Any], out: list[
         out.append("the vector file carries a different identifier")
     try:
         recomputed = identify(document)
-    except FloatRefused as exc:
-        out.append(str(exc))
+    except DigestRefused as exc:
+        out.append(f"the member has no RFC 8785 form: {exc}")
         return
     if recomputed != entry["id"]:
         out.append("identifier does not recompute from the member's own bytes")
@@ -1033,6 +1332,13 @@ def _member_file(directory: str, entry: dict[str, Any], out: list[str]) -> None:
             f"the validator rejects under {_list(observed)} "
             f"and the manifest expects {_list(expected)}"
         )
+        return
+    stated = entry.get("expected", {}).get("cause")
+    if stated is not None and subject_type == "report":
+        named = check_set_cause(subject)
+        if named != stated:
+            out.append(f"the validator names the cause {named or 'none'} "
+                       f"and the manifest expects {stated}")
 
 
 def _vendored(directory: str, manifest: dict[str, Any], out: list[str]) -> None:
@@ -1062,7 +1368,7 @@ def _pin_finding(directory: str, pin: dict[str, Any]) -> str | None:
 def _emitted_report_findings(directory: str, rel: str) -> list[str]:
     try:
         with open(os.path.join(directory, rel), "rb") as handle:
-            document = json.loads(handle.read(), parse_float=decimal.Decimal)
+            document = load_json(handle.read())
     except (OSError, ValueError):
         return [f"referenceEmitterRuns: {rel} does not parse"]
     if shape := shape_errors(document):

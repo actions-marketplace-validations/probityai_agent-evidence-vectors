@@ -37,7 +37,9 @@ gzip footer and CRC. The archive validation record reports compressed bytes,
 original file bytes, original file count and largest original file. These totals
 exclude directory entries and the generated manifest. No size limit is imposed.
 If archive storage itself refuses, the original native scratch stays available
-at its printed location.
+at its printed location. The bridge makes that scratch beside the pool checkout
+rather than under `TMPDIR`: the gate refuses an evidence directory inside the
+checkout it judges, and `box_run.sh` points `TMPDIR` into the job's checkout.
 
 The native result lists steps that ran and steps that did not run locally.
 Pool execution does not turn hosting-only steps into passes. Check the remote

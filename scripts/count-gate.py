@@ -150,6 +150,7 @@ accounted for; 1 on any disagreement, naming each one.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import re
 import sys
@@ -831,6 +832,41 @@ def reply_claims(src: Sources) -> tuple[Claim, ...]:
     )
 
 
+W3C_REPORT_DIR = "vectors-w3c-report"
+
+
+def w3c_selection_claims() -> tuple[Claim, ...]:
+    """The section 10 selection the w3c-report README states, by the generator's rule.
+
+    The README restates the split INDEX.md prints, by hand. At v0.18.0 it said
+    the selection "stays" 41 to reject and 124 to accept, in the release that
+    moved 42 members from reject to accept; the split before that release was
+    83 and 82, so "stays" was true of the size and false of the split. The
+    split is read here from the manifest by the same selection() the generator
+    renders INDEX.md with, so the rule has one implementation and the README
+    sentence fails here the day the manifest's split moves.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "w3c_report_gen_vectors", source(f"{W3C_REPORT_DIR}/gen_vectors.py")
+    )
+    if spec is None or spec.loader is None:
+        raise SystemExit(f"cannot load {W3C_REPORT_DIR}/gen_vectors.py")
+    generator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(generator)
+    manifest = json.loads(source(f"{W3C_REPORT_DIR}/MANIFEST.json").read_text(encoding="utf-8"))
+    chosen = generator.selection(manifest)["selected"]
+    total = chosen["reject"] + chosen["accept"]
+    return (
+        Claim(
+            f"{W3C_REPORT_DIR}/README.md",
+            "the section 10 selection and its split",
+            "The section 10 selection is ",
+            " to accept.",
+            f"{total} members, {chosen['reject']} to reject and {chosen['accept']}",
+        ),
+    )
+
+
 def claims(src: Sources) -> tuple[Claim, ...]:
     """Every live count this repository publishes, and what the sources say it is.
 
@@ -839,7 +875,7 @@ def claims(src: Sources) -> tuple[Claim, ...]:
     for it are generated from the registration instead of being typed out a
     fourth time.
     """
-    return declared_claims(src) + reply_claims(src) + tuple(
+    return declared_claims(src) + reply_claims(src) + w3c_selection_claims() + tuple(
         claim
         for directory, total, accept, reject in src.extra
         for claim in claims_for_corpus(directory, total, accept, reject)
@@ -1004,6 +1040,80 @@ def declared_claims(src: Sources) -> tuple[Claim, ...]:
 
 
 DELEGATED: tuple[Delegated, ...] = (
+    # The W3C report corpus's section 10 selection. Its index is rendered from
+    # the corpus manifest by the generator, and the regenerability gate refuses
+    # an index the generator would not write, so each figure in this sentence is
+    # the manifest's own count. It was reported only when the ACS-Core total
+    # walked onto its accept count.
+    Delegated(
+        "vectors-w3c-report/INDEX.md",
+        "the section 10 selection's reject and accept counts",
+        r"reject and \d+ to accept",
+        "vectors-w3c-report/gen_vectors.py",
+    ),
+    # The AAE v1.4.0 binding package. Its integers are vector identifiers
+    # (aae-enforce-vector-25 and its file prefixes), the size of the pinned
+    # upstream set, the run's printed tallies, and the draft's resource bounds.
+    # The package tests pin every input by digest, assert the 26-file set and
+    # the printed line, and exercise both sides of each bound.
+    *(Delegated("interop/aae-verdict-binding-v1/" + name,
+                "AAE v1.4.0 vector ids, set size, tallies and bounds", pattern,
+                "interop/aae-verdict-binding-v1/test_aae_binding.py")
+      for name, pattern in (
+          ("README.md", r"\d+/\d+ vectors reproduced, \d+/\d+ cases"),
+          ("README.md", r"All \d+ enforce vectors"),
+          ("README.md", r"\(vector \d+\)"),
+          ("OUTPUT-CONTRACT.md", r"\d+/\d+ vectors reproduced, \d+/\d+ cases"),
+          ("OUTPUT-CONTRACT.md", r"all \d+ vectors reproduced"),
+          ("OUTPUT-CONTRACT.md", r"vectors \d+ and \d+"),
+          ("PROFILE.md", r"depth at most \d+"),
+          ("check_report.py", r"all \d+ vectors reproduced"),
+          ("gen_cases.py", r'vector\("\d+"\)'),
+          ("gen_cases.py", r"Vector \d+:"),
+          ("kernel.py", r"at most \d+, non-empty strings"),
+          ("pins.py", r"The \d+ enforce vectors"),
+          ("pins.py", r"aae-enforce-vector-\d+"),
+          ("reproduce.py", r"aae-enforce-vector-\d+"),
+          ("test_aae_binding.py",
+           r'\("\d+", "prior_verdict_permit"\), \("\d+", "prev_core_digest_mismatch"\)'),
+          ("test_aae_binding.py", r"\d+/\d+ vectors reproduced, \d+/\d+ cases"),
+      )),
+    # The CCS draft-10 reader package. Its ratios are what the reader measured
+    # over the pinned CCS v1.4.0 corpus (receipts, cases, hops), not this
+    # corpus. test_ccs_reader.py reruns the reader on the vendored bytes and
+    # asserts each figure against the committed results.
+    *(Delegated("interop/ccs-draft10-reader/README.md",
+                "CCS v1.4.0 reader tallies over receipts, cases and hops", pattern,
+                "interop/ccs-draft10-reader/test_ccs_reader.py")
+      for pattern in (
+          r"verifies \d+ of \d+",
+          r"bytes for \d+ of \d+",
+          r"agrees with the corpus on \d+ of \d+ cases",
+          r"in \d+ of \d+ receipts",
+          r"`args_digest` in \d+ of \d+",
+          r"\d+ of \d+ receipts use that form",
+          r"matches in \d+ of \d+ once",
+          r"in \d+ of \d+ hops",
+      )),
+    # The TR-ANC-002 comparison table: each row's agreement count is the corpus
+    # size less the pin's recorded disagreements. test_record.py derives every
+    # row from pins.json and the manifest, and compare.py holds each pin's
+    # record to the live TRACE sources.
+    Delegated(
+        "interop/trace-anchor-tr-anc/README.md",
+        "TR-ANC-002 agreement per pinned TRACE commit",
+        r"\| \d+ of \d+ \| \d+ \|",
+        "interop/trace-anchor-tr-anc/test_record.py",
+    ),
+    # The AgentID action_ref v2 recompute prints its own tallies; the reader
+    # exits nonzero unless every upstream check and domain case holds, and
+    # test_reader.py asserts the two totals.
+    Delegated(
+        "interop/agentid-action-ref-v2/README.md",
+        "the reader's printed upstream-check and domain-case tallies",
+        r"upstream checks \d+/\d+, domain cases \d+/\d+",
+        "interop/agentid-action-ref-v2/test_reader.py",
+    ),
     # These transport and fixture values have no corpus population meaning.
     # The real process, nonce and large-member controls hold their contracts.
     *(
@@ -1225,11 +1335,33 @@ FROZEN: tuple[Frozen, ...] = (
         'records that report as posted and must not track this corpus.',
     ),
     Frozen(
+        'docs/VERIFIERS.md',
+        "agmi's corpus-drift job result, as its CI reported it",
+        '14 of 14 answered, 0 disagreements',
+        'The result an outside verifier\'s own CI job reported for the anchored-chain cases at the '
+        'run the row links. It records that run and must not track this corpus.',
+    ),
+    Frozen(
         'RUNS.md',
         "an outside author's reported signing, verify and negative-control results",
         '57/57, verify 57/57 and negative control 53/57',
         'Results an outside implementer reported for a past run against his own case set. They '
         'record that report as posted and must not track this corpus.',
+    ),
+    Frozen(
+        'docs/runs/observed-effect-verdict-words.md',
+        "an outside reader's rerun heading, as reported",
+        'Rerun at efe2dd9: 46 of 46',
+        'The verdict-word result an outside implementer reported for one rerun of his reader at '
+        'efe2dd9 against the observed-effect manifest. It records that run and must not track this '
+        'corpus.',
+    ),
+    Frozen(
+        'docs/runs/observed-effect-verdict-words.md',
+        "an outside reader's rerun outcomes, as reported",
+        '12 of 12 accepts, 46 of 46 rejects',
+        'The outcomes an outside implementer reported for the same rerun at efe2dd9. They record '
+        'that run and must not track this corpus.',
     ),
     # ---- integers that equal a figure of this corpus at suiteRevision 31 and
     # count something else: a file count, a date, a byte length, a pull request
@@ -1285,11 +1417,11 @@ FROZEN: tuple[Frozen, ...] = (
         'tag and must not track the current corpus.',
     ),
     Frozen(
-        'docs/proposals/ai-agent-action-round7.md',
-        'an in-toto ITE pull request number',
-        '[in-toto/ITE#63](https://github.com/in-toto/ITE/pull/63):',
-        'An integer that counts something other than this corpus and equals one of its figures by'
-        ' coincidence: the number of a pull request in another repository.',
+        'docs/INTEROP-EVIDENCE.md',
+        'the comment count of a third-party thread on the day it was read',
+        'carried 48 comments and 0 reviews',
+        'A count of the comments on another project\'s thread, read once on a stated day. It '
+        'records that reading and equals the ACS-Core corpus total by coincidence.',
     ),
     Frozen(
         'scripts/_decoding.py',
@@ -1463,6 +1595,71 @@ FROZEN: tuple[Frozen, ...] = (
         "2026Sep/0087): the delta-related pairs re-cut against v0.1. It records "
         "what that text says, not a count of any manifest.",
     ),
+    # The section 10 split of vectors-w3c-report before v0.18.0, which our list
+    # post of 7 October 2026 stated and Kenne Ives recomputed. It is what the
+    # manifest at corpusDigest f00d4443... says, and it must not follow the
+    # current split, which the claim in w3c_selection_claims checks.
+    Frozen(
+        "vectors-w3c-report/README.md",
+        "the section 10 split before v0.18.0",
+        "but 83 to reject and 82 to accept, at corpusDigest",
+        "The split at an earlier corpusDigest, named in the sentence, and the "
+        "figure posted to the W3C list on 7 October 2026. A published digest is "
+        "never mutated, so its split must not track the current manifest.",
+    ),
+    # The section 10 split of vectors-w3c-report at v0.18.1 and v0.18.2, before
+    # the prior-run binding members joined it. It is what the manifest at
+    # corpusDigest f9e58e62... says, and like the split above it must not follow
+    # the current one.
+    Frozen(
+        "vectors-w3c-report/README.md",
+        "the section 10 split at v0.18.1 and v0.18.2",
+        "the selection was 165 members, 41 to reject and 124 to",
+        "The split at an earlier corpusDigest, named in the sentence. A published "
+        "digest is never mutated, so its split must not track the current manifest.",
+    ),
+    Frozen(
+        "vectors-agent-audit-record/README.md",
+        "the first outside reader's posted score on the revision 01 corpus",
+        "It agreed on 47 of 47 members of v0.16.0, the revision 01",
+        "Mayur Agnihotri's run of his own reader against release v0.16.0, as he "
+        "posted it in ietf-wg-wimse/draft-ietf-wimse-aims#144 (comment "
+        "5934905211, 2026-10-01). The sentence names the release it was run "
+        "against, and the corpus growing since does not change what that run "
+        "scored; interop/wimse-agent-audit-record-reader-2026-10-01 pins it.",
+    ),
+    # ---- figures that came to collide with the audit record corpus when its
+    # Section 5.3 write-chain members took it to 71. Each is a row count of a
+    # table in the NIST AI 300-1 draft, a fixed property of that published PDF.
+    Frozen(
+        "interop/nist-ai-300-1/README.md",
+        "the row IDs the census reads in each of the four NIST AI 300-1 tables",
+        "157 IDs in the same order: 7, 8, 71 and 71",
+        "The number of row IDs in Tables 1, 2, A.2.1 and A.3.1 of the NIST AI "
+        "300-1 draft, read by extract.py. They are properties of that PDF and do "
+        "not move with any corpus.",
+    ),
+    Frozen(
+        "interop/nist-ai-300-1/README.md",
+        "the row count of NIST AI 300-1 Table A.2.1",
+        "| Table A.2.1: Default AI dataset profile | A.2 | 71 |",
+        "The rows of Table A.2.1 of the NIST AI 300-1 draft, a property of that "
+        "PDF, not a count of any corpus.",
+    ),
+    Frozen(
+        "interop/nist-ai-300-1/README.md",
+        "the row count of NIST AI 300-1 Table A.3.1",
+        "| Table A.3.1: Default AI model profile | A.3 | 71 |",
+        "The rows of Table A.3.1 of the NIST AI 300-1 draft, a property of that "
+        "PDF, not a count of any corpus.",
+    ),
+    Frozen(
+        "interop/nist-ai-300-1/test_check_vectors.py",
+        "the Table A.2.1 row count a census mutation test feeds the checker",
+        "table-a.2.1 has 72 rows by its cell grid and 71 by extract.py",
+        "A test fixture describing a broken census of NIST AI 300-1 Table A.2.1, "
+        "whose real row count is 71. It does not move with any corpus.",
+    ),
     # ---- four figures that came to collide with suiteRevision 29.
     # Each records something measured once, and none is a count of this corpus.
     # They are frozen rather than corrected because the corpus growing does not
@@ -1527,6 +1724,20 @@ FROZEN: tuple[Frozen, ...] = (
         "re-run, and restating its figure against later bytes would attribute "
         "work to a pass that never saw them.",
     ),
+    # ---- the nightly sweep's wall time, in the workflow that runs it.
+    # The comment records one timing taken on one workstation and says it has
+    # not been re-measured. Its lower bound came to equal the reject count of
+    # vectors-w3c-report by arithmetic coincidence when that corpus grew; a
+    # wall-clock figure is not a corpus size and must not track one.
+    Frozen(
+        ".github/workflows/forcing-nightly.yml",
+        "the nightly sweep's wall time, as measured on one workstation",
+        "137-264 seconds",
+        "A timing of one sweep on one machine, recorded with the caveat that it "
+        "has not been re-measured. It counts nothing this repository publishes, "
+        "so it can neither be derived here nor be allowed to move when a corpus "
+        "changes.",
+    ),
     # ---- the disensor comparison in the W3C appendix.
     # The appendix reports what `origin/derive_pairs.py` answered on 18
     # September against a THIRD PARTY's corpus, NicolasRocchia/disensor. It is
@@ -1546,6 +1757,26 @@ FROZEN: tuple[Frozen, ...] = (
         "It measures NicolasRocchia/disensor and nothing this repository "
         "publishes, so it can neither be derived here nor be allowed to move "
         "when this corpus changes.",
+    ),
+    # The reject entries carrying expected.codes at tag v0.11.1: a count over
+    # eight manifests at a past tag, re-derivable from that tag by the command
+    # the sentence prints. It equals the W3C corpus total by coincidence since
+    # the integer -0 pair took that corpus to 269 members.
+    Frozen(
+        "docs/W3C-V01-CONFORMANCE-APPENDIX.md",
+        "the expected.codes count at tag v0.11.1",
+        "315 reject entries across the eight manifests of `agent-evidence-vectors` at tag "
+        "`v0.11.1`, 269 carry",
+        "A count over the manifests at a past tag, re-derived from that tag by the command the "
+        "sentence prints. It describes v0.11.1 and must not track the current corpus.",
+    ),
+    Frozen(
+        "scripts/gen-w3c-appendix.py",
+        "the expected.codes count at tag v0.11.1, in the appendix generator",
+        "315 reject entries across the eight manifests of `agent-evidence-vectors` at tag "
+        "`v0.11.1`, 269 carry",
+        "The generator source of the appendix sentence above, frozen for the same reason and "
+        "asserted separately so the two cannot drift apart without one of them failing.",
     ),
     Frozen(
         "scripts/gen-w3c-appendix.py",
@@ -1608,6 +1839,26 @@ FROZEN: tuple[Frozen, ...] = (
     ),
     Frozen(
         "RUNS.md",
+        "the agent audit record corpus size an outside reader ran",
+        "at release 0.16.0, 47 members, corpus digest",
+        (
+            "The size of vectors-agent-audit-record at release 0.16.0, pinned by its "
+            "corpus digest, as an outside reader ran it on 2026-10-01. It records one "
+            "past run of one release and does not track the corpus as it grows."
+        ),
+    ),
+    Frozen(
+        "RUNS.md",
+        "the agent audit record outside run score",
+        "47 of 47 agree: 9 accept members valid, 36 reject members malformed",
+        (
+            "The score an outside reader posted for vectors-agent-audit-record at "
+            "release 0.16.0. It records one past run of one release, and its figures "
+            "are that release's counts, not the corpus as it grows."
+        ),
+    ),
+    Frozen(
+        "RUNS.md",
         "the a2a-jcs-v01 verify score before the fix, ValueError",
         "it scored 54/57",
         (
@@ -1649,6 +1900,14 @@ FROZEN: tuple[Frozen, ...] = (
         "totals equal the corpus's own at the time, which is the collision this "
         "census exists to surface, and restating either against a later corpus "
         "would attribute a run to bytes it never saw.",
+    ),
+    Frozen(
+        "RUNS.md",
+        "the moltrust-api author's four reported results, as posted on A2A#1882",
+        "raw 53/53, signing 57/57, verify 57/57 and negative control 53/57",
+        "Results an outside author reported for his own runner on two named "
+        "corpus states. They record a past run of another project's code and "
+        "must not track this corpus.",
     ),
     Frozen(
         "RUNS.md",
@@ -2265,45 +2524,16 @@ FROZEN: tuple[Frozen, ...] = (
         "A past behaviour of a cap that no longer ships. The figure explains why "
         "the constant was raised; tracking it to the present would erase that.",
     ),
-    # ---- the number-family balance design note. Every figure below is either a
-    # property of RFC 8785's own Appendix B table or a measurement taken by
-    # staging the tree and running the real surface-leakage gate against it on
-    # 2026-09-20. None of them tracks this corpus, and rewriting any of them
-    # when it grows would restate an experiment nobody re-ran.
+    # ---- the number-family page. The one figure on it that is not a vector id
+    # is a property of RFC 8785's own Appendix B table, so it does not track any
+    # corpus here.
     Frozen(
         "docs/NUMBER-FAMILY-BALANCE.md",
         "the size of RFC 8785's Appendix B Table 1, as the family quotes it",
-        "carries 24 accept vectors",
+        "holds the 24 rows of Appendix B",
         "The number of Appendix B Table 1 rows that have a JSON representation, "
         "one vector each. It is a property of the RFC's own table rather than of "
         "any corpus here, and the family exists to carry exactly that table.",
-    ),
-    Frozen(
-        "docs/NUMBER-FAMILY-BALANCE.md",
-        "the drift already spent against the recorded reject count",
-        "`1/16 = 6.25%`",
-        "The fraction of the surface-leakage gate's fingerprint budget already "
-        "spent, computed against the count RECORDED in the baseline rather than "
-        "against today's corpus. Its denominator is a past calibration and moves "
-        "only when that calibration is redone.",
-    ),
-    Frozen(
-        "docs/NUMBER-FAMILY-BALANCE.md",
-        "the drift one further reject would spend against the same recorded count",
-        "`2/16 = 12.5%`",
-        "The same arithmetic one reject further on, against the same recorded "
-        "calibration. Deriving it from the live corpus would change what the "
-        "sentence is about.",
-    ),
-    Frozen(
-        "docs/NUMBER-FAMILY-BALANCE.md",
-        "the class counts of the three staged trees the leakage table was measured over",
-        "| surface | today (37/17) | +1 reject (37/18) | +1 accept +1 reject "
-        "(38/18) | recorded null |",
-        "The accept/reject counts of three staged copies of the tree, naming "
-        "which experiment each measured column came from. They are the inputs to "
-        "a measurement that was performed once; two of the three trees do not "
-        "exist and never will.",
     ),
 )
 
@@ -2387,6 +2617,14 @@ MASKS = tuple(
         # counter reaches. Re-derive the family with:
         #     git grep -ohE '\bsrr-c-[0-9]+\b' | sort -u
         r"\bsrr-c-\d+\b",
+        # Draft OWASP MCP requirement and threat identifiers, MCPVS-N and MCPTM-N,
+        # minted once in vectors-mcp-owasp/REGISTRY.json. They are named, never
+        # counted: `MCPVS-4` sits in a threat page a few characters from words
+        # the small-value vocabulary reads as nouns, and 4 and 5 equal counts the
+        # forcing sources publish, so unmasked the gate reported identifiers as
+        # stale copies of derived counts. Re-derive the family with:
+        #     git grep -ohE '\bMCP(VS|TM)-[0-9]+\b' | sort -u
+        r"\bMCP(?:VS|TM)-\d+\b",
         # Disposition-row identifiers, DC-NN. A row in the objection ledger is
         # named, not counted, and the number is as much an identifier as a vector
         # id is. Unmasked it collides on value with whatever small count the
@@ -2440,6 +2678,14 @@ MASKS = tuple(
         # shape: a cron minute is the first example it gives of what the
         # small-value window kept reporting.
         r"cron:\s*[\"']\s*[-\d,*/\s]+[\"']",
+        # An issue, pull-request or discussion number in a GitHub URL. It is the
+        # same identifier the `#\d+` mask below already exempts, spelled as a
+        # path, and it counts nothing. It surfaced when the ACS-Core reject count
+        # reached the number of an issue of this repository that a run record
+        # links to twice in one sentence; a per-site freeze would have to be
+        # rewritten every time a count walked onto another issue number, which
+        # is the argument the w3c rule-id mask gives against freezing an id.
+        r"https?://github\.com/[\w.-]+/[\w.-]+/(?:issues|pull|discussions)/\d+",
         r"#\d+",  # upstream issue and pull-request numbers
         # A PEP 508 version bound in a quoted requirement string. `"cryptography>=43"`
         # names a release of a dependency and counts nothing; the version-string
@@ -2484,6 +2730,14 @@ MASKS = tuple(
         # measures and never one written as a bare quantity: no count this
         # repository publishes is spelled `447 bytes`.
         r"\b\d+[\s-]?bytes?\b",
+        # The same length with one word naming what fills it. RFC 5869's default
+        # salt is quoted in the ACS 0.1.4 corpus as `a string of 32 zero bytes`,
+        # and the word between number and unit was all that kept the mask above
+        # from reading it as a length: it was reported as the anchor-stream
+        # total five times across the index and the generator. The filler words
+        # are listed rather than matched as any word, so `41 reject bytes` or any
+        # other noun phrase is still read.
+        r"\b\d+\s+(?:zero|null|NUL|random|raw)[\s-]bytes?\b",
         # A line number, spelled out. Same family as the two above: the digit
         # names a POSITION in a file and counts nothing, and it stayed invisible
         # only while no published quantity equalled it. The reject count reached
@@ -2564,6 +2818,17 @@ MASKS = tuple(
         # measures how often a word appears across four repositories' commits. It
         # is a quantity, but not of this corpus, and nothing here derives it.
         r"\b\d+\s+times\b",
+        # AN EXPONENT AND A DURATION. Both arrived when the agent audit record
+        # corpus reached 68 members: `2**68` and `two-to-the-68` name the double
+        # RFC 8785 Appendix B row 9 serializes (four sites in the ai-agent-action
+        # corpus and its index), and `had run 68 days` measures how long a thread
+        # had been open. A power's exponent and a span of days count nothing here,
+        # this repository publishes no count spelled either way, and they are
+        # written as shapes for the reason the rule-id mask above gives: a freeze
+        # per site would have to move every time a corpus total walked onto one.
+        r"\b\d+\*\*\d+\b",
+        r"\bto-the-\d+\b",
+        r"\b\d+\s+days?\b",
         # A NUMERIC RANGE. `(90-100 Full Compliance, 70-89 Partial, 50-69 Minimal,
         # 0-49 Non-Compliant)` quotes an upstream document's scoring bands, and the
         # tail of the last band is the corpus total. A hyphen-joined pair with no
@@ -2621,6 +2886,12 @@ EXEMPT: dict[str, str] = {
     ),
 }
 EXEMPT_PREFIXES: dict[str, str] = {
+    "docs/paper/": (
+        "a paper section about named past releases (0.12.0, 0.17.4, 0.18.1) and a "
+        "recorded experiment; every figure is pinned to its tag and digest in the same "
+        "table and is recounted by docs/paper/w3c-v01/recount.py and "
+        "claim-downgrade/run.sh, so none of them may track the current corpus"
+    ),
     "spec/predicates/": (
         "vendored upstream bytes; scripts/spec-drift-gate.py owns them and an edit "
         "here is a re-vendor, not a count"
