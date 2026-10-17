@@ -19,7 +19,7 @@ GOWORK=off go build -o "$run_dir/aee-verify" ./cmd/aee-verify
 uv build --wheel --out-dir "$run_dir"
 wheel="$(find "$run_dir" -maxdepth 1 -name 'agent_evidence_vectors-*.whl')"
 cd "$run_dir"
-uv run --no-project --with "$wheel" agent-evidence-vectors --verifier "$run_dir/aee-verify --json"
+uv run --no-project --with "$wheel" agent-evidence-vectors --verifier "$run_dir/aee-verify -validity-only --json"
 ```
 
 Open `conformance-report.json` for the per-vector results. A complete external run has `rail: external`, `verifier.vectorsExecuted` equal to `totals.vectors`, and zero `totals.suiteRefusals`. The report separates conformance from reason-code agreement.
@@ -55,6 +55,7 @@ agmi, Rul1an/aee-checker and MoltyCel/moltrust-api run a corpus from this reposi
 
 | I want to | Read |
 | --- | --- |
+| Start a project with this Action already in CI | [evidence-starter template](https://github.com/new?template_name=evidence-starter&template_owner=probityai) |
 | Pick a format and corpus | [Corpus guide](docs/guides/corpora.md) |
 | Implement the verifier interface | [Verifier contract](docs/reference/verifier-contract.md) |
 | Understand what the fixtures test | [Corpus measurements](https://github.com/probityai/agent-evidence-vectors/blob/v0.18.1/docs/research/corpus-measurements.md) |
