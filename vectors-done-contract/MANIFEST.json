@@ -1,0 +1,739 @@
+{
+  "corpusDigest": "73c60897b7c03715c688b0dcd84218dadfd2e7ddc4efa598bcc63bbd393433ce",
+  "predicateSpec": "spec/predicates/done-contract.md",
+  "predicateType": "https://w3id.org/agent-evidence/predicate/v1/done-contract",
+  "recordSpec": "spec/predicates/done-records.md",
+  "suite": "done-contract/v1",
+  "vectors": [
+    {
+      "edit": "control: a protected directory with an excluded segment name, one acceptance command, three of four mutants killed",
+      "expected": {
+        "contract": {
+          "verdict": "valid"
+        }
+      },
+      "files": {
+        "contract.json": "d1d580c3acd0a4515716112d0eea610a402cc6a1059bab6086d81bdba4adf571",
+        "statement.json": "38820d3353719c215dc04e7bf050cdb828d1feef965c1f11b2288adce51245dd"
+      },
+      "id": "valid-directory-protected",
+      "kind": "valid",
+      "path": "cases/valid-directory-protected"
+    },
+    {
+      "edit": "control: a protected file entry",
+      "expected": {
+        "contract": {
+          "verdict": "valid"
+        }
+      },
+      "files": {
+        "contract.json": "e06921153420b3058e1dde5768483dc1b6502b2f8c49a4b3cd913f84e55cd1f3",
+        "statement.json": "f34879abb2309f561afcc9745543726545b04c381635ef0be465240829ac66fe"
+      },
+      "id": "valid-file-protected",
+      "kind": "valid",
+      "path": "cases/valid-file-protected"
+    },
+    {
+      "edit": "control: a contract may protect nothing",
+      "expected": {
+        "contract": {
+          "verdict": "valid"
+        }
+      },
+      "files": {
+        "contract.json": "a1a99e6cf321b6b4e9259e80e2fee380ccdf68d8e4b84596d4d0de6aafb908bd",
+        "statement.json": "504a63e3d07c45602af62a1b15100afc5592bd7dfce925715f7cd5cacaaecb45"
+      },
+      "id": "valid-no-protected-paths",
+      "kind": "valid",
+      "path": "cases/valid-no-protected-paths"
+    },
+    {
+      "edit": "control: two acceptance commands",
+      "expected": {
+        "contract": {
+          "verdict": "valid"
+        }
+      },
+      "files": {
+        "contract.json": "2ef9c84e1f6e8b8866bcb9d1058b7712f9fff88506d25be13d9a227767fc0e5b",
+        "statement.json": "a722346d8936b0ad70c465623a4e8712b518725080d344efb46e114aa5297c4a"
+      },
+      "id": "valid-two-acceptance-commands",
+      "kind": "valid",
+      "path": "cases/valid-two-acceptance-commands"
+    },
+    {
+      "edit": "control: the task and the three digests the compiler may bind",
+      "expected": {
+        "contract": {
+          "verdict": "valid"
+        }
+      },
+      "files": {
+        "contract.json": "d9c159eaed3714181edd65226b4aa21a4f40570694f0496e1bca7593af17fddb",
+        "statement.json": "0990c94db50d6cf36e00777c0dd0972b916e8e85c43e5ec164f0626339e9cce1"
+      },
+      "id": "valid-bound-digests",
+      "kind": "valid",
+      "path": "cases/valid-bound-digests"
+    },
+    {
+      "edit": "control: a contract that killed no mutant is a valid contract; a receipt on it cannot say supported",
+      "expected": {
+        "contract": {
+          "verdict": "valid"
+        }
+      },
+      "files": {
+        "contract.json": "ce20865a368efd0239a1f4f1dd5b09c072575c529fd135735d704dff5bd55a48",
+        "statement.json": "c8e9039228abd34e4a55aa2d52cdaed1bceaa9133f17ad0d7a1389202c8a647c"
+      },
+      "id": "valid-adequacy-zero",
+      "kind": "valid",
+      "path": "cases/valid-adequacy-zero"
+    },
+    {
+      "edit": "schema_version names a version that does not exist",
+      "expected": {
+        "contract": {
+          "code": "contract_schema_unsupported",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "0f5a934ac3b31e523519124195ecbc2fa5db1bd752b9a55bfec636b0591b4148",
+        "statement.json": "3b05aea31cf5fc40c786926e9cb153737e00bfd316494c6d09067e4ea4510b41"
+      },
+      "id": "schema-unsupported",
+      "kind": "invalid",
+      "path": "cases/schema-unsupported"
+    },
+    {
+      "edit": "a member the contract does not define",
+      "expected": {
+        "contract": {
+          "code": "contract_fields",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "e05234891c62ee7ec93f6bf69f2c0089d10a6b72a2508ca8539216a69da5563d",
+        "statement.json": "97dc50a2dcecbb54cfa016beb8c8e68988dd7d4c2d0c93f76bdb426b39e58d55"
+      },
+      "id": "member-unexpected",
+      "kind": "invalid",
+      "path": "cases/member-unexpected"
+    },
+    {
+      "edit": "adequacy is absent",
+      "expected": {
+        "contract": {
+          "code": "contract_fields",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "75f4e91e0a44e9fbfec4aa36cf9edc525742eb7b053691039979b501fa05fad8",
+        "statement.json": "87a773b4e8e89871f15561d6c469216cd32df0277df34737d6df3ed6c893ce3d"
+      },
+      "id": "member-missing",
+      "kind": "invalid",
+      "path": "cases/member-missing"
+    },
+    {
+      "edit": "the contract names no identifier",
+      "expected": {
+        "contract": {
+          "code": "contract_id",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "999f2784f30d2b33b6c8c9e24a42745e0353bf648ba36904e2486fde51b33276",
+        "statement.json": "e1dc1fb3838d7169737bb30221bc5b27b2e2ffe97beb3faca24830b411186e24"
+      },
+      "id": "contract-id-empty",
+      "kind": "invalid",
+      "path": "cases/contract-id-empty"
+    },
+    {
+      "edit": "the task is present and empty",
+      "expected": {
+        "contract": {
+          "code": "contract_task",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "cd832fd4c955cb60ab5341d64d6d19dafcd8cd778c09036d6c598609dde28fe8",
+        "statement.json": "9194fdb8744baeccfaeccd99cb832e75372b3d491db9d376eed4439179a78a24"
+      },
+      "id": "task-empty",
+      "kind": "invalid",
+      "path": "cases/task-empty"
+    },
+    {
+      "edit": "a bound digest in uppercase hexadecimal",
+      "expected": {
+        "contract": {
+          "code": "contract_digest_malformed",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "921941de94841dfa9d7704a0c124ecb5384526d0aa6038c1ca0e7077c86c10d6",
+        "statement.json": "ab1d15b59cd51b06d1371e4bd03fa0ea92ed8f96eb66cea22c2440eee61c6709"
+      },
+      "id": "bound-digest-uppercase",
+      "kind": "invalid",
+      "path": "cases/bound-digest-uppercase"
+    },
+    {
+      "edit": "a protected digest of 63 characters",
+      "expected": {
+        "contract": {
+          "code": "contract_digest_malformed",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "54d61adf5edaa275eb98d2a7dd31367b3e498a0f0f9d38ae1488d4a8fb82bd11",
+        "statement.json": "afdf0da5f2f70b4c0f4321ba57c0de2bfd27d4578e28068f7751a7061c05b73b"
+      },
+      "id": "protected-digest-short",
+      "kind": "invalid",
+      "path": "cases/protected-digest-short"
+    },
+    {
+      "edit": "protected_paths is an object",
+      "expected": {
+        "contract": {
+          "code": "contract_protected_paths_type",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "986c7975c70bc14edefa8abaf6507f6767b999dd97e303bddc09cc15c2df1929",
+        "statement.json": "b9c183f57f9dadbfe75cabcdabbe51380e0e2d1c140c6d299d2a1073b5410745"
+      },
+      "id": "protected-paths-not-a-list",
+      "kind": "invalid",
+      "path": "cases/protected-paths-not-a-list"
+    },
+    {
+      "edit": "a protected path that climbs out of the workspace",
+      "expected": {
+        "contract": {
+          "code": "contract_protected_path_not_normalized",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "8ca9c170cf2bd9666e52072c5666a53474739560044dc520204e87c6c8ebcbe5",
+        "statement.json": "fef55587c61a4dae6b68c7c0602dbb8c8ee2f9c64c76c4e7e27a69e58eca3221"
+      },
+      "id": "protected-path-dotdot",
+      "kind": "invalid",
+      "path": "cases/protected-path-dotdot"
+    },
+    {
+      "edit": "a protected path that starts at the root",
+      "expected": {
+        "contract": {
+          "code": "contract_protected_path_not_normalized",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "72be4963aa0e59d83474684204ceb233bb17df9ed985809fd836a0c694a0fb8e",
+        "statement.json": "6f3b7fbd0b9953611382ac77fcafe67e97232c9bedb40b3f964cffaf6622a9c2"
+      },
+      "id": "protected-path-absolute",
+      "kind": "invalid",
+      "path": "cases/protected-path-absolute"
+    },
+    {
+      "edit": "a protected directory written with a trailing slash",
+      "expected": {
+        "contract": {
+          "code": "contract_protected_path_not_normalized",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "e3ec14a15b4dea1b206e792c55f8015b9bd62b591a8716f0819e05a6274ff8c6",
+        "statement.json": "4ffe02294eac54015bc30ecde28f84ec5fd1e838e46f5f755b17a1f76f94bd25"
+      },
+      "id": "protected-path-trailing-slash",
+      "kind": "invalid",
+      "path": "cases/protected-path-trailing-slash"
+    },
+    {
+      "edit": "a protected entry of kind symlink",
+      "expected": {
+        "contract": {
+          "code": "contract_protected_kind",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "795563e4465baa7b4caa5333d1157f737790f11b232b831f2e7ed03827263fc9",
+        "statement.json": "58015ef5829797b6c31f8cc4552f0d79789ba4bf12ce721132ab24d04f1660f1"
+      },
+      "id": "protected-kind-unknown",
+      "kind": "invalid",
+      "path": "cases/protected-kind-unknown"
+    },
+    {
+      "edit": "an exclude list on a file entry",
+      "expected": {
+        "contract": {
+          "code": "contract_exclude_invalid",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "c70af9eda66ea01c7845b8edd07916191f93f78daa9a61a227508b5220cf8ea9",
+        "statement.json": "a3e32178e836ac76ecb8304b075284d8a43c0efee5c1dbf09039ff4f32d98c7e"
+      },
+      "id": "exclude-on-file",
+      "kind": "invalid",
+      "path": "cases/exclude-on-file"
+    },
+    {
+      "edit": "an excluded name that is a path",
+      "expected": {
+        "contract": {
+          "code": "contract_exclude_invalid",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "9c9bc9df2c3876abf953147b6a79fc0cdffafd680b40792d80954cea4757d0e0",
+        "statement.json": "430b660161df711816c1b4413d9871df97d890b56fd8a9806338125f2f251390"
+      },
+      "id": "exclude-with-separator",
+      "kind": "invalid",
+      "path": "cases/exclude-with-separator"
+    },
+    {
+      "edit": "an exclude list with no name in it",
+      "expected": {
+        "contract": {
+          "code": "contract_exclude_invalid",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "03b36ef3bb106908886105c423d53ebe19ca779f2fd96a93c52c886bbbb13c9f",
+        "statement.json": "4eb2d2f42d17d62b1ab60b71a459a7609d12d90bfcb2074d10957f1fcf2ea3d5"
+      },
+      "id": "exclude-empty-list",
+      "kind": "invalid",
+      "path": "cases/exclude-empty-list"
+    },
+    {
+      "edit": "the same excluded name twice",
+      "expected": {
+        "contract": {
+          "code": "contract_exclude_invalid",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "1d2de3604b25369b294463f2a2947e2fa1d50f94781f351f262324a9a402325e",
+        "statement.json": "70278c74fe6778a9697422ada357660f07f6ba2068f308e9fda309026a629718"
+      },
+      "id": "exclude-duplicate-name",
+      "kind": "invalid",
+      "path": "cases/exclude-duplicate-name"
+    },
+    {
+      "edit": "the same path protected twice",
+      "expected": {
+        "contract": {
+          "code": "contract_protected_duplicate",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "997377f8ed834dcc2047dbd7a686768d1eb0d5187e81d7cb378caeb2a5421d60",
+        "statement.json": "ffa964f07f283529f8f31df76e3d3cd5ff69b72b7fe1b43851074cba34f4bd0b"
+      },
+      "id": "protected-path-duplicate",
+      "kind": "invalid",
+      "path": "cases/protected-path-duplicate"
+    },
+    {
+      "edit": "no acceptance command",
+      "expected": {
+        "contract": {
+          "code": "contract_acceptance_empty",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "6e1ef0a343a20e20a2fe733148c5131c6886eee44272cff0d893f35e4ad18145",
+        "statement.json": "8ce8822603e5b72a4b4428217f5211e4e25fb8e2c005b8402ad754898739bcd3"
+      },
+      "id": "acceptance-empty",
+      "kind": "invalid",
+      "path": "cases/acceptance-empty"
+    },
+    {
+      "edit": "an acceptance command with an empty id",
+      "expected": {
+        "contract": {
+          "code": "contract_acceptance_id",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "428bcc5d5da4a1aa67f42927f248ef3c0be6b65dfa23502105b28e86f2614340",
+        "statement.json": "e25fe6ff86d22ab2513dbb479b26038fc4fe6bb734cc5cf810512a296345530e"
+      },
+      "id": "acceptance-id-empty",
+      "kind": "invalid",
+      "path": "cases/acceptance-id-empty"
+    },
+    {
+      "edit": "an acceptance command with no argv",
+      "expected": {
+        "contract": {
+          "code": "contract_acceptance_argv",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "9cb1ce63d1e59da5130aa5d95df58536ea204bc58d16fe07fff32e0ad758c9eb",
+        "statement.json": "322058eda767fee4d9c19b48f4f6058a27d038b5c2ae3454362c780ab4f1706b"
+      },
+      "id": "acceptance-argv-empty",
+      "kind": "invalid",
+      "path": "cases/acceptance-argv-empty"
+    },
+    {
+      "edit": "an argv element that is a number",
+      "expected": {
+        "contract": {
+          "code": "contract_acceptance_argv",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "16a15e6367f643b6b0ca78d87718d768b78964eba6bdde83562bdf55406fca7a",
+        "statement.json": "be296c773b87703c1065b6adf8bec8c8924bc68893202e4fcd46c69cc340e915"
+      },
+      "id": "acceptance-argv-not-text",
+      "kind": "invalid",
+      "path": "cases/acceptance-argv-not-text"
+    },
+    {
+      "edit": "two acceptance commands with one id",
+      "expected": {
+        "contract": {
+          "code": "contract_acceptance_duplicate_id",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "3851b24d4135d1154da86d77e2b0598b6515632d39582147e21f157175572fa2",
+        "statement.json": "d050233d4a33333be73a5ee72d7aac98edbc04e0a930555516bce4c0d16a439c"
+      },
+      "id": "acceptance-id-duplicate",
+      "kind": "invalid",
+      "path": "cases/acceptance-id-duplicate"
+    },
+    {
+      "edit": "more mutants killed than generated",
+      "expected": {
+        "contract": {
+          "code": "contract_adequacy_overcount",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "f4ad72757995147ca9913839fe2ab4cedd56102990b9e593d25d77d24efdc8ae",
+        "statement.json": "535a694c8c2ad738280526b53c21f22a7bc7508f2fd9456ef67f6fa8c8531208"
+      },
+      "id": "adequacy-killed-exceeds-mutants",
+      "kind": "invalid",
+      "path": "cases/adequacy-killed-exceeds-mutants"
+    },
+    {
+      "edit": "a negative mutant count",
+      "expected": {
+        "contract": {
+          "code": "contract_adequacy_count",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "1c7c048d38f73065f300b8b9f8e3bd5e801a324701584cb16e691e9e20f0d01a",
+        "statement.json": "46ce244c70e7107785e15967b2775551b085ab066f7abe6bdec3603706cf0695"
+      },
+      "id": "adequacy-negative",
+      "kind": "invalid",
+      "path": "cases/adequacy-negative"
+    },
+    {
+      "edit": "killed written as true",
+      "expected": {
+        "contract": {
+          "code": "contract_adequacy_count",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "4e879ea3d124ec4d538af06418dc07f8e32af6c6ea21edf0491f676dd79c563c",
+        "statement.json": "5b8d394ca58d6dc788edafdfcb6ef4a2044b241144b0411f09183c3185b4acd6"
+      },
+      "id": "adequacy-boolean",
+      "kind": "invalid",
+      "path": "cases/adequacy-boolean"
+    },
+    {
+      "edit": "a member adequacy does not define",
+      "expected": {
+        "contract": {
+          "code": "contract_adequacy_fields",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "c1c497a79cb649315768c318334b1160efdc4196f949664cacfd1a310fb9e743",
+        "statement.json": "fd96dcf1216021d7f9532612665bc063db9eedea9725f3835effe1a4547f5bd1"
+      },
+      "id": "adequacy-member-unexpected",
+      "kind": "invalid",
+      "path": "cases/adequacy-member-unexpected"
+    },
+    {
+      "edit": "the record names adequacy twice, so two readers could keep different ones",
+      "expected": {
+        "contract": {
+          "code": "contract_json_duplicate_key",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "736dbd0d1b122fb40c50fa4a8e1a3bd029c980e500a3d835c407507074b86afd",
+        "statement.json": "18b36dd3e90bc6c2bc6b809faf7bf52e02f8182179c7c26207403c98d653e613"
+      },
+      "id": "record-duplicate-member",
+      "kind": "invalid",
+      "path": "cases/record-duplicate-member"
+    },
+    {
+      "edit": "killed is NaN, which is not JSON",
+      "expected": {
+        "contract": {
+          "code": "contract_json_number",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "9503fa6fa447a895aab6d565e942f0faf8815a72c216b6633df2b9c472894ac1",
+        "statement.json": "1783d1185d13000b638e0992cf56713d1adcf4e6865acdc30cffc4ddfd4e7518"
+      },
+      "id": "record-not-a-number",
+      "kind": "invalid",
+      "path": "cases/record-not-a-number"
+    },
+    {
+      "edit": "the record ends in the middle of an object",
+      "expected": {
+        "contract": {
+          "code": "contract_json_invalid",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "4fd44a2cef0783048965d8dc7eb15b645c6019c731498d42accaf7f56e49e9a5",
+        "statement.json": "187403d9b6885ae79a88bbbbf24eca8bd43f177b196b3658fa6e8186a4f54071"
+      },
+      "id": "record-truncated",
+      "kind": "invalid",
+      "path": "cases/record-truncated"
+    },
+    {
+      "edit": "the statement is typed as another statement version",
+      "expected": {
+        "contract": {
+          "code": "statement_type_wrong",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "d1d580c3acd0a4515716112d0eea610a402cc6a1059bab6086d81bdba4adf571",
+        "statement.json": "6817d89959f53b44505398b5d2f48097adda5ea6cb30b283bd936e0bce1b5790"
+      },
+      "id": "statement-type-wrong",
+      "kind": "invalid",
+      "path": "cases/statement-type-wrong"
+    },
+    {
+      "edit": "the statement is typed as a receipt",
+      "expected": {
+        "contract": {
+          "code": "statement_predicate_type_wrong",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "d1d580c3acd0a4515716112d0eea610a402cc6a1059bab6086d81bdba4adf571",
+        "statement.json": "bcb00391d13acc08a4c14f2abeff2e2f5c7b94a81e3cefb2499f6721f1113583"
+      },
+      "id": "statement-predicate-type-wrong",
+      "kind": "invalid",
+      "path": "cases/statement-predicate-type-wrong"
+    },
+    {
+      "edit": "the statement carries the URI on another host",
+      "expected": {
+        "contract": {
+          "code": "statement_predicate_type_wrong",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "d1d580c3acd0a4515716112d0eea610a402cc6a1059bab6086d81bdba4adf571",
+        "statement.json": "df526ee96ca09dcb7eb93275460c8c8b189ebc180ef78bf5eb6f3af29fbae413"
+      },
+      "id": "statement-predicate-type-moved",
+      "kind": "invalid",
+      "path": "cases/statement-predicate-type-moved"
+    },
+    {
+      "edit": "the statement has two subjects",
+      "expected": {
+        "contract": {
+          "code": "statement_subject_malformed",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "d1d580c3acd0a4515716112d0eea610a402cc6a1059bab6086d81bdba4adf571",
+        "statement.json": "fc7c25d0bcf0514d253df7c4ce65bbf28766aec869424041e078c8642711f8b2"
+      },
+      "id": "statement-two-subjects",
+      "kind": "invalid",
+      "path": "cases/statement-two-subjects"
+    },
+    {
+      "edit": "the subject is digested with sha512 alone",
+      "expected": {
+        "contract": {
+          "code": "statement_subject_malformed",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "d1d580c3acd0a4515716112d0eea610a402cc6a1059bab6086d81bdba4adf571",
+        "statement.json": "2a2521dabcc31ec69be05db5fbe81ee7688889190d19856939f179bd1ad55211"
+      },
+      "id": "statement-subject-other-algorithm",
+      "kind": "invalid",
+      "path": "cases/statement-subject-other-algorithm"
+    },
+    {
+      "edit": "the subject digests the record re-serialized with other whitespace, not the record bytes",
+      "expected": {
+        "contract": {
+          "code": "statement_subject_unbound",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "d1d580c3acd0a4515716112d0eea610a402cc6a1059bab6086d81bdba4adf571",
+        "statement.json": "c3187a0292ef1fd5aa9ee5263f45414591bf3da4660741ad0d10f5df1d3163a4"
+      },
+      "id": "statement-subject-unbound",
+      "kind": "invalid",
+      "path": "cases/statement-subject-unbound"
+    },
+    {
+      "edit": "the statement says three mutants were killed and the record says none",
+      "expected": {
+        "contract": {
+          "code": "statement_predicate_differs",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "ce20865a368efd0239a1f4f1dd5b09c072575c529fd135735d704dff5bd55a48",
+        "statement.json": "b1ff097559259619486678c3994aa58bb0630c642912ac9fb348d0a4e52a5376"
+      },
+      "id": "statement-predicate-differs",
+      "kind": "invalid",
+      "path": "cases/statement-predicate-differs"
+    },
+    {
+      "edit": "the statement names its predicate type twice",
+      "expected": {
+        "contract": {
+          "code": "statement_json_duplicate_key",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "d1d580c3acd0a4515716112d0eea610a402cc6a1059bab6086d81bdba4adf571",
+        "statement.json": "aa6d5f405e5efb89def90e4286ceece21f2a45e8f7a459ea808034b34598e027"
+      },
+      "id": "statement-duplicate-member",
+      "kind": "invalid",
+      "path": "cases/statement-duplicate-member"
+    },
+    {
+      "edit": "the statement holds NaN",
+      "expected": {
+        "contract": {
+          "code": "statement_json_number",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "d1d580c3acd0a4515716112d0eea610a402cc6a1059bab6086d81bdba4adf571",
+        "statement.json": "04958782ac7b57ee63b5d7aa24091d2d1a7c906e31d3dd806d3f4db46751a9e6"
+      },
+      "id": "statement-not-a-number",
+      "kind": "invalid",
+      "path": "cases/statement-not-a-number"
+    },
+    {
+      "edit": "the statement ends in the middle of an object",
+      "expected": {
+        "contract": {
+          "code": "statement_json_invalid",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "d1d580c3acd0a4515716112d0eea610a402cc6a1059bab6086d81bdba4adf571",
+        "statement.json": "cbda47dc22a1489986e92392f53eae37d0941c2a22bfe9d8e19b43c805c09658"
+      },
+      "id": "statement-truncated",
+      "kind": "invalid",
+      "path": "cases/statement-truncated"
+    },
+    {
+      "edit": "a member the statement does not define",
+      "expected": {
+        "contract": {
+          "code": "statement_fields",
+          "verdict": "invalid"
+        }
+      },
+      "files": {
+        "contract.json": "d1d580c3acd0a4515716112d0eea610a402cc6a1059bab6086d81bdba4adf571",
+        "statement.json": "f4dd1c95bf7187ebc6da49b1c0a9e94632c635b6d71b95ede205b991eea5b719"
+      },
+      "id": "statement-member-unexpected",
+      "kind": "invalid",
+      "path": "cases/statement-member-unexpected"
+    }
+  ]
+}

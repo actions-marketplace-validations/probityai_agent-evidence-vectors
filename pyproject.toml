@@ -8,7 +8,7 @@
 
 [project]
 name = "agent-evidence-vectors"
-version = "0.19.0"
+version = "0.19.1"
 description = "Conformance corpora and reference verifiers for agent evidence records"
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
@@ -49,6 +49,10 @@ agent-evidence-heldout = "agent_evidence_vectors.heldout:main"
 # was pinned to shipped beside it, so `pip install agent-evidence-vectors==X`
 # alone reproduces an E7 run without a clone.
 agent-evidence-vectors-remora-e7 = "agent_evidence_vectors.remora_e7.run:main"
+
+# One pinned MCP invocation judged on three separate axes (package integrity,
+# request and decision correspondence, observed effect), with its frozen corpus.
+agent-evidence-vectors-invocation-axes = "agent_evidence_vectors.invocation_axes.run:main"
 
 [build-system]
 requires = ["hatchling>=1.27"]
@@ -100,10 +104,16 @@ only-include = [
     "vectors-receipt-chain-end",
     "vectors-identity-binding",
     "vectors-authority-at-dispatch",
+    "vectors-done-contract",
+    "vectors-done-receipt",
+    "vectors-spoofed-tool-output",
+    "vectors-test-tampering",
+    "vectors-grader-isolation",
     "vectors-receipt-signature",
     "vectors-scitt-cose",
     "vectors-self-reported-record",
     "vectors-source-coverage",
+    "vectors-w3c-intake",
     "vectors-w3c-report",
 ]
 # Corpus directories carry their generators and checkers beside the data. They
@@ -112,7 +122,7 @@ only-include = [
 # Shipped in the wheel they were dead weight that crashed on import, and nothing
 # in the package loads them, so the wheel carries the data and the packaged
 # readers only. The sdist keeps them, because it is the source.
-exclude = ["**/__pycache__", "**/.build", "**/*.pyc", "vectors/**/*.py", "vectors-*/**/*.py"]
+exclude = ["**/__pycache__", "**/.build", "**/*.pyc", "vectors/**/*.py", "vectors-*/**/*.py", "vectors-done-receipt/recorded/**"]
 
 [tool.hatch.build.targets.wheel.sources]
 "packaging/agent_evidence_vectors" = "agent_evidence_vectors"
@@ -142,10 +152,16 @@ exclude = ["**/__pycache__", "**/.build", "**/*.pyc", "vectors/**/*.py", "vector
 "vectors-receipt-chain-end" = "agent_evidence_vectors/corpora/vectors-receipt-chain-end"
 "vectors-identity-binding" = "agent_evidence_vectors/corpora/vectors-identity-binding"
 "vectors-authority-at-dispatch" = "agent_evidence_vectors/corpora/vectors-authority-at-dispatch"
+"vectors-done-contract" = "agent_evidence_vectors/corpora/vectors-done-contract"
+"vectors-done-receipt" = "agent_evidence_vectors/corpora/vectors-done-receipt"
+"vectors-spoofed-tool-output" = "agent_evidence_vectors/corpora/vectors-spoofed-tool-output"
+"vectors-test-tampering" = "agent_evidence_vectors/corpora/vectors-test-tampering"
+"vectors-grader-isolation" = "agent_evidence_vectors/corpora/vectors-grader-isolation"
 "vectors-receipt-signature" = "agent_evidence_vectors/corpora/vectors-receipt-signature"
 "vectors-scitt-cose" = "agent_evidence_vectors/corpora/vectors-scitt-cose"
 "vectors-self-reported-record" = "agent_evidence_vectors/corpora/vectors-self-reported-record"
 "vectors-source-coverage" = "agent_evidence_vectors/corpora/vectors-source-coverage"
+"vectors-w3c-intake" = "agent_evidence_vectors/corpora/vectors-w3c-intake"
 "vectors-w3c-report" = "agent_evidence_vectors/corpora/vectors-w3c-report"
 
 # `sources` rewrites directory prefixes and leaves a single file where it is,
@@ -223,10 +239,16 @@ only-include = [
     "vectors-receipt-chain-end",
     "vectors-identity-binding",
     "vectors-authority-at-dispatch",
+    "vectors-done-contract",
+    "vectors-done-receipt",
+    "vectors-spoofed-tool-output",
+    "vectors-test-tampering",
+    "vectors-grader-isolation",
     "vectors-receipt-signature",
     "vectors-scitt-cose",
     "vectors-self-reported-record",
     "vectors-source-coverage",
+    "vectors-w3c-intake",
     "vectors-w3c-report",
     "README.md",
     "docs/guides",
@@ -313,8 +335,9 @@ include = ["docs/paper", "docs/proposals", "docs/site", "examples/mcp-receipts",
            "vectors-mcp-owasp", "vectors-mcp-record-contract", "vectors-mcp-response-phase",
            "vectors-observed-effect", "vectors-receipt-chain-end", "vectors-receipt-signature",
            "vectors-identity-binding", "vectors-authority-at-dispatch",
+           "vectors-done-contract", "vectors-done-receipt", "vectors-spoofed-tool-output", "vectors-test-tampering", "vectors-grader-isolation",
            "vectors-scitt-cose", "vectors-source-coverage", "vectors-self-reported-record",
-           "vectors-w3c-report"]
+           "vectors-w3c-intake", "vectors-w3c-report"]
 
 # The reference rail is imported by the gates that drive it, and it lives in
 # packaging/ rather than on the default path, so the checker needs the same
@@ -346,6 +369,25 @@ pythonVersion = "3.13"
 # own directory. The self-reported-record corpus therefore gets its own
 # execution root, so its `from canonical import jcs` resolves to the module
 # beside it -- the one Python itself imports when the script runs.
+[[tool.pyright.executionEnvironments]]
+root = "vectors-done-receipt"
+
+[[tool.pyright.executionEnvironments]]
+root = "vectors-done-contract"
+extraPaths = ["vectors-done-receipt"]
+
+[[tool.pyright.executionEnvironments]]
+root = "vectors-spoofed-tool-output"
+extraPaths = ["vectors-done-receipt"]
+
+[[tool.pyright.executionEnvironments]]
+root = "vectors-test-tampering"
+extraPaths = ["vectors-done-receipt"]
+
+[[tool.pyright.executionEnvironments]]
+root = "vectors-grader-isolation"
+extraPaths = ["vectors-done-receipt"]
+
 [[tool.pyright.executionEnvironments]]
 root = "vectors-self-reported-record"
 
