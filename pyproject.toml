@@ -54,6 +54,8 @@ agent-evidence-vectors-remora-e7 = "agent_evidence_vectors.remora_e7.run:main"
 # request and decision correspondence, observed effect), with its frozen corpus.
 agent-evidence-vectors-invocation-axes = "agent_evidence_vectors.invocation_axes.run:main"
 
+# One resumed agent task: turn ownership, artifact replay and repeated effects judged apart.
+agent-evidence-vectors-resume-turns = "agent_evidence_vectors.resume_turns.run:main"
 # One paid request occurrence: issuer budget, payment and execution receipts each
 # judged natively, with the cross-artifact spend and occurrence links kept apart.
 agent-evidence-vectors-occurrence-binding = "agent_evidence_vectors.occurrence_binding.run:main"
