@@ -134,6 +134,7 @@ from agent_evidence_vectors import (
     auditrecord,
     authoritydispatch,
     changeadmission,
+    chunkedexport,
     donerun,
     gradefloor,
     identitybinding,
@@ -142,6 +143,7 @@ from agent_evidence_vectors import (
     receiptchainend,
     receiptsignature,
     sourcecoverage,
+    starhint,
     traceanchor,
     w3cintake,
     w3creport,
@@ -3852,6 +3854,7 @@ def _run_non_reference_suite(
         receiptchainend.SUITE,
         identitybinding.SUITE,
         authoritydispatch.SUITE,
+        chunkedexport.SUITE,
         *donerun.SUITES,
         traceanchor.SUITE,
         gradefloor.SUITE,
@@ -3877,6 +3880,7 @@ def _run_non_reference_suite(
         receiptchainend.SUITE: receiptchainend.run,
         identitybinding.SUITE: identitybinding.run,
         authoritydispatch.SUITE: authoritydispatch.run,
+        chunkedexport.SUITE: chunkedexport.run,
         **{suite: donerun.runner(suite) for suite in donerun.SUITES},
         traceanchor.SUITE: traceanchor.run,
         gradefloor.SUITE: gradefloor.run,
@@ -5407,6 +5411,8 @@ def main() -> int:
             )
             return status or 2
         _emit_w3c(args)
+    if status == 0:
+        starhint.maybe_print_hint()
     return status
 
 
