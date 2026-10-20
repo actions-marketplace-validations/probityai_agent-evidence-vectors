@@ -5,7 +5,7 @@ asks about an AI agent: does this presenter hold this delegated authority at the
 time the relying party observed the presentation? A case is a set of signed
 records (identifier registrations, grants, revocations, disputes, resolutions,
 identifier links, retirements), one signed presentation, and the policy that
-judges them. The cases come in three sets:
+judges them. The cases come in four sets:
 
 - `tree-`: revocation across a delegation tree, including a revocation that is
   disputed, as in the case "revocation issued in error, or disputed" proposed to
@@ -13,7 +13,11 @@ judges them. The cases come in three sets:
 - `rereg-`: re-registration, where an old identifier is linked to a new one;
 - `recovery-`: recovery after the old key is lost or compromised, the question
   asked on AAIF Identity and Trust issue 18 about use case B (redeployment
-  under a new identifier).
+  under a new identifier), and the re-registration that asks for no
+  continuity at all, which use case B names as its failure;
+- `subagent-`: sub-agents whose identifiers are bound to the parent's lifespan,
+  the second open question of use case B, and what happens to them when the
+  parent retires, is recovered or is succeeded.
 
 Judge the corpus with the Go verifier, from the repository root:
 
@@ -34,7 +38,7 @@ is a JSON object with a `type`. Times are RFC 3339.
 
 | `type` | Fields | Signed by |
 | --- | --- | --- |
-| `registration` | `identifier`, `keyid`, `public_key`, `registered_at`, optional `responsible` and `software` | the registry |
+| `registration` | `identifier`, `keyid`, `public_key`, `registered_at`, optional `responsible`, `software` and `parent` (the parent agent of a sub-agent) | the registry |
 | `retirement` | `identifier`, `retired_at` | the registry |
 | `identifier-revocation` | `identifier`, `revoked_at`, `grounds` | the registry |
 | `grant` | `grant_id`, `parent` (null for a top-level grant), `issuer`, `delegate`, `issued_at` | the issuer |
@@ -43,6 +47,9 @@ is a JSON object with a `type`. Times are RFC 3339.
 | `resolution` | `dispute_id`, `revocation_id`, `decided_by`, `outcome` (`restored` or `confirmed`), `decided_at`, optional `replacement_grant` | the decider |
 | `link` | `link_id`, `old`, `new`, `linked_at` | the old identifier, the new identifier and the registry |
 | `recovery` | `recovery_id`, `old`, `new`, `responsible`, `recovered_at` | the registry and the Responsible entity |
+| `succession` | `succession_id`, `old`, `new`, `responsible`, `recorded_at` | the registry |
+| `new-agent-assertion` | `assertion_id`, `identifier`, `succession_id`, `responsible`, `grounds`, `asserted_at` | the Responsible entity |
+| `responsible-succession` | `record_id`, `old_responsible`, `new_responsible`, `succeeded_at` | the registry and the predecessor Responsible entity |
 | `presentation` | `presenter`, `chain` (grant ids, top first), `observed_at` | the presenter and the relying party |
 
 A signature counts when its `keyid` names a key the registry bound to the signer
@@ -61,6 +68,7 @@ The verifier names the first check that fails.
 | each grant on the chain verifies under its issuer's key | `signature_invalid:grant` | |
 | each grant names the one before it as `parent`, its issuer is that grant's delegate, and the top grant comes from a trusted root | `chain_broken` | UCAN delegation chains |
 | the registry had not retired or revoked the presenter at `observed_at` | `presenter_inactive` | |
+| the registry had not retired or revoked the presenter's `parent`, or any parent above it, at `observed_at`; a recovery or succession of that parent does not carry its sub-agents | `parent_inactive` | proposed |
 | the presenter is the last delegate, or reaches it through links | `presenter_not_delegate` | |
 | every link on that path is signed by the old identifier, the new identifier and the registry | `signature_invalid:link` | |
 | every link on that path is one to one | `link_conflict` | proposed |
@@ -69,12 +77,14 @@ The verifier names the first check that fails.
 | that revocation states its grounds | `revocation_incomplete` | proposed |
 | no dispute of that revocation by an affected principal is still open | `grant_revoked_dispute_open` | proposed |
 | every recovery record that names the presenter as `new` is signed by the registry and the Responsible entity | `signature_invalid:recovery` | proposed |
-| the registry registered both identifiers of that recovery to its Responsible entity with one `software` digest | `recovery_mismatch` | proposed |
+| the registry registered both identifiers of that recovery to its Responsible entity, or the old one to a predecessor that handed over to it, with one `software` digest; succession records are checked the same way | `recovery_mismatch` | proposed |
+| no retired or revoked agent with the presenter's Responsible entity and `software` is left unjoined to the presenter by a succession or recovery record | `succession_unrecorded` | proposed |
 
 A case that passes every check is accepted with `authority_valid`, with
 `authority_valid_via_link` when the presenter holds the grant through a link, or
-with `authority_valid_with_history` when a recovered predecessor left an adverse
-record.
+with `authority_valid_with_history` when a recovered predecessor, or a predecessor
+of the presenter's parent, left an adverse record, or with `authority_valid_with_history_contested` when the Responsible
+entity also asserted that the presenter is a new agent.
 
 Standing, cascade and irreversibility follow the
 [UCAN revocation specification](https://github.com/ucan-wg/revocation): the issuer
@@ -149,6 +159,62 @@ the recovery record, and keep it apart from authority:
 
 Every rule in this section is a proposal with no precedent we know of.
 
+## Succession without a claim
+
+Recovery starts when the Responsible entity asks for continuity. Use case B's
+failure is the opposite: the operator re-registers the same software without
+asking, and the history drops. These cases put the duty on the registry, which
+is the one party that sees both registrations:
+
+- When the registry registers an identifier whose Responsible entity and
+  software attestation digest match an agent it had retired or revoked, it
+  signs a succession record on its own. The Responsible entity's signature is
+  not needed, because the record carries history and never a grant.
+- A presenter whose registration matches a retired or revoked agent, with no
+  succession or recovery record joining them, is refused with
+  `succession_unrecorded`: the namespace dropped its history at registration.
+- A Responsible entity may assert that a matched agent is new. The assertion is
+  recorded with its grounds and can be disputed by its `assertion_id`, but it
+  does not cut the succession: the predecessor's adverse records still resolve,
+  and the acceptance is `authority_valid_with_history_contested`.
+- A recovery may be signed by a successor Responsible entity when a
+  responsible-succession record, signed by the registry and the predecessor,
+  hands the predecessor's agents to it before the recovery. Without that record
+  the recovery does not match.
+
+## Sub-agents
+
+Use case B asks how succession interacts with sub-agents, whose identifiers are
+bound to the parent's lifespan. These cases give one answer, with the binding in
+the registration:
+
+- The registry registers a sub-agent with a `parent`. Its lifespan ends when the
+  registry retires or revokes that parent, or any parent above it, and a
+  presenter whose parent has ended is refused with `parent_inactive`, even when
+  every grant it presents is unrevoked.
+- A sub-agent is bound to one parent identifier. A recovery or succession record
+  that joins the parent to a successor carries history, and neither the
+  parent's grants nor its sub-agents, so a sub-agent of the old parent ends with
+  it.
+- The successor spawns a new sub-agent and grants to it anew. When the new
+  sub-agent runs the same software for the same Responsible entity, the
+  registry records a succession from the old one, as for any agent: a sub-agent
+  that ended with its parent counts as retired, and without that record the new
+  one is refused with `succession_unrecorded`.
+- A succession record carries no grant, so the new sub-agent cannot present the
+  grants made to its predecessor.
+- History follows forward on both lines. The old sub-agent's adverse records
+  resolve from the new one, and the history the successor parent carries from
+  its predecessor appears on its sub-agents' acceptances as
+  `authority_valid_with_history`.
+
+Every rule in this section is a proposal with no precedent we know of. Each
+accepted case has a refused twin.
+
+History continuity and authority stay separate throughout: every succession,
+recovery and hand-over carries records forward, and only a new grant from an
+issuer carries authority.
+
 ## What these cases do not test
 
 Scope narrowing between hops, grant expiry, and whether a grant's issuer was
@@ -157,7 +223,9 @@ covered by [vectors-authority-at-dispatch](../vectors-authority-at-dispatch/READ
 the authority-at-dispatch cases of AAIF Identity and Trust issue 13, which
 judge one dispatch against its delegation chain and share this corpus's
 revocation time rule and its `grant_revoked` refusal. Whether an issuer was
-still active when it signed is tested in neither corpus.
+still active when it signed is tested in neither corpus. Whether a sub-agent
+follows its parent through a link, which the old parent's key signs, is not
+tested here: the sub-agent cases cover recovery and succession only.
 
 ## Keys
 
