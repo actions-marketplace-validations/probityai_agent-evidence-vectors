@@ -1,6 +1,6 @@
 suite: agent-audit-record-conformance
-members: 92
-  accept: 24
-  indeterminate: 2
-  reject: 66
+members: 111
+  accept: 38
+  indeterminate: 1
+  reject: 72
 verdict: every member behaves as MANIFEST.json declares

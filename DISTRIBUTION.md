@@ -27,7 +27,7 @@ Install matching published versions:
 
 ```bash
 go install github.com/probityai/agent-evidence-vectors/cmd/aee-verify@v0.24.0
-uvx agent-evidence-vectors==0.24.0 --verifier "aee-verify --json"
+uvx agent-evidence-vectors==0.24.0 --verifier "aee-verify -validity-only -json"
 ```
 
 Run the same harness from the published release checkout:
@@ -35,7 +35,7 @@ Run the same harness from the published release checkout:
 ```bash
 git clone https://github.com/probityai/agent-evidence-vectors
 cd agent-evidence-vectors && git checkout v0.24.0
-python3 packaging/run_vectors.py --verifier "aee-verify --json"
+python3 packaging/run_vectors.py --verifier "aee-verify -validity-only -json"
 ```
 
 The [runner guide](docs/guides/runner.md) covers the GitHub Action, its inputs and report fields. [Probity Admission](https://github.com/probityai/agent-evidence/tree/main/packages/admission) uses pinned corpora to check policy-engine enforcement.
@@ -81,7 +81,7 @@ Choose a corpus for the format your verifier supports. Each has its own manifest
 | Directory | Suite name in its manifest | What it tests |
 | --- | --- | --- |
 | `vectors/` | `adversarial-execution-evidence-conformance` | the adversarial-execution-evidence predicate this repository vendors, tracked at in-toto/attestation#570 |
-| `vectors-agent-audit-record/` | `agent-audit-record-conformance` | the agent audit record of draft-gilda-wimse-agent-audit-record-02: one member per row of its Appendix B, each carrying its Appendix B identifier, then members for the sentences of Sections 5.3, 5.4 and 5.5 that Appendix B has no row for, covering the canonical form, the request-digest and write-chain recomputes, the derived agreement, the recomputed tier, and whether the decision point could evaluate |
+| `vectors-agent-audit-record/` | `agent-audit-record-conformance` | the agent audit record of draft-gilda-audit-agent-audit-record-00: one member per row of its Appendix B, each carrying its Appendix B identifier, then members for sentences of Section 5.4 that Appendix B has no row for, covering the canonical form, the request-digest and write-chain recomputes, the derived agreement, the recomputed tier, whether the decision point could evaluate and how fresh each input was, and the dating check over a retained record's anchors |
 | `vectors-agent-decision/` | `agent-decision-conformance` | the `args_hash` rule of the agent-decision predicate proposed at in-toto/attestation#554: SHA-256 over the RFC 8785 bytes of the arguments, number forms across the exponent range and the 2^53 - 1 boundary, and an `args_state` that keeps a redacted call apart from an unrecorded one |
 | `vectors-ietf-agent-record-drafts/` | `ietf-agent-record-drafts-conformance` | three SCITT-wave Internet-Drafts: the AgentInteractionRecord hash chain of draft-emirdag-scitt-ai-agent-execution-01, checkpoint registration in draft-mih-scitt-checkpointed-local-log-02, and statement references across equivalent encodings in draft-gruszka-scitt-statement-identification-02; each member records the verdict the draft's own steps reach and what its expected verdict does not assert |
 | `vectors-aci/` | `aci` | the agent capability interface levels and their serialization |

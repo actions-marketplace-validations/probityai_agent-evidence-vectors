@@ -21,10 +21,13 @@ import (
 func init() { register(auditRecord{}) }
 
 // auditRecord judges vectors-agent-audit-record/, the conformance corpus of
-// Appendix B of draft-gilda-wimse-agent-audit-record-02. Section 5.4 is read as
-// its successor, draft-gilda-audit-agent-audit-record-00, states it: every
-// evaluation carries inputs, each entry's age runs from lastResult to
-// decision.reportedAt, and the unavailable inputs are derived from the entries.
+// Appendix B of draft-gilda-audit-agent-audit-record-00, which replaces
+// draft-gilda-wimse-agent-audit-record-02: every evaluation carries inputs,
+// each entry's age runs from lastResult to decision.reportedAt, and the
+// unavailable inputs are derived from the entries. Rows R1 to R9 are retained
+// records, the envelope beside its retention entry, and each is judged twice:
+// the envelope's verdict, and the dating check of Section 4.7.1, reported
+// beside the verdict.
 //
 // It is the Go rail over that corpus, restated from the draft rather than
 // imported from the Python reader at packaging/agent_evidence_vectors/
@@ -102,6 +105,9 @@ const (
 	// arSkewTolerance bounds every comparison between times two parties wrote.
 	arSkewTolerance = 300 * time.Second
 )
+
+// arEvaluationMembers are the only members an evaluation object may carry (EV12).
+var arEvaluationMembers = []string{"status", "inputs", "unavailableInput"}
 
 // arOversightMembers are the only members an oversight object may carry.
 var arOversightMembers = []string{"act", "recordDigest"}
@@ -437,6 +443,7 @@ func arRules(predicateType string) []arRule {
 			}
 			return nil
 		}},
+		{"coverage", arRuleCoverage},
 		{"tier", arRuleTier},
 		{"write-scope", arRuleWriteScope},
 		{"observed", func(s *arState) error {
@@ -628,6 +635,11 @@ func arDeriveUnavailable(pred map[string]any) ([]string, error) {
 // that could not evaluate still reports what it enforced, and this member
 // says why.
 func arRuleEvaluation(s *arState) error {
+	for name := range arObj(s.pred, "evaluation") {
+		if !arContains(arEvaluationMembers, name) {
+			return arRefuse("evaluation-malformed")
+		}
+	}
 	derived, err := arDeriveUnavailable(s.pred)
 	if err != nil {
 		return err
@@ -849,21 +861,39 @@ func arTierFailures(pred map[string]any) []string {
 	if len(scope) == 0 {
 		failed = append(failed, "tier-overclaim-scope")
 	}
-	gapInside := false
-	for _, gap := range arList(pred, "observation.coverage.gaps") {
-		text, _ := gap.(string)
-		if arInAnyScope(text, scope) {
-			gapInside = true
-		}
-	}
-	complete, _ := arAt(pred, "observation.coverage.scopeComplete")
-	if complete != true && gapInside {
+	// Revision 01: the coverage clause holds exactly when scopeComplete is
+	// true (TI4, TI6). Revision 00's clause also held when every gap lay
+	// outside pathScope, which passed TI6.
+	if complete, _ := arAt(pred, "observation.coverage.scopeComplete"); complete != true {
 		failed = append(failed, "tier-overclaim-coverage")
 	}
 	if arStr(pred, "resource.binding") != "digest-bound" {
 		failed = append(failed, "tier-overclaim-binding")
 	}
 	return failed
+}
+
+// arGapInsideScope reports a coverage gap under a member of pathScope, as
+// inScope is derived for a write (Section 5.7).
+func arGapInsideScope(pred map[string]any) bool {
+	scope := arScope(pred)
+	for _, gap := range arList(pred, "observation.coverage.gaps") {
+		text, _ := gap.(string)
+		if arInAnyScope(text, scope) {
+			return true
+		}
+	}
+	return false
+}
+
+// arRuleCoverage refuses a gap inside pathScope beside scopeComplete of true,
+// whatever tier the record declares (V4, V5; revision 01, Section 5.7).
+func arRuleCoverage(s *arState) error {
+	complete, _ := arAt(s.pred, "observation.coverage.scopeComplete")
+	if complete == true && arGapInsideScope(s.pred) {
+		return arRefuse("coverage-inconsistent")
+	}
+	return nil
 }
 
 func arRuleTier(s *arState) error {
@@ -958,6 +988,9 @@ func arRuleFieldEvidence(s *arState) error {
 // ---------------------------------------------------------------------------
 
 type arManifest struct {
+	AnchorTrust struct {
+		TreeHeads []arTreeHeadJSON `json:"treeHeads"`
+	} `json:"anchorTrust"`
 	PredicateType string            `json:"predicateType"`
 	Counts        map[string]int    `json:"counts"`
 	EmptyTree     map[string]string `json:"emptyTree"`
@@ -979,9 +1012,10 @@ type arVector struct {
 	Expected struct {
 		// A pointer, because an indeterminate member must carry no verdict at
 		// all and an absent field has to be told apart from an empty one.
-		Verdict     *string  `json:"verdict"`
-		Codes       []string `json:"codes"`
-		DerivedTier *string  `json:"derivedTier"`
+		Verdict     *string   `json:"verdict"`
+		Codes       []string  `json:"codes"`
+		DerivedTier *string   `json:"derivedTier"`
+		Dating      *arDating `json:"dating"`
 	} `json:"expected"`
 	Readings []struct {
 		Verdict string `json:"verdict"`
@@ -1027,6 +1061,15 @@ func arJudgeMember(dir string, manifest *arManifest, v arVector, byID map[string
 	}
 	if idFromBytes(body) != v.ID {
 		findings = append(findings, label+": identifier does not recompute from the member's own bytes")
+	}
+	if v.Expected.Dating != nil {
+		report, dated := arVerifyRetained(body, manifest.PredicateType, manifest.Keys.Observer.PublicKey,
+			arHeads(manifest), "")
+		findings = append(findings, arDeclaredFindings(label, v, report)...)
+		if !dated.equal(*v.Expected.Dating) {
+			findings = append(findings, fmt.Sprintf("%s: expected dating %+v, got %+v", label, *v.Expected.Dating, dated))
+		}
+		return findings
 	}
 	report := arVerify(body, manifest.PredicateType, manifest.Keys.Observer.PublicKey, "")
 	switch v.Kind {

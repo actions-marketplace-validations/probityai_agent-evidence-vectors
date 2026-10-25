@@ -27,6 +27,13 @@ func arLoad(t *testing.T) (arManifest, map[string][]byte) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if v.Expected.Dating != nil {
+			// A retained member's file is the envelope beside its retention
+			// entry; the record rules judge the envelope.
+			if body, _, err = arUnwrapRetained(body); err != nil {
+				t.Fatal(err)
+			}
+		}
 		bodies[v.ID] = body
 	}
 	return manifest, bodies
@@ -49,9 +56,67 @@ func TestAuditRecordCorpusBehaves(t *testing.T) {
 			t.Errorf("corpus: %s", f)
 		}
 	}
-	if len(result.Members) != 92 {
-		t.Fatalf("expected the 55 Appendix B rows, 16 section members and 21 freshness members, read %d",
-			len(result.Members))
+	// The judge must reach every member the manifest lists, once each; the
+	// expected count is the manifest's own, never a number typed here.
+	manifest, _ := arLoad(t)
+	judged := map[string]int{}
+	for _, m := range result.Members {
+		judged[m.ID]++
+	}
+	for _, v := range manifest.Vectors {
+		if judged[v.ID] != 1 {
+			t.Errorf("%s: judged %d times, want once", v.ID, judged[v.ID])
+		}
+	}
+	if len(result.Members) != len(manifest.Vectors) || len(judged) != len(manifest.Vectors) {
+		t.Fatalf("manifest lists %d members, the judge read %d (%d distinct)",
+			len(manifest.Vectors), len(result.Members), len(judged))
+	}
+}
+
+// TestAuditRecordDatingRulesAreLoadBearing disables one dating rule at a time.
+// Each must move some retained member off its declared dating result, and none
+// may move a retained member's record verdict.
+func TestAuditRecordDatingRulesAreLoadBearing(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(arCorpusDir, ManifestName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest arManifest
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	heads := arHeads(&manifest)
+	key := manifest.Keys.Observer.PublicKey
+	retained := 0
+	for _, name := range arDatingRuleNames() {
+		if name == "entry-envelope-digest" { // no Appendix B row reaches it
+			continue
+		}
+		moved := false
+		for _, v := range manifest.Vectors {
+			if v.Expected.Dating == nil {
+				continue
+			}
+			retained++
+			body, err := os.ReadFile(filepath.Join(arCorpusDir, v.File))
+			if err != nil {
+				t.Fatal(err)
+			}
+			report, dated := arVerifyRetained(body, manifest.PredicateType, key, heads, name)
+			if report.verdict != "valid" {
+				t.Errorf("disabling %s moves %s's verdict to %s", name, v.DraftID, report.verdict)
+			}
+			if !dated.equal(*v.Expected.Dating) {
+				moved = true
+			}
+		}
+		if !moved {
+			t.Errorf("dating rule %s is inert: disabling it moves no retained member", name)
+		}
+	}
+	if retained == 0 {
+		t.Fatal("the corpus carries no retained member")
 	}
 }
 
@@ -180,10 +245,11 @@ func TestAuditRecordClosedSetsAreForced(t *testing.T) {
 	arUnavailableInputs = []string{"standing-source"}
 	got := strings.Join(arFailingDraftIDs(t), ",")
 	arUnavailableInputs = inputs
-	// FR7 names key-source where its fresh entry derives none: still refused,
-	// but at the vocabulary check rather than the pinned set mismatch.
-	if got != "A12,A13,A14,FR7" {
-		t.Errorf("unavailableInput hard-coded to standing-source: failing %q, want A12,A13,A14,FR7", got)
+	// A18 to A20 name policy-source, key-source and consumption-state. FR7
+	// names key-source where its fresh entry derives none: still refused, but
+	// at the vocabulary check rather than the pinned set mismatch.
+	if got != "A12,A13,A14,A18,A19,A20,FR7" {
+		t.Errorf("unavailableInput hard-coded to standing-source: failing %q, want A12,A13,A14,A18,A19,A20,FR7", got)
 	}
 	var acts *[]string
 	for i := range arVocabularies {
