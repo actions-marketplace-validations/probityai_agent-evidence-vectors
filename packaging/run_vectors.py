@@ -145,6 +145,7 @@ from agent_evidence_vectors import (
     observedeffect,
     receiptchainend,
     receiptsignature,
+    recorded,
     sourcecoverage,
     starhint,
     traceanchor,
@@ -3895,6 +3896,7 @@ def _run_non_reference_suite(
         *donerun.SUITES,
         traceanchor.SUITE,
         gradefloor.SUITE,
+        recorded.SUITE,
         changeadmission.SUITE,
         agenticprocess.SUITE,
         a2ajcs.SUITE,
@@ -3924,6 +3926,7 @@ def _run_non_reference_suite(
         **{suite: donerun.runner(suite) for suite in donerun.SUITES},
         traceanchor.SUITE: traceanchor.run,
         gradefloor.SUITE: gradefloor.run,
+        recorded.SUITE: recorded.run,
         changeadmission.SUITE: changeadmission.run,
         agenticprocess.SUITE: agenticprocess.run,
         sourcecoverage.SUITE: sourcecoverage.run_or_refuse,
@@ -5379,6 +5382,9 @@ def main() -> int:
         from agent_evidence_vectors.eval_result.run import main as evalresult_main
 
         return evalresult_main(sys.argv[2:])
+    if len(sys.argv) > 1 and sys.argv[1] == "recorded":
+        # Recorded sets: retained bytes against their publisher's digest list.
+        return recorded.main(sys.argv[2:])
     return rail_main()
 
 
