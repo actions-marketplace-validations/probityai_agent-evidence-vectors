@@ -645,9 +645,15 @@ def aggregate_values(values: list[dict[str, Any]]) -> dict[str, Any]:
     if never:
         return {"lastResult": NEVER_HELD, "maxAge": min(v["maxAge"] for v in never)}
 
-    def expiry(v: dict[str, Any]) -> tuple[datetime.datetime, datetime.datetime]:
-        produced = _instant(v["lastResult"])
-        return produced + datetime.timedelta(seconds=v["maxAge"]), produced
+    epoch = datetime.datetime(1970, 1, 1, tzinfo=datetime.UTC)
+
+    def expiry(v: dict[str, Any]) -> tuple[int, int]:
+        # A valid maxAge may put expiry beyond datetime's calendar range.
+        # Subtract aware instants instead of normalizing to a UTC datetime;
+        # an offset at the calendar boundary can put that date out of range too.
+        elapsed = _instant(v["lastResult"]) - epoch
+        produced = (elapsed.days * 86400 + elapsed.seconds) * 1_000_000 + elapsed.microseconds
+        return produced + v["maxAge"] * 1_000_000, produced
 
     chosen = min(values, key=expiry)
     return {"lastResult": chosen["lastResult"], "maxAge": chosen["maxAge"]}
