@@ -66,7 +66,7 @@ var arVocabularies = []struct {
 }{
 	{"tier", []string{"voluntary", "authoritative"}},
 	{"hashAlgorithm", []string{"sha256"}},
-	{"agent.authentication", []string{"wimse-wpt", "http-message-signature", "mtls", "oauth-access-token", "none"}},
+	{"agent.authentication", []string{"wimse-wpt", "http-message-signature", "mtls", "oauth-access-token", "api-key", "none"}},
 	{"delegation.subjectKind", []string{"user", "system", "none"}},
 	{"resource.kind", []string{"path", "uri", "tool"}},
 	{"resource.binding", []string{"digest-bound", "not-bindable"}},
@@ -98,6 +98,43 @@ var arUnavailableInputs = []string{"standing-source", "key-source", "consumption
 // arEntryMembers are the three members an evaluation entry carries, each
 // required, and no other.
 var arEntryMembers = []string{"input", "lastResult", "maxAge"}
+
+// arEntryOptional is the one member an entry may carry beside them, and only on
+// a consumption-state entry (Section 5.4 of revision 01): the cumulative-limit
+// state the decision point read.
+var arEntryOptional = []string{"consumption"}
+
+const arConsumptionInput = "consumption-state"
+
+// arConsumptionMembers are the members of consumption, each required, and no
+// other. arConsumptionCounts are the non-negative integers among them, in the
+// smallest subunit of unit.
+var (
+	arConsumptionMembers = []string{"limitDigest", "unit", "limit", "consumed", "reserved",
+		"requested", "held", "stateRevision"}
+	arConsumptionCounts = []string{"limit", "consumed", "reserved", "requested", "stateRevision"}
+	arHeldMembers       = []string{"operationKey", "requestDigest", "amount"}
+)
+
+// arConsumptionChecks names the sentences of the consumption rule so a test can
+// weaken one at a time: where the member sits, that reserved is the held sum,
+// that held keys are distinct, that the call carries its operation key, that
+// counts are non-negative integers, that stateRevision is required, and that
+// one key is one request.
+var arConsumptionChecks = map[string]bool{
+	"misplaced": true, "reserved": true, "distinct-keys": true, "operation-key": true,
+	"counts": true, "state-revision": true, "key-reuse": true,
+}
+
+// arRetryOf says whether a held entry is the one this call retries. Retry
+// identity is the agent's operation key and nothing else: a request digest is
+// a content digest, so two intended payments with the same action, arguments
+// and resource share one (CS11, CS12). It is a variable so a test can ask what
+// a reader keyed on the request digest would do.
+var arRetryOf = func(held, decision map[string]any) bool {
+	key, carried := decision["operationKey"].(string)
+	return carried && held["operationKey"] == key
+}
 
 const (
 	// arNeverHeld is the lastResult of an input the decision point never held.
@@ -398,6 +435,8 @@ func arRules(predicateType string) []arRule {
 		{"closed-vocabularies", arRuleVocabularies},
 		{"evaluation", arRuleEvaluation},
 		{"oversight", arRuleOversight},
+		{"sequence", arRuleSequence},
+		{"consumption", arRuleConsumption},
 		{"delegation", func(s *arState) error {
 			if arStr(s.pred, "delegation.subjectKind") == "none" && arStr(s.pred, "delegation.subject") != "none" {
 				return arRefuse("delegation-subject-inconsistent")
@@ -602,8 +641,10 @@ func arDeriveUnavailable(pred map[string]any) ([]string, error) {
 		if !arHasAll(entry, arEntryMembers) {
 			return nil, arRefuse("member-missing")
 		}
-		if len(entry) != len(arEntryMembers) {
-			return nil, arRefuse("evaluation-entry-malformed")
+		for member := range entry {
+			if !arContains(arEntryMembers, member) && !arContains(arEntryOptional, member) {
+				return nil, arRefuse("evaluation-entry-malformed")
+			}
 		}
 		name, _ := entry["input"].(string)
 		if !arContains(arEvaluationInputs, name) {
@@ -989,7 +1030,8 @@ func arRuleFieldEvidence(s *arState) error {
 
 type arManifest struct {
 	AnchorTrust struct {
-		TreeHeads []arTreeHeadJSON `json:"treeHeads"`
+		TreeHeads    []arTreeHeadJSON    `json:"treeHeads"`
+		BlockHeaders []arBlockHeaderJSON `json:"blockHeaders"`
 	} `json:"anchorTrust"`
 	PredicateType string            `json:"predicateType"`
 	Counts        map[string]int    `json:"counts"`
@@ -1016,6 +1058,13 @@ type arVector struct {
 		Codes       []string  `json:"codes"`
 		DerivedTier *string   `json:"derivedTier"`
 		Dating      *arDating `json:"dating"`
+		WithinLimit *bool     `json:"withinLimit"`
+		Set         *struct {
+			Verdict     string       `json:"verdict"`
+			Codes       []string     `json:"codes"`
+			WithinLimit []*bool      `json:"withinLimit"`
+			Missing     []arSeqPoint `json:"missing"`
+		} `json:"set"`
 	} `json:"expected"`
 	Readings []struct {
 		Verdict string `json:"verdict"`
@@ -1071,10 +1120,16 @@ func arJudgeMember(dir string, manifest *arManifest, v arVector, byID map[string
 		}
 		return findings
 	}
+	if v.Expected.Set != nil {
+		return append(findings, arSetFindings(label, manifest, v, body)...)
+	}
 	report := arVerify(body, manifest.PredicateType, manifest.Keys.Observer.PublicKey, "")
 	switch v.Kind {
 	case "accept", "reject":
 		findings = append(findings, arDeclaredFindings(label, v, report)...)
+		if v.Kind == "accept" {
+			findings = append(findings, arLimitFindings(label, v, body)...)
+		}
 	case "indeterminate":
 		var allowed []string
 		for _, reading := range v.Readings {

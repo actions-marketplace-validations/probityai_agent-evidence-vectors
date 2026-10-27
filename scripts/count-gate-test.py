@@ -1201,6 +1201,15 @@ ACCEPT_CASES: list[Case] = [
         ("are accounted for",),
     ),
     (
+        "a protocol constant that equals a registered corpus total is not a count",
+        lambda root: append(
+            root,
+            "BUILD-NOTES.md",
+            "\nJSON nesting depth is bounded at 128 and the shell reports 128 plus the signal.\n",
+        ),
+        ("are accounted for",),
+    ),
+    (
         "a numbered rule is an identifier, not a count",
         lambda root: append(
             root,

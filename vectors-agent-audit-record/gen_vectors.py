@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import base64
 import copy
+import datetime
 import hashlib
 import json
 import os
@@ -325,6 +326,7 @@ def envelope(payload: bytes) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 Built = dict[str, Any]
+ConsumptionRow = tuple[str, str, str | None, str, Callable[[], Built], str, list[str], bool | None]
 Member = dict[str, Any]
 MEMBERS: list[Member] = []
 PREDICATES: dict[str, dict[str, Any]] = {}
@@ -344,6 +346,8 @@ def member(
     dating: dict[str, Any] | None = None,
     revision: str | None = None,
     aggregation: dict[str, Any] | None = None,
+    within: bool | None = None,
+    joint: dict[str, Any] | None = None,
 ) -> None:
     if (verdict is None) == (readings is None):
         raise SystemExit(
@@ -370,6 +374,8 @@ def member(
             "dating": dating,
             "revision": revision,
             "aggregation": aggregation,
+            "within": within,
+            "joint": joint,
         }
     )
 
@@ -1507,6 +1513,8 @@ def define() -> None:
     define_freshness()
     define_retained()
     define_revision_01()
+    define_consumption()
+    define_audit_next()
     rank = {draft_id: i for i, draft_id in enumerate(ORDER)}
     missing = [m["draftId"] for m in MEMBERS if m["draftId"] not in rank]
     if missing or len(rank) != len(MEMBERS):
@@ -1885,6 +1893,519 @@ def define_revision_01() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Consumption binding (Section 5.4 of revision 01): rows CS1 to CS17.
+#
+# A decision under a cumulative limit carries decision.operationKey, the
+# agent's identifier for one intended operation, and its consumption-state
+# entry carries the consumption member. Retry identity is the operation key,
+# never the request digest: a request digest is a content digest, so two
+# identical intended payments share one and the second must still be counted.
+# The worked numbers are a limit of 50000 pence with 30000 consumed and a
+# request of 12000 (probityai/agent-evidence-vectors#213).
+# ---------------------------------------------------------------------------
+
+CS_LIMIT_DOCUMENT = h("limit/spend-limit-document")
+CS_OTHER_LIMIT_DOCUMENT = h("limit/limit-document-named-by-the-authority")
+CS_HELD_REQUEST = h("request/the-first-call-as-the-held-entry-recorded-it")
+OP_R1, OP_R2, OP_R3 = "urn:example:op:r1", "urn:example:op:r2", "urn:example:op:r3"
+CONSUMPTION_ENTRY = 2
+
+
+def held_entry(key: str, request_digest: str, amount: int) -> dict[str, Any]:
+    return {"operationKey": key, "requestDigest": request_digest, "amount": amount}
+
+
+def consumption_pred(
+    *,
+    key: str = OP_R1,
+    consumed: int = 30000,
+    requested: int = 12000,
+    held: list[dict[str, Any]] | None = None,
+    revision: int = 41,
+    limit_digest: str = CS_LIMIT_DOCUMENT,
+) -> dict[str, Any]:
+    """The baseline decision under a 50000 GBP pence limit, carrying its operation
+    key and the consumption it read."""
+    pred = baseline()
+    held = held or []
+    pred["decision"]["operationKey"] = key
+    state = entry("consumption-state", "2026-09-19T11:04:00Z", 60)
+    state["consumption"] = {
+        "limitDigest": limit_digest,
+        "unit": "GBP",
+        "limit": 50000,
+        "consumed": consumed,
+        "reserved": sum(item["amount"] for item in held),
+        "requested": requested,
+        "held": held,
+        "stateRevision": revision,
+    }
+    pred["evaluation"]["inputs"] = baseline_inputs() + [state]
+    return pred
+
+
+def _consumption(pred: dict[str, Any]) -> dict[str, Any]:
+    found: dict[str, Any] = pred["evaluation"]["inputs"][CONSUMPTION_ENTRY]["consumption"]
+    return found
+
+
+def cs_root(name: str, **knobs: Any) -> Callable[[], Built]:
+    def build() -> Built:
+        return accept(name, consumption_pred(**knobs))
+
+    return build
+
+
+def cs_from(
+    parent: str, name: str, change: Callable[[dict[str, Any]], None]
+) -> Callable[[], Built]:
+    def build() -> Built:
+        pred = from_pred(parent)
+        change(pred)
+        return accept(name, pred)
+
+    return build
+
+
+def _cs4(pred: dict[str, Any]) -> None:
+    """The retry: the held entry is this call's own key and request digest."""
+    state = _consumption(pred)
+    state["held"] = [held_entry(OP_R1, pred["decision"]["requestDigest"], 12000)]
+    state["reserved"] = 12000
+    state["stateRevision"] = 42
+
+
+def _cs3(pred: dict[str, Any]) -> None:
+    _consumption(pred)["reserved"] = 12000
+
+
+def _cs10(pred: dict[str, Any]) -> None:
+    _consumption(pred)["held"][0]["requestDigest"] = CS_HELD_REQUEST
+
+
+def _cs11(pred: dict[str, Any]) -> None:
+    pred["decision"]["operationKey"] = OP_R2
+    _consumption(pred)["consumed"] = 20000
+
+
+def _cs13(pred: dict[str, Any]) -> None:
+    state = _consumption(pred)
+    digest_ = state["held"][0]["requestDigest"]
+    state["held"] = [held_entry(OP_R1, digest_, 12000), held_entry(OP_R1, digest_, 12000)]
+    state["reserved"] = 24000
+
+
+def _cs6(pred: dict[str, Any]) -> None:
+    pred["evaluation"]["inputs"][0]["consumption"] = copy.deepcopy(_consumption(pred))
+
+
+def _second_operation(
+    *,
+    key: str,
+    revision: int,
+    same_request: bool,
+    held: list[dict[str, Any]] | None = None,
+    consumed: int = 30000,
+    requested: int = 12000,
+    record: str,
+) -> dict[str, Any]:
+    pred = consumption_pred(
+        key=key, revision=revision, held=held, consumed=consumed, requested=requested
+    )
+    pred["recordId"] = f"urn:example:record:{record}"
+    if not same_request:
+        pred["resource"]["argumentsDigest"] = h("arguments/settlements-append-second")
+        rebind_request(pred)
+    seal_commitment(pred)
+    return pred
+
+
+def cs_set(
+    name: str, build_second: Callable[[dict[str, Any]], dict[str, Any]], first: str = "CS4"
+) -> Callable[[], Built]:
+    """A set member: two records under one limitDigest, the first a member of the
+    corpus in its own right, the second built from the first."""
+
+    def build() -> Built:
+        a = from_pred(first)
+        b = build_second(a)
+        PREDICATES[name] = copy.deepcopy(b)
+        return {"set": [signed(a)["payload"], signed(b)["payload"]]}
+
+    return build
+
+
+def _stale_second(same_request: bool) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    def second(_first: dict[str, Any]) -> dict[str, Any]:
+        return _second_operation(
+            key=OP_R2, revision=41, same_request=same_request, record="cs-second"
+        )
+
+    return second
+
+
+def _release_pair(name: str) -> Callable[[], Built]:
+    """CS8: the first record reads revision 42 with the first call held; the
+    second reads revision 43 and no longer holds it, and no record of that
+    operation is in the set."""
+
+    def build() -> Built:
+        held = [held_entry(OP_R1, CS_HELD_REQUEST, 12000)]
+        a = _second_operation(
+            key=OP_R2,
+            revision=42,
+            same_request=False,
+            held=held,
+            requested=5000,
+            record="cs8-first",
+        )
+        b = _second_operation(
+            key=OP_R3,
+            revision=43,
+            same_request=False,
+            consumed=35000,
+            requested=5000,
+            record="cs8-second",
+        )
+        PREDICATES[name] = copy.deepcopy(b)
+        return {"set": [signed(a)["payload"], signed(b)["payload"]]}
+
+    return build
+
+
+def define_consumption() -> None:
+    rows: list[ConsumptionRow] = [
+        (
+            "CS1",
+            "cs1-within-limit-nothing-held",
+            None,
+            "a consumption entry under a limit of 50000: consumed 30000, nothing held, requested "
+            "12000, so 42000 of 50000",
+            cs_root("CS1"),
+            "valid",
+            [],
+            True,
+        ),
+        (
+            "CS2",
+            "cs2-beyond-limit-permit",
+            "CS1",
+            "CS1 with requested 25000, 55000 of 50000, still a permit: valid and findable, a "
+            "decision point exceeding its authority",
+            cs_from("CS1", "CS2", lambda p: _consumption(p).update(requested=25000)),
+            "valid",
+            [],
+            False,
+        ),
+        (
+            "CS3",
+            "cs3-reserved-not-the-held-sum",
+            "CS1",
+            "CS1 with reserved 12000 and nothing held",
+            mutate("CS1", _cs3),
+            "malformed",
+            ["consumption-reserved-mismatch"],
+            None,
+        ),
+        (
+            "CS4",
+            "cs4-retry-not-counted-twice",
+            "CS1",
+            "the retry of the first call: operationKey and requestDigest equal a held entry of "
+            "12000, within the limit (42000) only because it is not counted twice",
+            cs_from("CS1", "CS4", _cs4),
+            "valid",
+            [],
+            True,
+        ),
+        (
+            "CS5",
+            "cs5-negative-requested",
+            "CS1",
+            "CS1 with requested of -1",
+            mutate("CS1", lambda p: _consumption(p).update(requested=-1)),
+            "malformed",
+            ["consumption-value-invalid"],
+            None,
+        ),
+        (
+            "CS6",
+            "cs6-consumption-on-a-policy-source-entry",
+            "CS1",
+            "CS1 with the consumption member also on the policy-source entry",
+            mutate("CS1", _cs6),
+            "malformed",
+            ["consumption-misplaced"],
+            None,
+        ),
+        (
+            "CS9",
+            "cs9-no-state-revision",
+            "CS1",
+            "CS1 with stateRevision removed",
+            mutate("CS1", lambda p: _consumption(p).pop("stateRevision")),
+            "malformed",
+            ["member-missing"],
+            None,
+        ),
+        (
+            "CS10",
+            "cs10-held-key-with-another-request",
+            "CS4",
+            "CS4 with the held entry's requestDigest another request's: one operation key "
+            "reused for a different request",
+            mutate("CS4", _cs10),
+            "malformed",
+            ["consumption-key-reused"],
+            None,
+        ),
+        (
+            "CS11",
+            "cs11-new-operation-same-request-within-limit",
+            "CS4",
+            "CS4 under another operationKey with consumed 20000: the same intended payment "
+            "again, a new operation counted (20000 + 12000 + 12000 = 44000 of 50000)",
+            cs_from("CS4", "CS11", _cs11),
+            "valid",
+            [],
+            True,
+        ),
+        (
+            "CS12",
+            "cs12-new-operation-same-request-beyond-limit",
+            "CS4",
+            "CS4 under another operationKey: counted it is 54000 of 50000, and read as a retry "
+            "of the held call it would be 42000",
+            cs_from("CS4", "CS12", lambda p: p["decision"].update(operationKey=OP_R2)),
+            "valid",
+            [],
+            False,
+        ),
+        (
+            "CS13",
+            "cs13-two-held-entries-one-key",
+            "CS4",
+            "CS4 with two held entries under one operationKey, 12000 each, summing to reserved",
+            mutate("CS4", _cs13),
+            "malformed",
+            ["consumption-held-key-repeated"],
+            None,
+        ),
+        (
+            "CS14",
+            "cs14-no-operation-key",
+            "CS1",
+            "CS1 with decision.operationKey removed",
+            mutate("CS1", lambda p: p["decision"].pop("operationKey")),
+            "malformed",
+            ["member-missing"],
+            None,
+        ),
+        (
+            "CS15",
+            "cs15-limit-document-differs-from-authority",
+            "CS1",
+            "CS1 with limitDigest the digest of a limit document the authority names: not "
+            "delegation.authorityDigest, and valid",
+            cs_from(
+                "CS1", "CS15", lambda p: _consumption(p).update(limitDigest=CS_OTHER_LIMIT_DOCUMENT)
+            ),
+            "valid",
+            [],
+            True,
+        ),
+        (
+            "CS16",
+            "cs16-limit-document-is-the-authority",
+            "CS1",
+            "CS1 with limitDigest equal to delegation.authorityDigest, the authority document "
+            "stating the limit itself",
+            cs_from(
+                "CS1",
+                "CS16",
+                lambda p: _consumption(p).update(limitDigest=p["delegation"]["authorityDigest"]),
+            ),
+            "valid",
+            [],
+            True,
+        ),
+    ]
+    for draft_id, slug, parent, row, build, verdict, codes, within in rows:
+        member(
+            draft_id,
+            slug,
+            parent,
+            row,
+            build,
+            verdict,
+            codes,
+            tier="authoritative" if verdict == "valid" else None,
+            revision=REVISION_01,
+            within=within,
+        )
+    sets = [
+        (
+            "CS7",
+            "cs7-set-stale-revision-omits-held",
+            _stale_second(False),
+            "the retry of the first call, which reads revision 42 and holds it, then a new "
+            "operation that reads revision 41, omits the held call and is permitted: each record "
+            "valid, the pair spends the limit twice",
+            "consumption-set-stale-revision",
+        ),
+        (
+            "CS17",
+            "cs17-set-stale-revision-identical-request",
+            _stale_second(True),
+            "CS7 where the second operation is the same intended payment, an identical "
+            "requestDigest under another operationKey: the set still fails, so the check keys on "
+            "the operation key and not on the request digest",
+            "consumption-set-stale-revision",
+        ),
+    ]
+    for draft_id, slug, second, row, code in sets:
+        member(
+            draft_id,
+            slug,
+            "CS4",
+            row,
+            cs_set(draft_id, second),
+            "valid",
+            tier="authoritative",
+            revision=REVISION_01,
+            joint={"verdict": "malformed", "codes": [code], "withinLimit": [True, True]},
+        )
+    member(
+        "CS8",
+        "cs8-set-release-without-a-none-record",
+        None,
+        "a record reading revision 42 holds an earlier call; the next, reading revision 43, "
+        "no longer holds it, and no record of that operation shows none or occurred: each "
+        "record valid, the release is unexplained",
+        _release_pair("CS8"),
+        "valid",
+        tier="authoritative",
+        revision=REVISION_01,
+        joint={
+            "verdict": "malformed",
+            "codes": ["consumption-set-release-unshown"],
+            "withinLimit": [True, True],
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Rows of revision 01 that follow the consumption rows: A21 (Section 5.2,
+# agent.authentication of api-key) and SQ1 to SQ5 (the sequence member).
+# ---------------------------------------------------------------------------
+
+
+SERIES = "urn:example:series:observer-1"
+
+
+def derived(
+    name: str, parent: str, change: Callable[[dict[str, Any]], None]
+) -> Callable[[], Built]:
+    """A member built from its parent's predicate and kept as a parent itself."""
+
+    def build() -> Built:
+        pred = from_pred(parent)
+        change(pred)
+        return accept(name, pred)
+
+    return build
+
+
+def _sequence(seq: int, **extra: Any) -> Callable[[dict[str, Any]], None]:
+    return _set("sequence", {"boundary": SERIES, "seq": seq, **extra})
+
+
+def sequence_set(seqs: list[int]) -> Callable[[], Built]:
+    """A set member: SQ1, then one further record of its series per seq, each
+    its own record (recordId differs, so its commitment is sealed again)."""
+
+    def build() -> Built:
+        records = [from_pred("SQ1")]
+        for index, seq in enumerate(seqs):
+            pred = from_pred("SQ1")
+            pred["recordId"] = f"{RECORD_ID}:series-{index + 2}"
+            pred["sequence"]["seq"] = seq
+            seal_commitment(pred)
+            records.append(pred)
+        return {"set": [signed(pred)["payload"] for pred in records]}
+
+    return build
+
+
+def define_audit_next() -> None:
+    member(
+        "A21",
+        "a21-authentication-api-key",
+        "A1",
+        "A1 with agent.authentication of api-key, a bearer secret presented with the request "
+        "that is not an OAuth access token; authentication is outside the request digest",
+        mutate("A1", _set("agent.authentication", "api-key")),
+        "valid",
+        tier="authoritative",
+        revision=REVISION_01,
+    )
+    member(
+        "SQ1",
+        "sq1-sequence-first-of-series",
+        "A1",
+        "A1 with sequence carrying a boundary and a seq of 1, the first record of its series",
+        derived("SQ1", "A1", _sequence(1)),
+        "valid",
+        tier="authoritative",
+        revision=REVISION_01,
+    )
+    member(
+        "SQ2",
+        "sq2-sequence-undefined-member",
+        "SQ1",
+        "sequence carrying a count member this document does not define",
+        mutate("SQ1", _sequence(1, count=3)),
+        "malformed",
+        ["sequence-malformed"],
+        revision=REVISION_01,
+    )
+    member(
+        "SQ3",
+        "sq3-sequence-seq-zero",
+        "SQ1",
+        "sequence with a seq of 0",
+        mutate("SQ1", _sequence(0)),
+        "malformed",
+        ["sequence-malformed"],
+        revision=REVISION_01,
+    )
+    member(
+        "SQ4",
+        "sq4-set-sequence-gap",
+        "SQ1",
+        "records of one series with seq 1 and 3 held, seq 2 not held: each record valid, "
+        "the set names seq 2 as issued and not received",
+        sequence_set([3]),
+        "valid",
+        tier="authoritative",
+        revision=REVISION_01,
+        joint={"verdict": "valid", "codes": [], "missing": [{"boundary": SERIES, "seq": 2}]},
+    )
+    member(
+        "SQ5",
+        "sq5-set-sequence-duplicate",
+        "SQ1",
+        "two records of one series with seq 1 and different envelope digests: each record "
+        "valid, the set fails the check",
+        sequence_set([1]),
+        "valid",
+        tier="authoritative",
+        revision=REVISION_01,
+        joint={"verdict": "malformed", "codes": ["sequence-duplicate"]},
+    )
+
+
+# ---------------------------------------------------------------------------
 # Retained records (Section 4.7, rows R1 to R9).
 #
 # A retained record is A1's envelope beside the retention entry a retaining
@@ -1996,10 +2517,10 @@ def log_anchor(
     }
 
 
-def _jwk_set(public: bytes) -> bytes:
+def _jwk_set(public: bytes, kid: str = OBSERVER_KEYID) -> bytes:
     key = {
         "crv": "Ed25519",
-        "kid": OBSERVER_KEYID,
+        "kid": kid,
         "kty": "OKP",
         "x": base64.urlsafe_b64encode(public).rstrip(b"=").decode(),
     }
@@ -2008,6 +2529,166 @@ def _jwk_set(public: bytes) -> bytes:
 
 def a1_envelope() -> dict[str, Any]:
     return envelope(signed(from_pred("A1"))["payload"])
+
+
+# --- OpenTimestamps anchors (Section 4.7.2, rows R10 to R12 and R16) ---------
+#
+# An opentimestamps anchor's proof is the base64 of a DetachedTimestampFile over
+# envelopeDigest: the magic, version 1, the sha256 file-hash op, the digest
+# bytes, then a timestamp tree of commitment operations ending in attestations.
+# A Bitcoin attestation names a block height, and the proof validates when the
+# message it attests is the Merkle root of the header at that height that the
+# manifest's anchorTrust.blockHeaders holds. Those are 80-byte headers of a test
+# chain, pinned bytes in this corpus so nothing is fetched at verify time; the
+# anchor's time is the header's time field.
+
+OTS_MAGIC = bytes.fromhex("004f70656e54696d657374616d7073000050726f6f6600bf89e2e884e89294")
+OTS_BITCOIN = bytes.fromhex("0588960d73d71901")
+OTS_PENDING = bytes.fromhex("83dfe30d2ef90c8e")
+SHA256_OP: tuple[str, bytes] = ("sha256", b"")
+BLOCK_HEADERS: list[dict[str, Any]] = []
+ROOT_KEY = Ed25519PrivateKey.from_private_bytes(bytes.fromhex("00" * 31 + "55"))
+OTHER_ROOT_KEY = Ed25519PrivateKey.from_private_bytes(bytes.fromhex("00" * 31 + "66"))
+
+
+def varuint(n: int) -> bytes:
+    out = bytearray()
+    while True:
+        low, n = n & 0x7F, n >> 7
+        out.append(low | 0x80 if n else low)
+        if not n:
+            return bytes(out)
+
+
+def varbytes(data: bytes) -> bytes:
+    return varuint(len(data)) + data
+
+
+def ots_apply(message: bytes, ops: list[tuple[str, bytes]]) -> bytes:
+    for op, arg in ops:
+        if op == "sha256":
+            message = hashlib.sha256(message).digest()
+        elif op == "append":
+            message = message + arg
+        else:
+            message = arg + message
+    return message
+
+
+def _ots_chain(ops: list[tuple[str, bytes]], tag: bytes, payload: bytes) -> bytes:
+    codes = {"sha256": b"\x08", "append": b"\xf0", "prepend": b"\xf1"}
+    out = b""
+    for op, arg in ops:
+        out += codes[op] + (varbytes(arg) if op != "sha256" else b"")
+    return out + b"\x00" + tag + varbytes(payload)
+
+
+def ots_proof(
+    digest_bytes: bytes, branches: list[tuple[list[tuple[str, bytes]], bytes, bytes]]
+) -> str:
+    """A DetachedTimestampFile whose timestamp holds each branch as one chain of
+    operations from the digest to its attestation."""
+    body = b"".join(
+        (b"\xff" if i < len(branches) - 1 else b"") + _ots_chain(*branch)
+        for i, branch in enumerate(branches)
+    )
+    raw = OTS_MAGIC + varuint(1) + b"\x08" + digest_bytes + body
+    return base64.b64encode(raw).decode()
+
+
+def _unix(moment: str) -> int:
+    return int(
+        datetime.datetime.strptime(moment, "%Y-%m-%dT%H:%M:%SZ")
+        .replace(tzinfo=datetime.UTC)
+        .timestamp()
+    )
+
+
+def hold_block(height: int, merkle_root: bytes, timestamp: str) -> None:
+    """Pin the 80 bytes of a test block header carrying ``merkle_root``."""
+    header = (
+        (0x20000000).to_bytes(4, "little")
+        + bytes.fromhex(h(f"block/{height - 1}"))
+        + merkle_root
+        + _unix(timestamp).to_bytes(4, "little")
+        + bytes.fromhex("ffff001d")
+        + (height).to_bytes(4, "little")
+    )
+    BLOCK_HEADERS.append({"height": height, "header": header.hex()})
+
+
+def calendar_ops(label: str) -> list[tuple[str, bytes]]:
+    """A calendar's commitment: a nonce appended and hashed, then one sibling."""
+    return [
+        ("append", bytes.fromhex(h(f"ots/{label}/nonce"))[:16]),
+        SHA256_OP,
+        ("prepend", bytes.fromhex(h(f"ots/{label}/calendar-sibling"))),
+        SHA256_OP,
+    ]
+
+
+def block_ops(label: str, levels: int = 2) -> list[tuple[str, bytes]]:
+    """A transaction carrying the message, then its path up the block's Merkle tree."""
+    ops: list[tuple[str, bytes]] = [
+        ("prepend", bytes.fromhex(h(f"ots/{label}/tx-prefix"))[:24]),
+        ("append", bytes.fromhex(h(f"ots/{label}/tx-suffix"))[:12]),
+        SHA256_OP,
+        SHA256_OP,
+    ]
+    for level in range(levels):
+        side = "append" if level % 2 == 0 else "prepend"
+        ops += [(side, bytes.fromhex(h(f"ots/{label}/block-level-{level}"))), SHA256_OP, SHA256_OP]
+    return ops
+
+
+def ots_anchor(
+    label: str,
+    logged: bytes,
+    height: int,
+    timestamp: str,
+    *,
+    prefix: list[tuple[str, bytes]] | None = None,
+) -> dict[str, Any]:
+    """A complete opentimestamps anchor of origin retainer, and its held block."""
+    ops = (prefix if prefix is not None else calendar_ops(label)) + block_ops(label)
+    hold_block(height, ots_apply(logged, ops), timestamp)
+    return {
+        "kind": "opentimestamps",
+        "origin": "retainer",
+        "proof": ots_proof(logged, [(ops, OTS_BITCOIN, varuint(height))]),
+    }
+
+
+def ots_pending(label: str, logged: bytes) -> dict[str, Any]:
+    """A pending proof: the calendar's commitment and its promise, no block."""
+    uri = varbytes(b"https://calendar.example/" + label.encode())
+    return {
+        "kind": "opentimestamps",
+        "origin": "retainer",
+        "proof": ots_proof(logged, [(calendar_ops(label), OTS_PENDING, uri)]),
+    }
+
+
+ROOT_JWKS = _jwk_set(raw_public(ROOT_KEY), hashlib.sha256(raw_public(ROOT_KEY)).hexdigest()[:32])
+OTHER_ROOT_JWKS = _jwk_set(
+    raw_public(OTHER_ROOT_KEY), hashlib.sha256(raw_public(OTHER_ROOT_KEY)).hexdigest()[:32]
+)
+
+
+def rooted_envelope() -> dict[str, Any]:
+    """A1 for a decision that rested on a delegation chain: delegation.rootDigest
+    is the digest of the root key set the chain verifier held."""
+    pred = from_pred("A1")
+    pred["delegation"]["rootDigest"] = hashlib.sha256(ROOT_JWKS).hexdigest()
+    return envelope(signed(pred)["payload"])
+
+
+def root_element(material: bytes) -> dict[str, Any]:
+    return {
+        "for": "delegation-root",
+        "mediaType": "application/jwk-set+json",
+        "value": base64.b64encode(material).decode(),
+    }
 
 
 def envelope_digest(env: dict[str, Any]) -> str:
@@ -2036,13 +2717,17 @@ RETENTIONS: dict[str, dict[str, Any]] = {}
 
 
 def retained(
-    name: str, change: Callable[[dict[str, Any], bytes], None], parent: str | None = None
+    name: str,
+    change: Callable[[dict[str, Any], bytes], None],
+    parent: str | None = None,
+    make_envelope: Callable[[], dict[str, Any]] = a1_envelope,
 ) -> Callable[[], Built]:
-    """Build R<n>: A1's envelope beside a retention entry. A root member starts
-    from an empty entry; a member with a parent starts from that parent's."""
+    """Build R<n>: an envelope, A1's unless ``make_envelope`` names another,
+    beside a retention entry. A root member starts from an empty entry; a member
+    with a parent starts from that parent's."""
 
     def build() -> Built:
-        env = a1_envelope()
+        env = make_envelope()
         logged = bytes.fromhex(envelope_digest(env))
         if parent is None:
             entry_ = retention_entry(env, received=False)
@@ -2103,13 +2788,60 @@ def dating(
     entry_: str = "well-formed",
     code: str | None = None,
     receipt: str | None = None,
+    delegation_root: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """expected.dating. Every member reports the delegation root, and a record
+    with no delegation.rootDigest reports it not established."""
     out: dict[str, Any] = {"entry": entry_, "codes": [code] if code else []}
     if dated_at is not None:
         out["datedAt"] = dated_at
     if receipt is not None:
         out["receipt"] = receipt
+    out["delegationRoot"] = delegation_root or {"result": "not-established"}
     return out
+
+
+def _r10(entry_: dict[str, Any], logged: bytes) -> None:
+    entry_["anchors"][1] = ots_anchor("r10", logged, 880011, "2026-09-19T10:54:30Z")
+
+
+def _r11(entry_: dict[str, Any], logged: bytes) -> None:
+    entry_["anchors"][1] = ots_anchor("r11", logged, 880000, "2026-09-19T09:04:29Z")
+
+
+def _r12(entry_: dict[str, Any], logged: bytes) -> None:
+    entry_["anchorWithin"] = 3600
+    entry_["anchors"] = [
+        ots_pending("r12", logged),
+        ots_anchor("r12", logged, 880016, "2026-09-19T11:40:00Z"),
+    ]
+
+
+def _r16(entry_: dict[str, Any], logged: bytes) -> None:
+    """The retaining party's own Merkle tree over four envelope digests, its root
+    carried in a Bitcoin transaction, the transaction in a block."""
+    leaves = [logged] + [bytes.fromhex(h(f"r16/batch-{i}")) for i in range(1, 4)]
+    pair = hashlib.sha256(leaves[2] + leaves[3]).digest()
+    tree = [("append", leaves[1]), SHA256_OP, ("append", pair), SHA256_OP]
+    entry_["anchorWithin"] = 3600
+    entry_["anchors"] = [ots_anchor("r16", logged, 880015, "2026-09-19T11:30:00Z", prefix=tree)]
+
+
+def _r13(entry_: dict[str, Any], logged: bytes) -> None:
+    entry_["anchors"] = [log_anchor("r13", "retainer", "2026-09-19T11:05:00Z", 3, 1, logged)]
+    entry_["validationData"].append(root_element(ROOT_JWKS))
+
+
+def _r14(entry_: dict[str, Any], _logged: bytes) -> None:
+    entry_["validationData"] = [
+        v for v in entry_["validationData"] if v["for"] != "delegation-root"
+    ]
+
+
+def _r15(entry_: dict[str, Any], _logged: bytes) -> None:
+    for element in entry_["validationData"]:
+        if element["for"] == "delegation-root":
+            element["value"] = root_element(OTHER_ROOT_JWKS)["value"]
 
 
 def define_retained() -> None:
@@ -2228,6 +2960,92 @@ def define_retained() -> None:
             tier="authoritative",
             dating=expected_dating,
         )
+    established = {"result": "established", "algorithm": "Ed25519"}
+    later: list[tuple[str, str, str | None, str, Callable[[], Built], dict[str, Any]]] = [
+        (
+            "R10",
+            "r10-opentimestamps-retainer-anchor",
+            "R2",
+            "the retaining party's anchor is opentimestamps, its block header time 600 seconds "
+            "earlier than receivedAt: inside the 7200 seconds an opentimestamps time allows",
+            retained("R10", _r10, "R2"),
+            dating(dated_at="2026-09-19T10:54:30Z", receipt="asserted-consistent"),
+        ),
+        (
+            "R11",
+            "r11-opentimestamps-header-too-early",
+            "R10",
+            "the block header time earlier than receivedAt by 7201 seconds, more than the "
+            "7200 seconds an opentimestamps time allows",
+            retained("R11", _r11, "R10"),
+            dating(
+                dated_at="2026-09-19T09:04:29Z",
+                entry_="malformed",
+                code="entry-received-after-anchor",
+            ),
+        ),
+        (
+            "R12",
+            "r12-pending-then-upgraded-proof",
+            "R1",
+            "anchors holding a pending OpenTimestamps proof followed by its upgraded, complete "
+            "proof: dated at the upgraded proof's block time, the pending element dating nothing",
+            retained("R12", _r12, "R1"),
+            dating(dated_at="2026-09-19T11:40:00Z"),
+        ),
+        (
+            "R13",
+            "r13-delegation-root-established",
+            None,
+            "R1 for a record carrying delegation.rootDigest, with a delegation-root element "
+            "whose digest equals it: the root established, its algorithm read off the element",
+            retained("R13", _r13, make_envelope=rooted_envelope),
+            dating(dated_at="2026-09-19T11:05:00Z", delegation_root=established),
+        ),
+        (
+            "R14",
+            "r14-delegation-root-element-omitted",
+            "R13",
+            "the delegation-root element omitted: the root not established, never a pass",
+            retained("R14", _r14, "R13", make_envelope=rooted_envelope),
+            dating(dated_at="2026-09-19T11:05:00Z"),
+        ),
+        (
+            "R15",
+            "r15-delegation-root-digest-unequal",
+            "R13",
+            "the delegation-root element carries another key set, whose digest is unequal to "
+            "delegation.rootDigest",
+            retained("R15", _r15, "R13", make_envelope=rooted_envelope),
+            dating(
+                dated_at="2026-09-19T11:05:00Z",
+                entry_="malformed",
+                code="entry-delegation-root-mismatch",
+            ),
+        ),
+        (
+            "R16",
+            "r16-opentimestamps-through-own-tree",
+            "R1",
+            "the only anchor an opentimestamps proof whose path runs from envelopeDigest through "
+            "a Merkle tree the retaining party built and a Bitcoin transaction carrying its root "
+            "to the block header",
+            retained("R16", _r16, "R1"),
+            dating(dated_at="2026-09-19T11:30:00Z"),
+        ),
+    ]
+    for draft_id, slug, parent, row, build, expected_dating in later:
+        member(
+            draft_id,
+            slug,
+            parent,
+            row,
+            build,
+            "valid",
+            tier="authoritative",
+            dating=expected_dating,
+            revision=REVISION_01,
+        )
 
 
 #: Appendix B's order, then the members for rules it carries no row for. A
@@ -2240,7 +3058,10 @@ ORDER = (
     "EV1 EV2 EV3 EV4 EV5 EV6 EV7 EV8 EV9 EV10 EV11 EV12 EV13 OV1 OV2 OV3 N1 N2 "
     "R1 R2 R3 R4 R5 R6 R7 R8 R9 "
     "FR13b FR16 FR17a FR17b FR17c FR18 EV14 "
-    "TI6 V4 V5 FR14 FR15"
+    "TI6 V4 V5 FR14 FR15 "
+    "CS1 CS2 CS3 CS4 CS5 CS6 CS7 CS8 CS9 CS10 CS11 CS12 CS13 CS14 CS15 CS16 CS17 "
+    "A21 SQ1 SQ2 SQ3 SQ4 SQ5 "
+    "R10 R11 R12 R13 R14 R15 R16"
 ).split()
 
 
@@ -2253,6 +3074,10 @@ def expected_of(entry: Member) -> dict[str, Any]:
         expected["derivedTier"] = entry["tier"]
     if entry["dating"] is not None:
         expected["dating"] = entry["dating"]
+    if entry["within"] is not None:
+        expected["withinLimit"] = entry["within"]
+    if entry["joint"] is not None:
+        expected["set"] = entry["joint"]
     return expected
 
 
@@ -2277,6 +3102,23 @@ def optional_fields(entry: Member, ids: dict[str, str]) -> dict[str, Any]:
     return out
 
 
+def member_folder(entry: Member) -> str:
+    if entry["dating"] is not None:
+        return "retained"
+    return "sets" if entry["joint"] is not None else "statements"
+
+
+def member_bundle(made: Built) -> dict[str, Any]:
+    """The JSON a member's file carries: a set's records, a retained record's
+    envelope beside its entry, or the one envelope."""
+    if "set" in made:
+        return {"records": [envelope(payload) for payload in made["set"]]}
+    if "retained" in made:
+        retained_bundle: dict[str, Any] = made["retained"]
+        return retained_bundle
+    return envelope(made["payload"])
+
+
 def emit() -> None:
     define()
     statements_dir = os.path.join(HERE, "statements")
@@ -2285,7 +3127,7 @@ def emit() -> None:
     ids: dict[str, str] = {}
     for entry in MEMBERS:
         made = entry["build"]()
-        bundle = made["retained"] if "retained" in made else envelope(made["payload"])
+        bundle = member_bundle(made)
         raw = json.dumps(bundle, indent=2, sort_keys=True).encode() + b"\n"
         ident = vector_id(raw)
         if ident in ids.values():
@@ -2295,10 +3137,11 @@ def emit() -> None:
 
     retained_dir = os.path.join(HERE, "retained")
     os.makedirs(retained_dir, exist_ok=True)
+    os.makedirs(os.path.join(HERE, "sets"), exist_ok=True)
     vectors: list[dict[str, Any]] = []
     keep: set[str] = set()
     for entry, raw, ident in built:
-        folder = "retained" if entry["dating"] is not None else "statements"
+        folder = member_folder(entry)
         rel = f"{folder}/{ident}.json"
         with open(os.path.join(HERE, rel), "wb") as fh:
             fh.write(raw)
@@ -2315,7 +3158,7 @@ def emit() -> None:
         out.update(optional_fields(entry, ids))
         vectors.append(out)
 
-    for folder in ("statements", "retained"):
+    for folder in ("statements", "retained", "sets"):
         for stale in sorted(os.listdir(os.path.join(HERE, folder))):
             if stale.endswith(".json") and f"{folder}/{stale}" not in keep:
                 os.remove(os.path.join(HERE, folder, stale))
@@ -2353,6 +3196,15 @@ def emit() -> None:
                 "head's timestamp."
             ),
             "treeHeads": TREE_HEADS,
+            "blockHeaders": BLOCK_HEADERS,
+            "blockHeaderNote": (
+                "The 80-byte headers of a test chain, pinned here so an opentimestamps anchor "
+                "validates with nothing fetched: a verifier holds them independently, as "
+                "blocks of the chain with the most work. An opentimestamps anchor validates "
+                "when its proof recomputes from envelopeDigest to the Merkle root field of the "
+                "header at the height its Bitcoin attestation names; its time is the "
+                "header's time field, little-endian Unix seconds."
+            ),
         },
         "counts": counts,
         "note": (
@@ -2428,6 +3280,16 @@ def write_index(manifest: dict[str, Any]) -> None:
             verdict = v["expected"]["verdict"]
         if "dating" in v["expected"]:
             verdict += ", " + _dating_label(v["expected"]["dating"])
+        if "withinLimit" in v["expected"]:
+            verdict += ", withinLimit " + str(v["expected"]["withinLimit"]).lower()
+        if "set" in v["expected"]:
+            joint = v["expected"]["set"]
+            if joint["codes"]:
+                verdict += f", the set {joint['verdict']} ({joint['codes'][0]})"
+            else:
+                verdict += f", the set {joint['verdict']}"
+            for point in joint.get("missing", []):
+                verdict += f", seq {point['seq']} issued and not received"
         source = f"Section {v['draftSection']}" if "draftSection" in v else "Appendix B"
         lines.append(
             f"| `{v['draftId']}` | {source} | {parent} | {verdict} | "

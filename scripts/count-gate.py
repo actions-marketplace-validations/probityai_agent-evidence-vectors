@@ -331,13 +331,14 @@ class Sources:
         """
         per_kind = {
             value
-            for _, _, accept, reject in self.extra
-            for value in (accept, reject)
+            for _, total, accept, reject in self.extra
+            for value in (accept, reject, *(v for v in (total,) if v in PROTOCOL_CONSTANTS))
         }
         other = {
             value
             for value, noun in self._published()
             if not noun.startswith(("the accept count of ", "the reject count of "))
+            and not (noun.startswith("the corpus total of ") and value in PROTOCOL_CONSTANTS)
         }
         return frozenset(per_kind - other)
 
@@ -1418,6 +1419,38 @@ DELEGATED: tuple[Delegated, ...] = (
 
 
 FROZEN: tuple[Frozen, ...] = (
+    Frozen(
+        'DISPOSITIONS.md',
+        'the JSON nesting depth bound made normative at 128',
+        'The bound was made normative at 128 with its counting',
+        'A protocol constant, not a count of any corpus: the I-JSON nesting depth bound, '
+        'or the shell exit status offset for a signal. It met the audit record corpus '
+        'total of 128 by coincidence.',
+    ),
+    Frozen(
+        'vectors/CHANGES.md',
+        'the nesting depth bound the revision 5 fix names',
+        'below: with the bound at 128, no vector fails that checker',
+        'A protocol constant, not a count of any corpus: the I-JSON nesting depth bound, '
+        'or the shell exit status offset for a signal. It met the audit record corpus '
+        'total of 128 by coincidence.',
+    ),
+    Frozen(
+        'vectors/CHANGES.md',
+        'the nesting depth bound a normative change fixed',
+        'JSON nesting depth is bounded at 128, with the counting',
+        'A protocol constant, not a count of any corpus: the I-JSON nesting depth bound, '
+        'or the shell exit status offset for a signal. It met the audit record corpus '
+        'total of 128 by coincidence.',
+    ),
+    Frozen(
+        'vectors-spoofed-tool-output/gen_vectors.py',
+        'the shell exit status of a process killed by a signal',
+        'the run was killed by a signal (128 plus',
+        'A protocol constant, not a count of any corpus: the I-JSON nesting depth bound, '
+        'or the shell exit status offset for a signal. It met the audit record corpus '
+        'total of 128 by coincidence.',
+    ),
     # ---- a count from a past audit, recorded in the change history.
     Frozen(
         'vectors/CHANGES.md',
@@ -3212,6 +3245,14 @@ ATTRIBUTION = re.compile(r"(?:suite)?[Rr]evisions?[-\s]+(?:[#>*]+\s*)?(\d+)")
 # versions, test fixtures and prose were reported as unaccounted corpus totals,
 # none of them a claim about that corpus. The same argument holds.
 SMALL_VALUE = 23
+# An integer this repository already uses as a protocol constant rather than a
+# count. A registered corpus whose total reaches one of these is noun-bound, like
+# its per-kind counts: read bare it refused fifty-six sentences about the I-JSON
+# nesting depth bound of 128 on the revision that grew vectors-agent-audit-record
+# to 128 members, none of them a claim about that corpus. Beside a count noun it
+# still fires, and the corpus total stays checked against its manifest by the
+# declared claims and manifest_integrity_failures.
+PROTOCOL_CONSTANTS = frozenset({128})
 SMALL_VALUE_NOUNS = re.compile(
     r"(?i)\b(?:vectors?|suiteRevisions?|revisions?|sites?|rules?|forced|unforced|"
     r"tolerated|unmeasurable|annotations?|KILLED|SILENT|DEAD|INCONCLUSIVE)\b"

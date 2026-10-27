@@ -4,6 +4,25 @@
     "envelope": "ed25519"
   },
   "anchorTrust": {
+    "blockHeaderNote": "The 80-byte headers of a test chain, pinned here so an opentimestamps anchor validates with nothing fetched: a verifier holds them independently, as blocks of the chain with the most work. An opentimestamps anchor validates when its proof recomputes from envelopeDigest to the Merkle root field of the header at the height its Bitcoin attestation names; its time is the header's time field, little-endian Unix seconds.",
+    "blockHeaders": [
+      {
+        "header": "0000002092e8c40330ee352992bfb85a78aba86dfb0ef20b95edb0f766cfa2d9e2b15fdd09ad5f10064aabadc6c444c1293b841f55460544ce9b1570a4c5299b44226826e669ae6affff001d8b6d0d00",
+        "height": 880011
+      },
+      {
+        "header": "000000206346fce10ea31e7fa51533d279cdb3e527b15da22e3732241a6932dedac51acc889fe76dc9db33c9d5377176e0a34938af98dea7a1ee11235a7d71ca8c75b3991d50ae6affff001d806d0d00",
+        "height": 880000
+      },
+      {
+        "header": "0000002029740b7e959391778dd42b3b7482bd1f1561e10774869591519532d6013d4d7dcd9bcff7ebc2952a006a96dc6afbb2ef2166a51091af77d0d06be078ed0a56019074ae6affff001d906d0d00",
+        "height": 880016
+      },
+      {
+        "header": "00000020176f245c72246041094d45f6a9fe368b8c598243a1ffa64ab2eca108510c0743dd096785a6a04061cd96f0e62dbb1089141633b1907cba322ce83fac3fbb48ab3872ae6affff001d8f6d0d00",
+        "height": 880015
+      }
+    ],
     "note": "The tree heads of the test transparency log every R member's anchors are in, as a verifier holds them by a means other than a signature: a checkpoint it already witnessed. A transparency-log anchor validates as a hash commitment when its proof, an RFC 9162 TransItem of type inclusion_proof_v2 over the leaf SHA-256(0x00 || envelopeDigest), recomputes to one of these for its logId and treeSize; its time is that head's timestamp.",
     "treeHeads": [
       {
@@ -47,14 +66,20 @@
         "rootHash": "9af2afb766b1290cc1bbdbe2d9bc9791c6d1cbe64b9b4e4f03d172e2af028ab2",
         "timestamp": "2026-09-19T11:05:00Z",
         "treeSize": 3
+      },
+      {
+        "logId": "2b0601040181fd590101",
+        "rootHash": "57c371673f17c02746c5dff0135211b2172fa42f137a5e8bad276a230f1f97e4",
+        "timestamp": "2026-09-19T11:05:00Z",
+        "treeSize": 3
       }
     ]
   },
-  "corpusDigest": "4a4d5329232ed7404ff53a48155ee4d774a518564d8af5b9b3e1716ca8858a06",
+  "corpusDigest": "6034a4d1aaf3db40daa944660881c7c75097d276f6a10ccfa3f35d78ccc70a66",
   "counts": {
-    "accept": 38,
+    "accept": 59,
     "indeterminate": 1,
-    "reject": 72
+    "reject": 81
   },
   "draft": "draft-gilda-audit-agent-audit-record-00",
   "emptyTree": {
@@ -1460,6 +1485,9 @@
         "dating": {
           "codes": [],
           "datedAt": "2026-09-19T11:05:00Z",
+          "delegationRoot": {
+            "result": "not-established"
+          },
           "entry": "well-formed"
         },
         "derivedTier": "authoritative",
@@ -1478,6 +1506,9 @@
         "dating": {
           "codes": [],
           "datedAt": "2026-09-19T11:04:20Z",
+          "delegationRoot": {
+            "result": "not-established"
+          },
           "entry": "well-formed",
           "receipt": "asserted-consistent"
         },
@@ -1499,6 +1530,9 @@
             "entry-received-after-anchor"
           ],
           "datedAt": "2026-09-19T11:04:20Z",
+          "delegationRoot": {
+            "result": "not-established"
+          },
           "entry": "malformed"
         },
         "derivedTier": "authoritative",
@@ -1521,6 +1555,9 @@
             "entry-retainer-anchor-missing"
           ],
           "datedAt": "2026-09-19T11:04:20Z",
+          "delegationRoot": {
+            "result": "not-established"
+          },
           "entry": "malformed"
         },
         "derivedTier": "authoritative",
@@ -1541,6 +1578,9 @@
         "dating": {
           "codes": [],
           "datedAt": "2026-09-19T11:04:20Z",
+          "delegationRoot": {
+            "result": "not-established"
+          },
           "entry": "well-formed",
           "receipt": "asserted-consistent"
         },
@@ -1562,6 +1602,9 @@
             "entry-received-before-issued"
           ],
           "datedAt": "2026-09-19T11:04:20Z",
+          "delegationRoot": {
+            "result": "not-established"
+          },
           "entry": "malformed"
         },
         "derivedTier": "authoritative",
@@ -1584,6 +1627,9 @@
             "entry-anchor-late"
           ],
           "datedAt": "2026-09-19T11:14:12Z",
+          "delegationRoot": {
+            "result": "not-established"
+          },
           "entry": "malformed"
         },
         "derivedTier": "authoritative",
@@ -1603,6 +1649,9 @@
         "codes": [],
         "dating": {
           "codes": [],
+          "delegationRoot": {
+            "result": "not-established"
+          },
           "entry": "well-formed"
         },
         "derivedTier": "authoritative",
@@ -1625,6 +1674,9 @@
             "entry-received-at-inconsistent"
           ],
           "datedAt": "2026-09-19T11:05:00Z",
+          "delegationRoot": {
+            "result": "not-established"
+          },
           "entry": "malformed"
         },
         "derivedTier": "authoritative",
@@ -1843,6 +1895,604 @@
       "parentDraftId": "FR14",
       "row": "the entry carrying the second value's lastResult beside the first value's maxAge, under evaluated: the pair the -00 rule writes, age 3600 under 60",
       "slug": "fr15-oldest-last-result-beside-smallest-max-age"
+    },
+    {
+      "draftId": "CS1",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [],
+        "derivedTier": "authoritative",
+        "verdict": "valid",
+        "withinLimit": true
+      },
+      "file": "statements/vd831202c1ad2f50c.json",
+      "id": "vd831202c1ad2f50c",
+      "kind": "accept",
+      "row": "a consumption entry under a limit of 50000: consumed 30000, nothing held, requested 12000, so 42000 of 50000",
+      "slug": "cs1-within-limit-nothing-held"
+    },
+    {
+      "draftId": "CS2",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [],
+        "derivedTier": "authoritative",
+        "verdict": "valid",
+        "withinLimit": false
+      },
+      "file": "statements/v6cc2e68d93e92dda.json",
+      "id": "v6cc2e68d93e92dda",
+      "kind": "accept",
+      "parent": "vd831202c1ad2f50c",
+      "parentDraftId": "CS1",
+      "row": "CS1 with requested 25000, 55000 of 50000, still a permit: valid and findable, a decision point exceeding its authority",
+      "slug": "cs2-beyond-limit-permit"
+    },
+    {
+      "draftId": "CS3",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [
+          "consumption-reserved-mismatch"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v10ba3fc4188f0e39.json",
+      "id": "v10ba3fc4188f0e39",
+      "kind": "reject",
+      "parent": "vd831202c1ad2f50c",
+      "parentDraftId": "CS1",
+      "row": "CS1 with reserved 12000 and nothing held",
+      "slug": "cs3-reserved-not-the-held-sum"
+    },
+    {
+      "draftId": "CS4",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [],
+        "derivedTier": "authoritative",
+        "verdict": "valid",
+        "withinLimit": true
+      },
+      "file": "statements/v9b00b354248b297c.json",
+      "id": "v9b00b354248b297c",
+      "kind": "accept",
+      "parent": "vd831202c1ad2f50c",
+      "parentDraftId": "CS1",
+      "row": "the retry of the first call: operationKey and requestDigest equal a held entry of 12000, within the limit (42000) only because it is not counted twice",
+      "slug": "cs4-retry-not-counted-twice"
+    },
+    {
+      "draftId": "CS5",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [
+          "consumption-value-invalid"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/vb67f7ec106141463.json",
+      "id": "vb67f7ec106141463",
+      "kind": "reject",
+      "parent": "vd831202c1ad2f50c",
+      "parentDraftId": "CS1",
+      "row": "CS1 with requested of -1",
+      "slug": "cs5-negative-requested"
+    },
+    {
+      "draftId": "CS6",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [
+          "consumption-misplaced"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/vbb2c8162ef6a8d03.json",
+      "id": "vbb2c8162ef6a8d03",
+      "kind": "reject",
+      "parent": "vd831202c1ad2f50c",
+      "parentDraftId": "CS1",
+      "row": "CS1 with the consumption member also on the policy-source entry",
+      "slug": "cs6-consumption-on-a-policy-source-entry"
+    },
+    {
+      "draftId": "CS7",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [],
+        "derivedTier": "authoritative",
+        "set": {
+          "codes": [
+            "consumption-set-stale-revision"
+          ],
+          "verdict": "malformed",
+          "withinLimit": [
+            true,
+            true
+          ]
+        },
+        "verdict": "valid"
+      },
+      "file": "sets/v149c4a717d5c0797.json",
+      "id": "v149c4a717d5c0797",
+      "kind": "accept",
+      "parent": "v9b00b354248b297c",
+      "parentDraftId": "CS4",
+      "row": "the retry of the first call, which reads revision 42 and holds it, then a new operation that reads revision 41, omits the held call and is permitted: each record valid, the pair spends the limit twice",
+      "slug": "cs7-set-stale-revision-omits-held"
+    },
+    {
+      "draftId": "CS8",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [],
+        "derivedTier": "authoritative",
+        "set": {
+          "codes": [
+            "consumption-set-release-unshown"
+          ],
+          "verdict": "malformed",
+          "withinLimit": [
+            true,
+            true
+          ]
+        },
+        "verdict": "valid"
+      },
+      "file": "sets/v2c9175c6a76c19fa.json",
+      "id": "v2c9175c6a76c19fa",
+      "kind": "accept",
+      "row": "a record reading revision 42 holds an earlier call; the next, reading revision 43, no longer holds it, and no record of that operation shows none or occurred: each record valid, the release is unexplained",
+      "slug": "cs8-set-release-without-a-none-record"
+    },
+    {
+      "draftId": "CS9",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [
+          "member-missing"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/vcc73d61ebdee4655.json",
+      "id": "vcc73d61ebdee4655",
+      "kind": "reject",
+      "parent": "vd831202c1ad2f50c",
+      "parentDraftId": "CS1",
+      "row": "CS1 with stateRevision removed",
+      "slug": "cs9-no-state-revision"
+    },
+    {
+      "draftId": "CS10",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [
+          "consumption-key-reused"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v39dcf1038e2b1c48.json",
+      "id": "v39dcf1038e2b1c48",
+      "kind": "reject",
+      "parent": "v9b00b354248b297c",
+      "parentDraftId": "CS4",
+      "row": "CS4 with the held entry's requestDigest another request's: one operation key reused for a different request",
+      "slug": "cs10-held-key-with-another-request"
+    },
+    {
+      "draftId": "CS11",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [],
+        "derivedTier": "authoritative",
+        "verdict": "valid",
+        "withinLimit": true
+      },
+      "file": "statements/v48738ecf3d62a507.json",
+      "id": "v48738ecf3d62a507",
+      "kind": "accept",
+      "parent": "v9b00b354248b297c",
+      "parentDraftId": "CS4",
+      "row": "CS4 under another operationKey with consumed 20000: the same intended payment again, a new operation counted (20000 + 12000 + 12000 = 44000 of 50000)",
+      "slug": "cs11-new-operation-same-request-within-limit"
+    },
+    {
+      "draftId": "CS12",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [],
+        "derivedTier": "authoritative",
+        "verdict": "valid",
+        "withinLimit": false
+      },
+      "file": "statements/v8ed304e3129736a6.json",
+      "id": "v8ed304e3129736a6",
+      "kind": "accept",
+      "parent": "v9b00b354248b297c",
+      "parentDraftId": "CS4",
+      "row": "CS4 under another operationKey: counted it is 54000 of 50000, and read as a retry of the held call it would be 42000",
+      "slug": "cs12-new-operation-same-request-beyond-limit"
+    },
+    {
+      "draftId": "CS13",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [
+          "consumption-held-key-repeated"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v8602d00da9dff937.json",
+      "id": "v8602d00da9dff937",
+      "kind": "reject",
+      "parent": "v9b00b354248b297c",
+      "parentDraftId": "CS4",
+      "row": "CS4 with two held entries under one operationKey, 12000 each, summing to reserved",
+      "slug": "cs13-two-held-entries-one-key"
+    },
+    {
+      "draftId": "CS14",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [
+          "member-missing"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v4cdf02dcf7e21dcb.json",
+      "id": "v4cdf02dcf7e21dcb",
+      "kind": "reject",
+      "parent": "vd831202c1ad2f50c",
+      "parentDraftId": "CS1",
+      "row": "CS1 with decision.operationKey removed",
+      "slug": "cs14-no-operation-key"
+    },
+    {
+      "draftId": "CS15",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [],
+        "derivedTier": "authoritative",
+        "verdict": "valid",
+        "withinLimit": true
+      },
+      "file": "statements/v45d917b447e398f5.json",
+      "id": "v45d917b447e398f5",
+      "kind": "accept",
+      "parent": "vd831202c1ad2f50c",
+      "parentDraftId": "CS1",
+      "row": "CS1 with limitDigest the digest of a limit document the authority names: not delegation.authorityDigest, and valid",
+      "slug": "cs15-limit-document-differs-from-authority"
+    },
+    {
+      "draftId": "CS16",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [],
+        "derivedTier": "authoritative",
+        "verdict": "valid",
+        "withinLimit": true
+      },
+      "file": "statements/v7f27584250e068d1.json",
+      "id": "v7f27584250e068d1",
+      "kind": "accept",
+      "parent": "vd831202c1ad2f50c",
+      "parentDraftId": "CS1",
+      "row": "CS1 with limitDigest equal to delegation.authorityDigest, the authority document stating the limit itself",
+      "slug": "cs16-limit-document-is-the-authority"
+    },
+    {
+      "draftId": "CS17",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [],
+        "derivedTier": "authoritative",
+        "set": {
+          "codes": [
+            "consumption-set-stale-revision"
+          ],
+          "verdict": "malformed",
+          "withinLimit": [
+            true,
+            true
+          ]
+        },
+        "verdict": "valid"
+      },
+      "file": "sets/vbc0faef3ecca56e2.json",
+      "id": "vbc0faef3ecca56e2",
+      "kind": "accept",
+      "parent": "v9b00b354248b297c",
+      "parentDraftId": "CS4",
+      "row": "CS7 where the second operation is the same intended payment, an identical requestDigest under another operationKey: the set still fails, so the check keys on the operation key and not on the request digest",
+      "slug": "cs17-set-stale-revision-identical-request"
+    },
+    {
+      "draftId": "A21",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [],
+        "derivedTier": "authoritative",
+        "verdict": "valid"
+      },
+      "file": "statements/v9dfdb5fec24b90ee.json",
+      "id": "v9dfdb5fec24b90ee",
+      "kind": "accept",
+      "parent": "v22ea7615379eecca",
+      "parentDraftId": "A1",
+      "row": "A1 with agent.authentication of api-key, a bearer secret presented with the request that is not an OAuth access token; authentication is outside the request digest",
+      "slug": "a21-authentication-api-key"
+    },
+    {
+      "draftId": "SQ1",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [],
+        "derivedTier": "authoritative",
+        "verdict": "valid"
+      },
+      "file": "statements/v7afe1f39e8670c18.json",
+      "id": "v7afe1f39e8670c18",
+      "kind": "accept",
+      "parent": "v22ea7615379eecca",
+      "parentDraftId": "A1",
+      "row": "A1 with sequence carrying a boundary and a seq of 1, the first record of its series",
+      "slug": "sq1-sequence-first-of-series"
+    },
+    {
+      "draftId": "SQ2",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [
+          "sequence-malformed"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/vca142e8033b749a4.json",
+      "id": "vca142e8033b749a4",
+      "kind": "reject",
+      "parent": "v7afe1f39e8670c18",
+      "parentDraftId": "SQ1",
+      "row": "sequence carrying a count member this document does not define",
+      "slug": "sq2-sequence-undefined-member"
+    },
+    {
+      "draftId": "SQ3",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [
+          "sequence-malformed"
+        ],
+        "verdict": "malformed"
+      },
+      "file": "statements/v6f17a0294db29c43.json",
+      "id": "v6f17a0294db29c43",
+      "kind": "reject",
+      "parent": "v7afe1f39e8670c18",
+      "parentDraftId": "SQ1",
+      "row": "sequence with a seq of 0",
+      "slug": "sq3-sequence-seq-zero"
+    },
+    {
+      "draftId": "SQ4",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [],
+        "derivedTier": "authoritative",
+        "set": {
+          "codes": [],
+          "missing": [
+            {
+              "boundary": "urn:example:series:observer-1",
+              "seq": 2
+            }
+          ],
+          "verdict": "valid"
+        },
+        "verdict": "valid"
+      },
+      "file": "sets/vadd36be4ba786f38.json",
+      "id": "vadd36be4ba786f38",
+      "kind": "accept",
+      "parent": "v7afe1f39e8670c18",
+      "parentDraftId": "SQ1",
+      "row": "records of one series with seq 1 and 3 held, seq 2 not held: each record valid, the set names seq 2 as issued and not received",
+      "slug": "sq4-set-sequence-gap"
+    },
+    {
+      "draftId": "SQ5",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [],
+        "derivedTier": "authoritative",
+        "set": {
+          "codes": [
+            "sequence-duplicate"
+          ],
+          "verdict": "malformed"
+        },
+        "verdict": "valid"
+      },
+      "file": "sets/va885bfbdaf7a4920.json",
+      "id": "va885bfbdaf7a4920",
+      "kind": "accept",
+      "parent": "v7afe1f39e8670c18",
+      "parentDraftId": "SQ1",
+      "row": "two records of one series with seq 1 and different envelope digests: each record valid, the set fails the check",
+      "slug": "sq5-set-sequence-duplicate"
+    },
+    {
+      "draftId": "R10",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [],
+        "dating": {
+          "codes": [],
+          "datedAt": "2026-09-19T10:54:30Z",
+          "delegationRoot": {
+            "result": "not-established"
+          },
+          "entry": "well-formed",
+          "receipt": "asserted-consistent"
+        },
+        "derivedTier": "authoritative",
+        "verdict": "valid"
+      },
+      "file": "retained/ve38383b5fa8cfbe2.json",
+      "id": "ve38383b5fa8cfbe2",
+      "kind": "accept",
+      "parent": "v90581da25d334bc5",
+      "parentDraftId": "R2",
+      "row": "the retaining party's anchor is opentimestamps, its block header time 600 seconds earlier than receivedAt: inside the 7200 seconds an opentimestamps time allows",
+      "slug": "r10-opentimestamps-retainer-anchor"
+    },
+    {
+      "draftId": "R11",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [],
+        "dating": {
+          "codes": [
+            "entry-received-after-anchor"
+          ],
+          "datedAt": "2026-09-19T09:04:29Z",
+          "delegationRoot": {
+            "result": "not-established"
+          },
+          "entry": "malformed"
+        },
+        "derivedTier": "authoritative",
+        "verdict": "valid"
+      },
+      "file": "retained/v601ab32149827ed3.json",
+      "id": "v601ab32149827ed3",
+      "kind": "accept",
+      "parent": "ve38383b5fa8cfbe2",
+      "parentDraftId": "R10",
+      "row": "the block header time earlier than receivedAt by 7201 seconds, more than the 7200 seconds an opentimestamps time allows",
+      "slug": "r11-opentimestamps-header-too-early"
+    },
+    {
+      "draftId": "R12",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [],
+        "dating": {
+          "codes": [],
+          "datedAt": "2026-09-19T11:40:00Z",
+          "delegationRoot": {
+            "result": "not-established"
+          },
+          "entry": "well-formed"
+        },
+        "derivedTier": "authoritative",
+        "verdict": "valid"
+      },
+      "file": "retained/v56258aa08b3bdb60.json",
+      "id": "v56258aa08b3bdb60",
+      "kind": "accept",
+      "parent": "vcca72e0d016c5db3",
+      "parentDraftId": "R1",
+      "row": "anchors holding a pending OpenTimestamps proof followed by its upgraded, complete proof: dated at the upgraded proof's block time, the pending element dating nothing",
+      "slug": "r12-pending-then-upgraded-proof"
+    },
+    {
+      "draftId": "R13",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [],
+        "dating": {
+          "codes": [],
+          "datedAt": "2026-09-19T11:05:00Z",
+          "delegationRoot": {
+            "algorithm": "Ed25519",
+            "result": "established"
+          },
+          "entry": "well-formed"
+        },
+        "derivedTier": "authoritative",
+        "verdict": "valid"
+      },
+      "file": "retained/v5fdda90f44e68c91.json",
+      "id": "v5fdda90f44e68c91",
+      "kind": "accept",
+      "row": "R1 for a record carrying delegation.rootDigest, with a delegation-root element whose digest equals it: the root established, its algorithm read off the element",
+      "slug": "r13-delegation-root-established"
+    },
+    {
+      "draftId": "R14",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [],
+        "dating": {
+          "codes": [],
+          "datedAt": "2026-09-19T11:05:00Z",
+          "delegationRoot": {
+            "result": "not-established"
+          },
+          "entry": "well-formed"
+        },
+        "derivedTier": "authoritative",
+        "verdict": "valid"
+      },
+      "file": "retained/v3bcc3efbad13217b.json",
+      "id": "v3bcc3efbad13217b",
+      "kind": "accept",
+      "parent": "v5fdda90f44e68c91",
+      "parentDraftId": "R13",
+      "row": "the delegation-root element omitted: the root not established, never a pass",
+      "slug": "r14-delegation-root-element-omitted"
+    },
+    {
+      "draftId": "R15",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [],
+        "dating": {
+          "codes": [
+            "entry-delegation-root-mismatch"
+          ],
+          "datedAt": "2026-09-19T11:05:00Z",
+          "delegationRoot": {
+            "result": "not-established"
+          },
+          "entry": "malformed"
+        },
+        "derivedTier": "authoritative",
+        "verdict": "valid"
+      },
+      "file": "retained/vd41f53ed499a1780.json",
+      "id": "vd41f53ed499a1780",
+      "kind": "accept",
+      "parent": "v5fdda90f44e68c91",
+      "parentDraftId": "R13",
+      "row": "the delegation-root element carries another key set, whose digest is unequal to delegation.rootDigest",
+      "slug": "r15-delegation-root-digest-unequal"
+    },
+    {
+      "draftId": "R16",
+      "draftRevision": "draft-gilda-audit-agent-audit-record-01",
+      "expected": {
+        "codes": [],
+        "dating": {
+          "codes": [],
+          "datedAt": "2026-09-19T11:30:00Z",
+          "delegationRoot": {
+            "result": "not-established"
+          },
+          "entry": "well-formed"
+        },
+        "derivedTier": "authoritative",
+        "verdict": "valid"
+      },
+      "file": "retained/va737fb3f9f927f4b.json",
+      "id": "va737fb3f9f927f4b",
+      "kind": "accept",
+      "parent": "vcca72e0d016c5db3",
+      "parentDraftId": "R1",
+      "row": "the only anchor an opentimestamps proof whose path runs from envelopeDigest through a Merkle tree the retaining party built and a Bitcoin transaction carrying its root to the block header",
+      "slug": "r16-opentimestamps-through-own-tree"
     }
   ]
 }

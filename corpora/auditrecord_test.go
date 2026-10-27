@@ -34,6 +34,15 @@ func arLoad(t *testing.T) (arManifest, map[string][]byte) {
 				t.Fatal(err)
 			}
 		}
+		if v.Expected.Set != nil {
+			// A set member's file is a bundle of envelopes; the record rules
+			// judge its first, and TestAuditRecordSetRulesAreLoadBearing the set.
+			envelopes, err := arSetRecords(body)
+			if err != nil || len(envelopes) == 0 {
+				t.Fatalf("%s: the set carries no readable record", v.DraftID)
+			}
+			body = envelopes[0]
+		}
 		bodies[v.ID] = body
 	}
 	return manifest, bodies

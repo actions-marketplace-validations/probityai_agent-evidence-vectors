@@ -81,6 +81,18 @@ def _retained(entry: dict[str, object]) -> bool:
     return isinstance(expected, dict) and "dating" in expected
 
 
+def _set(entry: dict[str, object]) -> bool:
+    expected = entry.get("expected")
+    return isinstance(expected, dict) and "set" in expected
+
+
+def _envelopes(entry: dict[str, object]) -> list[bytes]:
+    """Every envelope a member carries: a set member's records, else the one."""
+    if _set(entry):
+        return auditrecord.set_records(_raw(entry))
+    return [_envelope_bytes(entry)]
+
+
 def _envelope_bytes(entry: dict[str, object]) -> bytes:
     """The envelope a member carries: the whole file, or a retained member's
     envelope beside its retention entry."""
@@ -109,16 +121,17 @@ def _second_signature_path(manifest: dict[str, object]) -> list[str]:
         must_hold = entry["kind"] != "reject" or entry["draftId"] == "T2"
         if not must_hold:
             continue
-        envelope = json.loads(_envelope_bytes(entry))
-        payload = base64.b64decode(envelope["payload"])
-        canonical = canonical_bytes(json.loads(payload))
-        message = auditrecord.pae(auditrecord.PAYLOAD_TYPE, canonical)
-        sig = base64.b64decode(envelope["signatures"][0]["sig"])
-        try:
-            public.verify(sig, message)
-            holds = True
-        except InvalidSignature:
-            holds = False
+        holds = True
+        for raw_envelope in _envelopes(entry):
+            envelope = json.loads(raw_envelope)
+            payload = base64.b64decode(envelope["payload"])
+            canonical = canonical_bytes(json.loads(payload))
+            message = auditrecord.pae(auditrecord.PAYLOAD_TYPE, canonical)
+            sig = base64.b64decode(envelope["signatures"][0]["sig"])
+            try:
+                public.verify(sig, message)
+            except InvalidSignature:
+                holds = False
         if entry["draftId"] == "T2" and holds:
             out.append("T2: the signature verifies over the RFC 8785 bytes, so T2 tests nothing")
         elif entry["draftId"] != "T2" and not holds:
@@ -137,7 +150,11 @@ def _mutation_sweep(manifest: dict[str, object]) -> tuple[list[str], list[str]]:
     policy = auditrecord.policy_for(manifest)
     entries = manifest["vectors"]
     assert isinstance(entries, list)
-    bodies = [(entry, _envelope_bytes(entry), _verify(entry, policy)) for entry in entries]
+    bodies = [
+        (entry, raw, auditrecord.verify(raw, policy))
+        for entry in entries
+        for raw in _envelopes(entry)
+    ]
     findings: list[str] = []
     notes: list[str] = []
     swept = [n for n in auditrecord.rule_names() if n not in auditrecord.UNREACHED_BY_CORPUS]
@@ -182,7 +199,8 @@ class _Freshness:
     refuse_repeat: bool = True
 
     def shape(self, entry: dict[str, Any], seen: set[str]) -> None:
-        if self.refuse_extra and set(entry) - auditrecord.ENTRY_MEMBERS:
+        extra = set(entry) - auditrecord.ENTRY_MEMBERS - auditrecord.ENTRY_OPTIONAL
+        if self.refuse_extra and extra:
             raise auditrecord.Malformed("evaluation-entry-malformed")
         if entry["input"] not in auditrecord.EVALUATION_INPUTS:
             raise auditrecord.Malformed("value-outside-vocabulary")
@@ -364,6 +382,103 @@ def _aggregation_check(manifest: dict[str, object]) -> list[str]:
 
 
 @contextlib.contextmanager
+def _without_check(name: str) -> Iterator[None]:
+    """The consumption rule with one of its sentences dropped."""
+    original = auditrecord.CONSUMPTION_CHECKS
+    auditrecord.CONSUMPTION_CHECKS = original - {name}
+    try:
+        yield
+    finally:
+        auditrecord.CONSUMPTION_CHECKS = original
+
+
+@contextlib.contextmanager
+def _retry_by_request_digest() -> Iterator[None]:
+    """A retry identified by the request digest rather than the operation key."""
+
+    def held_for(consumption: dict[str, Any], decision: dict[str, Any]) -> Any:
+        for held in consumption["held"]:
+            if held["requestDigest"] == decision["requestDigest"]:
+                return held
+        return None
+
+    original = auditrecord.held_for
+    auditrecord.held_for = held_for
+    try:
+        yield
+    finally:
+        auditrecord.held_for = original
+
+
+def _stale_by_digest(group: list[dict[str, Any]]) -> bool:
+    """The stale-state check keyed on the request digest, as a reader that
+    identifies an operation by its content would write it."""
+    for later in group:
+        for earlier in group:
+            if later is earlier or auditrecord._revision(later) >= auditrecord._revision(earlier):
+                continue
+            if later["decision"]["reported"] not in auditrecord.PERMITS:
+                continue
+            seen = {h["requestDigest"] for h in auditrecord.consumption_of(later)["held"]}  # type: ignore[index]
+            seen.add(later["decision"]["requestDigest"])
+            if any(
+                h["requestDigest"] not in seen
+                for h in auditrecord.consumption_of(earlier)["held"]  # type: ignore[index]
+            ):
+                return True
+    return False
+
+
+@contextlib.contextmanager
+def _set_checks(drop: str | None = None, by_request_digest: bool = False) -> Iterator[None]:
+    """The set checks with one dropped (or all of them), or the stale-revision
+    check keyed on the request digest."""
+    original = list(auditrecord.SET_RULES)
+    kept = []
+    for name, code, check in original:
+        if name == drop or (drop is None and not by_request_digest):
+            continue
+        kept.append(
+            (
+                name,
+                code,
+                _stale_by_digest if by_request_digest and name == "stale-revision" else check,
+            )
+        )
+    auditrecord.SET_RULES[:] = kept
+    try:
+        yield
+    finally:
+        auditrecord.SET_RULES[:] = original
+
+
+@contextlib.contextmanager
+def _without_sequence_check(name: str) -> Iterator[None]:
+    auditrecord.SEQUENCE_SET_CHECKS[name] = False
+    try:
+        yield
+    finally:
+        auditrecord.SEQUENCE_SET_CHECKS[name] = True
+
+
+def _sequence_reading(*, refuse_extra: bool = True, positive: bool = True) -> Rule:
+    """The sequence rule as a reader might take it: tolerating other members, or
+    any integer seq."""
+
+    def rule(state: Any) -> None:
+        sequence = state.predicate.get("sequence")
+        if sequence is None:
+            return
+        if refuse_extra and set(sequence) != auditrecord.SEQUENCE_MEMBERS:
+            raise auditrecord.Malformed("sequence-malformed")
+        seq = sequence["seq"]
+        if not isinstance(seq, int) or (positive and seq < 1):
+            raise auditrecord.Malformed("sequence-malformed")
+
+    return rule
+
+
+@contextlib.contextmanager
 def _swapped_rule(name: str, replacement: Rule) -> Iterator[None]:
     index = auditrecord.rule_names().index(name)
     original = auditrecord.RULES[index]
@@ -400,6 +515,34 @@ SECTION_READINGS: list[tuple[str, Callable[[], contextlib.AbstractContextManager
         "unavailableInput known only as standing-source",
         lambda: _narrowed_inputs(frozenset({"standing-source"})),
         "A12,A13,A14,A18,A19,A20",
+    ),
+    (
+        "agent.authentication without api-key",
+        lambda: _narrowed_vocabulary(
+            "agent.authentication",
+            auditrecord.VOCABULARIES["agent.authentication"] - {"api-key"},
+        ),
+        "A21",
+    ),
+    (
+        "a sequence member carrying an undefined member accepted",
+        lambda: _swapped_rule("sequence", _sequence_reading(refuse_extra=False)),
+        "SQ2",
+    ),
+    (
+        "a sequence seq of 0 accepted",
+        lambda: _swapped_rule("sequence", _sequence_reading(positive=False)),
+        "SQ3",
+    ),
+    (
+        "two records at one place in a series accepted",
+        lambda: _without_sequence_check("duplicate"),
+        "SQ5",
+    ),
+    (
+        "a number missing below the highest held left unnamed",
+        lambda: _without_sequence_check("gap"),
+        "SQ4",
     ),
     (
         "oversight.act known only as check",
@@ -483,9 +626,7 @@ SECTION_READINGS: list[tuple[str, Callable[[], contextlib.AbstractContextManager
     ),
     (
         "unavailableInput without policy-source",
-        lambda: _narrowed_inputs(
-            frozenset({"standing-source", "key-source", "consumption-state"})
-        ),
+        lambda: _narrowed_inputs(frozenset({"standing-source", "key-source", "consumption-state"})),
         "A18,A20",
     ),
     (
@@ -504,6 +645,66 @@ SECTION_READINGS: list[tuple[str, Callable[[], contextlib.AbstractContextManager
         "record declares authoritative",
         lambda: _coverage_reading(clause="01", refuse_contradiction="authoritative"),
         "V5",
+    ),
+    (
+        "a retry identified by the request digest rather than the operation key",
+        _retry_by_request_digest,
+        "CS10,CS12",
+    ),
+    (
+        "consumption outside a consumption-state entry accepted",
+        lambda: _without_check("misplaced"),
+        "CS6",
+    ),
+    (
+        "reserved not held to the sum of the held amounts",
+        lambda: _without_check("reserved"),
+        "CS3",
+    ),
+    (
+        "two held entries under one operation key accepted",
+        lambda: _without_check("distinct-keys"),
+        "CS13",
+    ),
+    (
+        "a decision with no operation key accepted beside consumption",
+        lambda: _without_check("operation-key"),
+        "CS14",
+    ),
+    (
+        "a negative amount accepted",
+        lambda: _without_check("counts"),
+        "CS5",
+    ),
+    (
+        "stateRevision optional",
+        lambda: _without_check("state-revision"),
+        "CS9",
+    ),
+    (
+        "one operation key reused for a different request accepted",
+        lambda: _without_check("key-reuse"),
+        "CS10",
+    ),
+    (
+        "no check across the records of a set",
+        lambda: _set_checks(),
+        "CS7,CS8,CS17",
+    ),
+    (
+        "a record that read an older state and omits a held permit accepted",
+        lambda: _set_checks("stale-revision"),
+        "CS7,CS17",
+    ),
+    (
+        "a held permit released with no record of the operation accepted",
+        lambda: _set_checks("release-unshown"),
+        "CS8",
+    ),
+    (
+        "the stale-state check keyed on the request digest rather than the operation key",
+        lambda: _set_checks(by_request_digest=True),
+        "CS17",
     ),
     (
         "oversight without act accepted",
@@ -547,10 +748,37 @@ def _failing(manifest: dict[str, object]) -> str:
     assert isinstance(entries, list)
     failing = []
     for entry in entries:
-        verdict = _verify(entry, policy).verdict
-        if verdict not in auditrecord.conforming_verdicts(entry):
+        if _fails(entry, policy):
             failing.append(str(entry["draftId"]))
     return ",".join(failing)
+
+
+def _fails(entry: dict[str, object], policy: auditrecord.Policy) -> bool:
+    """A member fails a weakened reader when a record's verdict leaves the ones
+    it conforms to, when the withinLimit it derives is not the declared one, or
+    when a set of records reaches another verdict than the member declares."""
+    expected = entry["expected"]
+    assert isinstance(expected, dict)
+    if _set(entry):
+        reports, joint = auditrecord.verify_set(_raw(entry), policy)
+        declared = expected["set"]
+        limits = [
+            auditrecord.within_limit(json.loads(auditrecord._envelope_payload(env)[1])["predicate"])
+            for env in _envelopes(entry)
+        ]
+        return (
+            any(r.verdict != expected["verdict"] for r in reports)
+            or joint.verdict != declared["verdict"]
+            or limits != declared.get("withinLimit", [None] * len(limits))
+            or joint.missing != declared.get("missing", [])
+        )
+    verdict = _verify(entry, policy).verdict
+    if verdict not in auditrecord.conforming_verdicts(entry):
+        return True
+    if "withinLimit" in expected:
+        pred = json.loads(auditrecord._envelope_payload(_envelope_bytes(entry))[1])["predicate"]
+        return bool(auditrecord.within_limit(pred) != expected["withinLimit"])
+    return False
 
 
 def _section_sweep(manifest: dict[str, object]) -> list[str]:
