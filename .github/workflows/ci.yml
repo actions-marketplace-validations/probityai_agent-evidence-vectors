@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   release-integrity:
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     env:
       UV_LINK_MODE: copy
     steps:
@@ -52,7 +52,7 @@ jobs:
     # The publish job's wheel replay, run before a tag can exist. Until v0.17.8
     # it ran only in release.yml, so a wheel that dropped a corpus's vendored
     # specification passed every pull request and failed at publication.
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
@@ -70,7 +70,7 @@ jobs:
         run: scripts/installed-wheel-replay.sh "$(ls "$PWD"/dist/agent_evidence_vectors-*.whl)" "$RUNNER_TEMP/aee-verify-installed"
 
   go:
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -302,7 +302,7 @@ jobs:
           working-directory: witnessattestor
 
   python:
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     steps:
       # Full history and tags, because the consumer-lag gate measures the
       # vendored copies against the newest release tag the DEFAULT BRANCH
@@ -354,7 +354,7 @@ jobs:
       - name: type-check every python file
         run: uv run python scripts/typecheck-gate.py
       - name: ruff
-        run: uv run ruff check packaging vectors vectors-approval-binding vectors-dispatch-fence vectors-aggregate-accounting vectors-converted-argument-binding vectors-done-receipt vectors-done-contract vectors-spoofed-tool-output vectors-test-tampering vectors-grader-isolation vectors-done-probes vectors-admission vectors-acs-core/wire-probes vectors-observed-effect vectors-agent-audit-record vectors-ai-generation vectors-receipt-signature vectors-source-coverage vectors-anchored-chain vectors-receipt-chain-end vectors-identity-binding vectors-authority-at-dispatch vectors-chunked-export vectors-trace-anchor vectors-a2a-jcs-v01 vectors-mcp-owasp vectors-grade-floor vectors-agent-change-admission vectors-agentic-process-evidence vectors-delegation-lifecycle vectors-recorded vectors-self-reported-record vectors-agent-decision vectors-ietf-agent-record-drafts scripts interop/gemara-method-link interop/ws4-prior-witness-candidate interop/agentavow-live-mcp interop/agentavow-signed-map-v1 interop/a2a-s3-retain-2026-10-01 interop/a2a-s4-dual-name-2026-10-02 interop/action-tuple-framed-v1 vectors-w3c-intake
+        run: uv run ruff check packaging vectors vectors-approval-binding vectors-dispatch-fence vectors-aggregate-accounting vectors-agent-card-receipt vectors-credential-release vectors-converted-argument-binding vectors-done-receipt vectors-done-contract vectors-spoofed-tool-output vectors-test-tampering vectors-grader-isolation vectors-done-probes vectors-admission vectors-acs-core/wire-probes vectors-observed-effect vectors-agent-audit-record vectors-ai-generation vectors-receipt-signature vectors-source-coverage vectors-anchored-chain vectors-receipt-chain-end vectors-identity-binding vectors-authority-at-dispatch vectors-chunked-export vectors-trace-anchor vectors-a2a-jcs-v01 vectors-mcp-owasp vectors-grade-floor vectors-agent-change-admission vectors-agentic-process-evidence vectors-delegation-lifecycle vectors-recorded vectors-self-reported-record vectors-agent-decision vectors-ietf-agent-record-drafts scripts interop/gemara-method-link interop/ws4-prior-witness-candidate interop/agentavow-live-mcp interop/agentavow-signed-map-v1 interop/a2a-s3-retain-2026-10-01 interop/a2a-s4-dual-name-2026-10-02 interop/action-tuple-framed-v1 vectors-w3c-intake
       - name: timestamp candidate custody and refusal controls
         run: python3 scripts/retain-timestamp-candidate-test.py
       - name: E2 compatibility tests in the shared development environment
@@ -967,6 +967,10 @@ jobs:
         run: uv run --extra dev pytest vectors-dispatch-fence/tests -q
       - name: aggregate-accounting cases regenerate and force every check
         run: uv run --extra dev pytest vectors-aggregate-accounting/tests -q
+      - name: agent-card-receipt cases regenerate and force every check
+        run: uv run --extra dev pytest vectors-agent-card-receipt/tests -q
+      - name: credential-release cases regenerate and force every check
+        run: uv run --extra dev pytest vectors-credential-release/tests -q
       - name: converted-argument-binding cases regenerate and force every check
         run: uv run --extra dev pytest vectors-converted-argument-binding/tests -q
       - name: chunked-export cases regenerate and force every check
@@ -1229,7 +1233,7 @@ jobs:
   # operator was added, and are not re-measured here: restating a figure for a machine
   # this change never ran on would be inventing a measurement rather than taking one.
   forcing:
-    runs-on: ubicloud-standard-8
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -1284,7 +1288,7 @@ jobs:
   # look. The verifier is built into the workspace first because the action
   # resolves a relative first token from there.
   action:
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
