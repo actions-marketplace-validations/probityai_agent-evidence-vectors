@@ -126,6 +126,7 @@ Choose a corpus for the format your verifier supports. Each has its own manifest
 | `vectors-recorded/` | `recorded-set-conformance/v1` | bytes recorded from live runs, kept byte for byte beside their publisher's `SHA256SUMS`, with synthetic sets one mutation away: a listed file missing or edited, an unlisted file, a list that is malformed, unpinned or names a path outside the set, and a timestamp proof that names other bytes |
 | `vectors-a2a-jcs-v01/` | `a2a-agent-card-canonicalization-conformance` | RFC 8785 canonical bytes and the bytes an A2A Agent Card signature covers, vendored byte for byte from a2aproject/a2a-tck at a locked commit and corpus digest |
 | `vectors-mcp-owasp/` | `owasp-mcp-verification-draft` | draft MCP verification requirements MCPVS-1 to MCPVS-12 and threats MCPTM-1 to MCPTM-10, minted once in one registry, with one accept and one reject observation per requirement |
+| `vectors-open-weight-art53/` | `open-weight-art53/v1` | a model release record against the conditions of AI Act Article 53(2): open licence, public weights, architecture and usage information, no monetisation, no systemic risk |
 | `vectors-source-coverage/` | `source-text-coverage/v1` | selected source passages against a consumer-pinned capture, report, and time window |
 | `vectors-self-reported-record/` | `self-reported-record-conformance` | a self-reported agent record: turn signatures under the named key, memory-read digests over the bytes at the named path, an attesting key outside the observed runtime's reach, ledgers that name one change set, and covering signatures on declared substrate coverage |
 | `vectors-w3c-intake/` | `w3c-intake-v2-conformance` | the W3C public-agent-conformance group's intake criteria for a submitted conformance result, v2 with the accepted v2.1 deltas: every rejection ground bound to its sentence, each with a record that must be refused and one that must be admitted |
@@ -152,3 +153,4 @@ Use the [run form](.github/ISSUE_TEMPLATE/independent-run.yml) and retain the fu
 | Releases | [GitHub releases](https://github.com/probityai/agent-evidence-vectors/releases) |
 | Signed digests | [release/CORPUS-DIGESTS.txt](release/CORPUS-DIGESTS.txt) |
 | Archive | [Zenodo concept DOI](https://doi.org/10.5281/zenodo.22758687), with release-specific identifiers on the archive record |
+| Dataset | [Hugging Face](https://huggingface.co/datasets/probityai/agent-evidence-vectors), one revision tag per release, built by [the publish workflow](.github/workflows/publish-hf-dataset.yml) |

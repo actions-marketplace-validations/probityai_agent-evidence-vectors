@@ -166,7 +166,7 @@
         "go.mod"
       ],
       "serialization": "sha256-listing-v1",
-      "sha256": "44448b72d598952c369fb4f256c5c543551b167cd64341cebf255951ee3bc5ac"
+      "sha256": "779fdeae73e0263e56d73754034cd397bdd3d238239b22a544baecd65c6285a8"
     },
     "runtime": {
       "name": "go",
