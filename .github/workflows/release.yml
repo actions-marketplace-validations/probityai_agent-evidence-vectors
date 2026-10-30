@@ -16,9 +16,20 @@ name: release
 # the code is broken, and a reader should be able to tell those apart from the
 # job name alone.
 
+# A second path shares this file. A published GitHub release whose tag is
+# <prefix>-v<version> publishes one unit of release.toml through trusted
+# publishing: today the jcs-admit npm package (tag jcs-admit-npm-v<version>,
+# environment npm). The two paths cannot meet: the corpus jobs run on a pushed
+# tag matching v*, and never on a release event; the unit jobs run on a release
+# event only, and resolve refuses a tag whose unit is not in release.toml, whose
+# version differs from the manifest, or whose commit is not on main. A bare
+# v<version> release resolves to registry "none" and no unit job runs for it.
+
 on:
   push:
     tags: ['v*']
+  release:
+    types: [published]
   workflow_dispatch:
 
 # Least privilege at the top; the publish job alone adds id-token, which is
@@ -26,8 +37,13 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.event.release.tag_name || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   verify:
+    if: ${{ github.event_name != 'release' }}
     runs-on: ubuntu-latest
     steps:
       # Full history and tags, because scripts/release-gate.py --tag compares the
@@ -119,6 +135,12 @@ jobs:
           command -v ots >/dev/null || python3 -m pip install --quiet opentimestamps-client
           uv run python scripts/release-gate.py --with-timestamps
 
+      # The grants behind the Verified by Probity badge, re-checked against the
+      # current workflow allowlist and revocations. A grant that fails blocks the
+      # release until it is fixed or withdrawn.
+      - name: every Verified by Probity grant still meets the evidence rule
+        run: python3 scripts/badge-grants-gate.py
+
       - name: what a citer will verify
         run: |
           cat release/CORPUS-DIGESTS.txt
@@ -132,7 +154,7 @@ jobs:
   # attaches PEP 740 provenance to every uploaded distribution.
   publish:
     needs: verify
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: ${{ github.event_name != 'release' && startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -218,3 +240,105 @@ jobs:
           # already refused any wheel whose version is not the tag's, so this
           # cannot quietly pass over a version that needed publishing.
           skip-existing: true
+
+  resolve:
+    if: ${{ github.event_name == 'release' && !github.event.release.prerelease }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      prefix: ${{ steps.target.outputs.prefix }}
+      name: ${{ steps.target.outputs.name }}
+      registry: ${{ steps.target.outputs.registry }}
+      directory: ${{ steps.target.outputs.directory }}
+      version: ${{ steps.target.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: target
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          python3 scripts/workspace.py release-target "$TAG" > target.json
+          cat target.json
+          python3 - >> "$GITHUB_OUTPUT" <<'PYCODE'
+          import json
+          for key, value in sorted(json.load(open("target.json")).items()):
+              print(f"{key}={value}")
+          PYCODE
+
+  qualify-jcs-admit-npm:
+    needs: resolve
+    if: needs.resolve.outputs.registry != 'none' && (needs.resolve.outputs.prefix == 'jcs-admit-npm')
+    uses: ./.github/workflows/crate-jcs-admit-npm.yml
+
+  # Publishes the exact tarball the qualification job tested, with npm
+  # provenance, and attests it as pkg:npm/jcs-admit@<version>. Ported from
+  # probityai/jcs-admit npm-release.yml and the provenance job of its npm.yml.
+  publish-jcs-admit-npm:
+    needs: [resolve, qualify-jcs-admit-npm]
+    if: needs.resolve.outputs.registry != 'none' && (needs.resolve.outputs.prefix == 'jcs-admit-npm')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/jcs-admit
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    defaults:
+      run:
+        working-directory: crates/jcs-admit
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.qualify-jcs-admit-npm.outputs.artifact-name }}
+          path: ${{ runner.temp }}/jcs-qualified
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.19.0
+          package-manager-cache: false
+          registry-url: https://registry.npmjs.org
+      - name: verify the exact qualified artifact and bind its subject
+        id: artifact
+        env:
+          QUALIFIED_RECEIPTS: ${{ runner.temp }}/jcs-qualified
+          VERIFIED_NPM: ${{ runner.temp }}/jcs-verified-npm.json
+        run: |
+          python3 npm/check_release.py "$QUALIFIED_RECEIPTS" --commit "$GITHUB_SHA" > "$VERIFIED_NPM"
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          verified = json.loads(Path(os.environ['VERIFIED_NPM']).read_text())
+          manifest = json.loads(Path('npm/package.json').read_text())
+          assert manifest['name'] == 'jcs-admit'
+          tarball = Path(verified['tarball']).read_bytes()
+          assert hashlib.sha256(tarball).hexdigest() == verified['sha256']
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('tarball=' + verified['tarball'] + '\n')
+              output.write('subject=pkg:npm/' + manifest['name'] + '@' + manifest['version'] + '\n')
+              output.write('digest=sha512:' + hashlib.sha512(tarball).hexdigest() + '\n')
+          PY
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.1.0
+        id: attest
+        with:
+          subject-name: ${{ steps.artifact.outputs.subject }}
+          subject-digest: ${{ steps.artifact.outputs.digest }}
+      - name: retain the signed npm provenance bundle
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: jcs-npm-provenance-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 90
+          path: ${{ steps.attest.outputs.bundle-path }}
+      - name: publish the tested bytes with npm trusted publishing
+        env:
+          QUALIFIED_TARBALL: ${{ steps.artifact.outputs.tarball }}
+        run: npm publish "$QUALIFIED_TARBALL" --access public --provenance --ignore-scripts

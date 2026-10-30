@@ -1640,6 +1640,20 @@ FROZEN: tuple[Frozen, ...] = (
         'incident and must not track the corpus.',
     ),
     Frozen(
+        'docs/proposals/catalog-1-body.md',
+        'a witness prefix byte length in a quoted verifier error',
+        'witness prefix byte length 164 does not equal',
+        'An integer that counts something other than this corpus and equals one of its figures by'
+        ' coincidence: a byte length in a verifier error message quoted verbatim.',
+    ),
+    Frozen(
+        'docs/proposals/packets/catalog-1.md',
+        'a witness prefix byte length in a quoted verifier error',
+        'witness prefix byte length 164 does not equal',
+        'An integer that counts something other than this corpus and equals one of its figures by'
+        ' coincidence: a byte length in a verifier error message quoted verbatim.',
+    ),
+    Frozen(
         'vectors-receipt-signature/gen_vectors.py',
         'the zero-byte length of the upstream key-seed recipe',
         "suite's recipe: 31 zero bytes and",
@@ -2544,7 +2558,7 @@ FROZEN: tuple[Frozen, ...] = (
     Frozen(
         "scripts/consumer-lag-gate.py",
         "the two remembered lags",
-        "two rails sat at 140 vectors while this repository",
+        "two rails sat at 140 vectors while this repository published 149",
         "The lag as it was measured. Both figures are sizes this corpus has had, and "
         "moving either would erase the event that made this gate necessary.",
     ),
@@ -3289,6 +3303,13 @@ EXEMPT_PREFIXES: dict[str, str] = {
         "files on disk, and the builder's --check refuses a corpus that differs; the "
         "integers in its prose and builder notes are requirement ids, tree sizes and "
         "record indexes of the Proof-of-Control draft, not counts of this repository"
+    ),
+    "crates/jcs-admit/": (
+        "a standalone crate with its own Cargo tests, interop fixtures and recorded "
+        "run output; its integers are byte widths, nesting-depth bounds, upstream "
+        "event counts and the figures of its own mutation sweep and incumbent "
+        "measurement, none of them a count of this repository's corpora, which this "
+        "gate's declared claims and manifests check"
     ),
     "vectors-ai-agent-action/spec-vendored/": (
         "vendored upstream bytes; the manifest's specDigest owns them, "
