@@ -8,7 +8,7 @@
     "total": 27
   },
   "anchor": {
-    "kind": "digest-list-line",
+    "kind": "signed-digest-list",
     "manifest": "vectors-uncertain-effect/MANIFEST.json",
     "reference": {
       "path": "release/CORPUS-DIGESTS.txt",
@@ -18,6 +18,13 @@
     "routine-file": "vectors-uncertain-effect/gen_vectors.py",
     "serialization": "corpus-routine",
     "sha256": "5e662ed999ebd931b07a9c593167b20700a74d45a5129e550d27ec85057282e5",
+    "signature": {
+      "key": "release/cosign.pub",
+      "key-sha256": "15fccb1635dd1d9333146cb389f26fa3c3b9213aeed1da945ea1f51a2dc1be84",
+      "path": "release/CORPUS-DIGESTS.txt.sig",
+      "scheme": "ed25519",
+      "serialization": "bytes"
+    },
     "verdicts": {
       "availability-failure": "inconclusive",
       "integrity-failure": "fail"
@@ -91,7 +98,7 @@
       },
       "path": "vectors-uncertain-effect/gen_vectors.py",
       "serialization": "bytes",
-      "sha256": "e93ae71c66cb9d77d58e3e482b01d358a039eb0c9434b7f4700c892248ec06ae"
+      "sha256": "1e8fcafe516e27e8794420435885d46408f421559c8667858840001cd49a269d"
     },
     {
       "consumed": "unconsumed",
@@ -189,7 +196,7 @@
         "go.mod"
       ],
       "serialization": "sha256-listing-v1",
-      "sha256": "03c429d12c80248d16f9ddfc0767314a9fe562c5f6bd126d6a7fbacc361d83e5"
+      "sha256": "90a9457b240d9b94ba000ddc3d979302b88c3467e14393d942e9b69218c5710a"
     },
     "runtime": {
       "name": "go",
@@ -422,7 +429,7 @@
   ],
   "corpus-digest": {
     "serialization": "sha256-listing-v1",
-    "sha256": "4e76176e24ef182275493395d41f43ee3d8293a0838dc45ae453d8f2df57be13"
+    "sha256": "1200e250c50f915a36d7d9b7063d2fb0fb3ee5edc53467e2ce36b2963487ab0c"
   },
   "exit-code": 0,
   "exit-rule": "zero-iff-every-check-passes",
@@ -461,7 +468,7 @@
       "reconciled-present-still-unknown"
     ],
     "path": "vectors-uncertain-effect/MANIFEST.json",
-    "sha256": "158630b49b5ae47c92f65506bfbf25c5ad9952eaef72269f5f23a047854af1e2"
+    "sha256": "231f34d327c6f67e2df0117a63a012d082ee68c289bf1dedfa8018f6136fc921"
   },
   "members": [
     {
@@ -780,7 +787,6 @@
     ],
     "leaves-open": [
       "whether an implementation written from the specification, run by someone other than an author, reaches the same verdicts",
-      "whether release/CORPUS-DIGESTS.txt is a list a release signed: the signature beside it does not verify over these bytes, so the anchor is a located line, not a verified one",
       "whether a re-run by someone other than an author on these exact bytes agrees; none is on the record for them"
     ]
   },
