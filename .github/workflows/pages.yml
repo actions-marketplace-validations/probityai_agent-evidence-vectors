@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - uses: astral-sh/setup-uv@v7
       # The same toolchain the type-checking job syncs, and the same one
       # declaration of the markdown version. A version pinned a second time in
@@ -75,6 +75,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - name: every predicate type URI answers 200 from the published host
         run: python3 scripts/predicate-uri-gate.py --live
