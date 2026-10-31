@@ -223,6 +223,7 @@ EXTRA_CORPORA: tuple[str, ...] = (
     "vectors-receipt-signature",
     "vectors-agent-audit-record",
     "vectors-admission",
+    "vectors-restart-records",
 )
 CHANGES_REL = "vectors/CHANGES.md"
 BASELINE_REL = "docs/FORCING-BASELINE.json"
@@ -3325,6 +3326,11 @@ EXEMPT_PREFIXES: dict[str, str] = {
         "(site/CLAIMS.md) and its own check jobs; its integers are atlas entry "
         "numbers, star counts, dates and URL parts, none of them a count of this "
         "repository's corpora, which this gate's declared claims and manifests check"
+    ),
+    ".github/workflows/site-": (
+        "the Atlas site check workflows ported from the archived site repository; "
+        "their integers are coverage percentage thresholds, cron fields and action "
+        "versions, none of them a count of this repository's corpora"
     ),
     "docs/paper/": (
         "a paper section about named past releases (0.12.0, 0.17.4, 0.18.1) and a "

@@ -24,7 +24,7 @@ jobs:
     env:
       UV_LINK_MODE: copy
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
           python-version: '3.13'
@@ -54,11 +54,11 @@ jobs:
     # specification passed every pull request and failed at publication.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
           python-version: '3.13'
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
       - name: build the wheel and the directory reader
@@ -72,8 +72,8 @@ jobs:
   go:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
       - name: gofmt (no diffs)
@@ -94,7 +94,7 @@ jobs:
         run: |
           go test ./aee/... ./cmd/... ./corpora/... ./observedeffect/... -race -count=1 -timeout 30m
           (cd witnessattestor && go test ./... -race -count=1 -timeout 30m)
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - name: check canonical JSON transcript bytes
@@ -160,8 +160,13 @@ jobs:
       # rebuilds every record and native output, refuses any byte that differs,
       # and reads each record back with the intake checker under the repository
       # root. It needs the Go toolchain, so it lives in this job.
-      - name: every published corpus has an intake record a fresh run reproduces
-        run: uv run --locked --extra generators python scripts/gen-intake-records.py --check
+      - name: every derived file is what a fresh run writes (intake records, digest list, source lock)
+        run: uv run --locked --extra generators python scripts/regenerate-derived.py --check
+      # The derived files (digest list, intake records, shared-source lock) are
+      # marked in .gitattributes; this holds that marking, the ruff layout and
+      # the merge resolution that replaces hand-editing generated records.
+      - name: derived files are marked, checked together and resolved by regeneration
+        run: python3 scripts/regenerate-derived-test.py
       # The a2a-jcs-v01 corpus is judged by a Go reader in aee-verify and the
       # Python reader other projects import as agent_evidence_vectors.a2ajcs,
       # each with its own canonicalizer. This holds the two to the same failing
@@ -292,11 +297,11 @@ jobs:
           uv run --locked --extra generators python scripts/complexity-table-gate.py --rail go \
             --gocyclo "$(go env GOPATH)/bin/gocyclo"
       - name: golangci-lint (core module)
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.11.4
       - name: golangci-lint (attestor module)
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.11.4
           working-directory: witnessattestor
@@ -311,7 +316,7 @@ jobs:
       # every branch and tag. A shallow checkout carries the pushed commit, no
       # origin/main and no tags, and that gate then reports that it did not run
       # rather than guessing, so the whole job would stop here.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       # The package floor is 3.11 (the held-out runner workflow proves it), so
@@ -353,8 +358,12 @@ jobs:
         run: uv run mypy vectors-w3c-intake/gen_vectors.py vectors-w3c-intake/tests/test_corpus.py
       - name: type-check every python file
         run: uv run python scripts/typecheck-gate.py
+      # Corpus directories are matched by glob, never listed: a new corpus is
+      # linted by default and its pull request does not edit this line. A tree
+      # that still fails is named under [tool.ruff] extend-exclude in
+      # pyproject.toml, which only shrinks.
       - name: ruff
-        run: uv run ruff check packaging vectors vectors-approval-binding vectors-delegator-right vectors-completion-confirmation vectors-dispatch-fence vectors-refund-connected vectors-aggregate-accounting vectors-uncertain-effect vectors-agent-card-receipt vectors-credential-release vectors-converted-argument-binding vectors-done-receipt vectors-done-contract vectors-spoofed-tool-output vectors-test-tampering vectors-grader-isolation vectors-done-probes vectors-admission vectors-acs-core/wire-probes vectors-acs-core/hook-probes vectors-observed-effect vectors-agent-audit-record vectors-ai-generation vectors-receipt-signature vectors-source-coverage vectors-open-weight-art53 vectors-anchored-chain vectors-receipt-chain-end vectors-identity-binding vectors-authority-at-dispatch vectors-chunked-export vectors-trace-anchor vectors-a2a-jcs-v01 vectors-mcp-owasp vectors-grade-floor vectors-connector-scope vectors-agent-payment-mandate vectors-agent-change-admission vectors-agentic-process-evidence vectors-delegation-lifecycle vectors-recorded vectors-self-reported-record vectors-agent-decision vectors-ietf-agent-record-drafts scripts interop/gemara-method-link interop/ws4-prior-witness-candidate interop/agentavow-live-mcp interop/agentavow-signed-map-v1 interop/a2a-s3-retain-2026-10-01 interop/a2a-s4-dual-name-2026-10-02 interop/action-tuple-framed-v1 vectors-w3c-intake
+        run: uv run ruff check packaging vectors vectors-* scripts interop/*
       - name: timestamp candidate custody and refusal controls
         run: python3 scripts/retain-timestamp-candidate-test.py
       - name: E2 compatibility tests in the shared development environment
@@ -1070,6 +1079,11 @@ jobs:
           uv run python vectors-agentic-process-evidence/mutation_check.py
       - name: delegation-lifecycle cases regenerate and their digest recomputes
         run: uv run --extra dev pytest vectors-delegation-lifecycle/tests -q
+      - name: restart-records members regenerate, every rule is forced and the checker agrees
+        run: |
+          set -euo pipefail
+          uv run --extra dev pytest vectors-restart-records/tests -q
+          uv run python vectors-restart-records/check_vectors.py
       # The a2a canonicalization corpus is upstream's bytes, not ours: the
       # lock check refuses any drift from the pinned a2a-tck commit and corpus
       # digest, and the tests replay it through the rail with a conformant and
@@ -1317,8 +1331,8 @@ jobs:
   forcing:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
       - name: the corpus still forces every rule it is recorded as forcing
@@ -1372,8 +1386,8 @@ jobs:
   action:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
       - name: build the shipped verifier into the workspace
