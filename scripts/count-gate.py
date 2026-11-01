@@ -2044,6 +2044,28 @@ FROZEN: tuple[Frozen, ...] = (
     ),
     Frozen(
         "RUNS.md",
+        "the agent audit record outside run score at release 0.28.0",
+        "141 of 141 agree with `MANIFEST.json`",
+        (
+            "The score Laurent-Lemonnier posted on agent-evidence-vectors#335 for "
+            "vectors-agent-audit-record at release 0.28.0, from his own verifier at "
+            "dps-scitt-decision-layer@f72f092 on 2026-10-29. It records one past run of "
+            "one release and does not track the corpus as it grows."
+        ),
+    ),
+    Frozen(
+        "RUNS.md",
+        "the agent audit record outside run reject-member score at release 0.28.0",
+        "agrees on 81 of 81 reject members",
+        (
+            "The score Laurent-Lemonnier posted on agent-evidence-vectors#335 for "
+            "vectors-agent-audit-record at release 0.28.0, from his own verifier at "
+            "dps-scitt-decision-layer@f72f092 on 2026-10-29. It records one past run of "
+            "one release and does not track the corpus as it grows."
+        ),
+    ),
+    Frozen(
+        "RUNS.md",
         "the agent audit record corpus size an outside reader ran",
         "at release 0.16.0, 47 members, corpus digest",
         (
@@ -3321,17 +3343,6 @@ EXEMPT: dict[str, str] = {
     ),
 }
 EXEMPT_PREFIXES: dict[str, str] = {
-    "site/": (
-        "the Atlas site source, a standalone tree with its own claims register "
-        "(site/CLAIMS.md) and its own check jobs; its integers are atlas entry "
-        "numbers, star counts, dates and URL parts, none of them a count of this "
-        "repository's corpora, which this gate's declared claims and manifests check"
-    ),
-    ".github/workflows/site-": (
-        "the Atlas site check workflows ported from the archived site repository; "
-        "their integers are coverage percentage thresholds, cron fields and action "
-        "versions, none of them a count of this repository's corpora"
-    ),
     "docs/paper/": (
         "a paper section about named past releases (0.12.0, 0.17.4, 0.18.1) and a "
         "recorded experiment; every figure is pinned to its tag and digest in the same "

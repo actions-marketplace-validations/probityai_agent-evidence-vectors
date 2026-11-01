@@ -135,12 +135,14 @@ from agent_evidence_vectors import (
     approvalbinding,
     auditrecord,
     authoritydispatch,
+    badgevc,
     cardreceipt,
     changeadmission,
     chunkedexport,
     completionconfirmation,
     connectorscope,
     convertedargs,
+    delegationlifecycle,
     delegatorright,
     dispatchfence,
     donerun,
@@ -3908,6 +3910,8 @@ def _run_non_reference_suite(
         *cardreceipt.SUITES,
         convertedargs.SUITE,
         delegatorright.SUITE,
+        badgevc.SUITE,
+        delegationlifecycle.SUITE,
         completionconfirmation.SUITE,
         chunkedexport.SUITE,
         *donerun.SUITES,
@@ -3948,6 +3952,7 @@ def _run_non_reference_suite(
         **{suite: cardreceipt.runner(suite) for suite in cardreceipt.SUITES},
         convertedargs.SUITE: convertedargs.run,
         delegatorright.SUITE: delegatorright.run,
+        badgevc.SUITE: badgevc.run,
         completionconfirmation.SUITE: completionconfirmation.run,
         chunkedexport.SUITE: chunkedexport.run,
         **{suite: donerun.runner(suite) for suite in donerun.SUITES},
@@ -4000,6 +4005,7 @@ def _run_non_reference_suite(
         mcpowasp.SUITE: mcpowasp,
         admission.SUITE: admission,
         selfreportedrecord.SUITE: selfreportedrecord,
+        delegationlifecycle.SUITE: delegationlifecycle,
     }.get(suite, observedeffect)
     try:
         judged = reader.judge(suite_dir)
@@ -5404,6 +5410,16 @@ def jcs_byte_vectors_path() -> str:
     return os.path.join(corpora_root(), JCS_BYTE_VECTORS)
 
 
+def print_corpora(form: str) -> int:
+    """Print the shipped corpus names: one per line, or one JSON array for a CI matrix."""
+    if form == "json":
+        print(json.dumps(shipped_corpora()))
+    else:
+        for name in shipped_corpora():
+            print(name)
+    return 0
+
+
 def main() -> int:
     if len(sys.argv) > 1 and sys.argv[1] == "claim":
         # The evaluation claim record: verify, emit or replay. Its verifier lives in
@@ -5489,6 +5505,13 @@ def rail_main() -> int:
         help="print the shipped corpus names, one per line, and exit",
     )
     parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="with --list-corpora: text prints one name per line; json prints one "
+        "JSON array of names, for a CI matrix (fromJSON)",
+    )
+    parser.add_argument(
         "--jcs-byte-vectors",
         action="store_true",
         help="print the absolute path of the shipped RFC 8785 byte cases "
@@ -5521,9 +5544,7 @@ def rail_main() -> int:
     )
     args = parser.parse_args()
     if args.list_corpora:
-        for name in shipped_corpora():
-            print(name)
-        return 0
+        return print_corpora(args.format)
     if args.jcs_byte_vectors:
         print(jcs_byte_vectors_path())
         return 0

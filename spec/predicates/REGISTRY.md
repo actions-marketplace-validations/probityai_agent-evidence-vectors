@@ -165,10 +165,28 @@ For one declared sink and test window, whether an effect from a task in flight c
   each carrying its Appendix B identifier, then members for sentences of
   Section 5.4 that Appendix B has no row for, each naming its section in
   `draftSection`, then rows of revision 01 (`CS1` to `CS40`) that bind
-  consumption state to the agent's operation key; `CS7`, `CS8`, `CS17`, `CS18` to `CS22` and `CS25` to `CS33` and `CS38` to `CS40` are
+  consumption state to the agent's operation key, and rows written for revision
+  04 (`CS41` to `CS49`) that add a paid call's payee and settled terms; `CS7`, `CS8`, `CS17`, `CS18` to `CS22`, `CS25` to `CS33`, `CS38` to `CS40`, `CS48` and `CS49` are
   files of several records judged as a set. Rows R1 to R9 are retained records
   judged by the dating check of Section 4.7. Judged by `packaging/agent_evidence_vectors/auditrecord.py`.
   Releases up to v0.25.0 test revision 02 of the earlier draft.
+- Status: current. The URI will not move, because a record carries it inside
+  the bytes its producer signed.
+
+### `predicate/v2/agent-audit-record`
+
+- Document: Section 8 of the Internet-Draft
+  `draft-gilda-audit-agent-audit-record-03`,
+  <https://datatracker.ietf.org/doc/draft-gilda-audit-agent-audit-record/03/>,
+  which publishes this URI as the `v1` URI read as `v2`. It is not vendored here.
+- Envelope: as `predicate/v1/agent-audit-record`.
+- Predicate body: the members of Section 5 of revision 03, with the closed set
+  of Section 5.4 extended by the input `principal-standing-source`. A record
+  carrying that input is malformed under the `v1` URI; every other rule is the
+  same under both.
+- Corpus: rows `PS1` and `PS2` of Appendix B of revision 03, marked there for
+  the next release of `vectors-agent-audit-record/`; no released member carries
+  this URI yet.
 - Status: current. The URI will not move, because a record carries it inside
   the bytes its producer signed.
 
@@ -257,8 +275,10 @@ Types defined in this directory with a URI under
 `https://w3id.org/agent-evidence/predicate/v1/` are served from a persistent identifier
 namespace that is not this repository. The site build here publishes no page for
 them, and the scan in `scripts/predicate-uri-gate.py` does not cover that host.
-Each document is the authority for its type until the human-readable pages are
-live, and no signed statement carries any of these URIs before then.
+`scripts/build_predicate_pages.py` writes their pages under `pages/predicate/v1/`,
+the organisation Pages site serves those pages at the targets of the w3id.org
+rules, and `scripts/check_uris_resolve.py --network` requests every one of them
+each day. Each document is the authority for its type.
 
 - `done-contract`: `spec/predicates/done-contract.md`, corpus `vectors-done-contract/`.
 - `done-receipt`: `spec/predicates/done-receipt.md`, corpora `vectors-done-receipt/`,
