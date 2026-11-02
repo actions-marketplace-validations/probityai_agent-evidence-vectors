@@ -1125,6 +1125,15 @@ def declared_claims(src: Sources) -> tuple[Claim, ...]:
 
 
 DELEGATED: tuple[Delegated, ...] = (
+    # The W3C v0.1 reader matrix. matrix.md is rendered from matrix.json by
+    # render.py, and the matrix tests fail when the committed table differs from
+    # what render.py would write, so each reader row's tallies are matrix.json's.
+    Delegated(
+        "interop/w3c-v01-appendix/matrix/matrix.md",
+        "the reader matrix's per-reader mutant tallies",
+        r"(?m)^\| [^|\n]+ \| \d+ \| \d+ \| \d+ \| \d+ \| \d+ \| \d+ of \d+ \|",
+        "interop/w3c-v01-appendix/matrix/tests/test_matrix.py",
+    ),
     # The W3C report corpus's section 10 selection. Its index is rendered from
     # the corpus manifest by the generator, and the regenerability gate refuses
     # an index the generator would not write, so each figure in this sentence is
@@ -1420,6 +1429,15 @@ DELEGATED: tuple[Delegated, ...] = (
 
 
 FROZEN: tuple[Frozen, ...] = (
+    Frozen(
+        'interop/w3c-v01-appendix/README.md',
+        'the R8-compare figures posted to the W3C list',
+        '92 of 96; 23, 2, 44 of 69 (0039, 0188, Nov/0002)',
+        'A past result, not a count of the live corpus: the row records what the R8 '
+        'comparison printed on the v0.17.4 manifest when it was posted to '
+        'public-agent-conformance (0039, 0188, Nov/0002). The appendix workflow reruns '
+        'the row and fails on any change, so the figure is checked there, not here.',
+    ),
     Frozen(
         'DISPOSITIONS.md',
         'the JSON nesting depth bound made normative at 128',
