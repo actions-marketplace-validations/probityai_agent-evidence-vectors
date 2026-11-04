@@ -36,6 +36,65 @@ The predicate carries an observed effect of an execution, separately from the
 claim an executor makes about it, so that a consumer recomputes the effect from
 carried bytes instead of accepting an asserted one.
 
+### `predicate/v1/signature-coverage`
+
+- Document: `corpora/vectors-signature-coverage/README.md`
+- Corpus: `corpora/vectors-signature-coverage/`, suite `signature-coverage/v1`
+- Rails: `corpusreaders/signaturecoverage.go`, `packaging/agent_evidence_vectors/signaturecoverage.py`
+
+The predicate carries one signed structure: the source as readers see it with repeats
+kept, the signed payload with its signature, the keys declared outside the signature, and
+the paths a consumer reads. The signature input must determine everything a reader can
+read: two records that read differently may not share one.
+### `predicate/v1/evidence-state`
+
+- Document: `corpora/vectors-evidence-state/README.md`
+- Corpus: `corpora/vectors-evidence-state/`, suite `evidence-state/v1`
+- Rails: `corpusreaders/evidencestate.go`, `packaging/agent_evidence_vectors/evidencestate.py`
+
+The predicate carries one system's declared evidence state, a code of the vocabulary term
+`evidence_state` (`ES0` to `ES8`), beside the observations that ground it. The state is
+the highest code whose entry condition the observations meet; a declared code that
+differs is refused, and a silence is declared clean (`ES1`) only over measured coverage.
+
+### `predicate/v1/incident-evidence-cell`
+
+- Document: `corpora/vectors-incident-evidence-cell/README.md`
+- Corpus: `corpora/vectors-incident-evidence-cell/`, suite `incident-evidence-cell/v1`
+- Schema: `spec/schemas/incident-evidence-cell-v1.schema.json`
+- Rails: `corpusreaders/evidencecell.go`, `packaging/agent_evidence_vectors/evidencecell.py`
+
+The predicate carries one coded cell of an incident decision table inside an in-toto
+Statement v1 whose subjects are the source documents the cell was coded from. The cell
+names its table, row and column, an `evidence_state` code URI, a `response_function`
+value, a support label, and either the value it records or an empty marker; an empty
+cell is labelled `unknown`. The producer signs the Statement in a DSSE envelope with its
+own key, and the record's `doesNotAssert` says the signature shows who coded the cell,
+not that the cell is true.
+
+### `predicate/v1/monitor-coverage`
+
+- Document: `corpora/vectors-monitor-coverage/README.md`
+- Corpus: `corpora/vectors-monitor-coverage/`, suite `monitor-coverage/v1`
+- Rails: `corpusreaders/monitorcoverage.go`, `packaging/agent_evidence_vectors/monitorcoverage.py`
+
+The predicate carries one monitor's verdict over one window: the monitor's vantage and
+the channels it reads, the collector-side coverage count, an effect another source
+observed, and the verdict with its decision and effective-action counts. A clean verdict
+stands only on complete collector coverage of the channel the effect used, and a claim
+that a defence reduced harm needs at least one effective action.
+
+### `predicate/v1/propagation-step`
+
+- Document: `corpora/vectors-propagation-step/README.md`
+- Corpus: `corpora/vectors-propagation-step/`, suite `propagation-step/v1`
+- Rails: `corpusreaders/propagationstep.go`, `packaging/agent_evidence_vectors/propagationstep.py`
+
+The predicate carries one hop's attribution between two agents: the message log, the
+digest chain the attribution cites, each agent's exposures to outside sources and when
+the receiver acted. Propagation needs a connected chain that reaches the receiver before
+it acted; a shared exposure with no edge is a common cause, never propagation.
+
 ### `predicate/v1/uncertain-effect`
 
 - Document: `corpora/vectors-uncertain-effect/README.md`

@@ -505,6 +505,18 @@ standards = []
 shapes = ["wrong-grade", "forged-signature", "self-report"]
 
 [[corpus]]
+id = "vectors-evidence-state"
+path = "corpora/vectors-evidence-state"
+wheel = true
+sdist = true
+title = "Evidence states"
+summary = "A verifier must derive an evidence state, ES0 to ES8, from a record's own observations and refuse a declared state that differs, including a silence declared clean over monitors whose coverage was never measured."
+record_class = "record"
+domains = ["effects", "provenance"]
+standards = []
+shapes = ["coverage-gap", "self-report"]
+
+[[corpus]]
 id = "vectors-grade-floor"
 path = "corpora/vectors-grade-floor"
 wheel = true
@@ -553,6 +565,18 @@ standards = ["ietf-draft", "scitt-cose"]
 shapes = ["broken-chain", "forged-signature", "malformed-input"]
 
 [[corpus]]
+id = "vectors-incident-evidence-cell"
+path = "corpora/vectors-incident-evidence-cell"
+wheel = true
+sdist = true
+title = "Incident evidence cells"
+summary = "A verifier must read one coded decision-table cell against closed state, response and support codes, refuse an empty cell not labelled unknown, and require the sentence that a signature shows who coded the cell, not that it is true."
+record_class = "record"
+domains = ["effects", "provenance"]
+standards = ["in-toto"]
+shapes = ["self-report", "wrong-grade"]
+
+[[corpus]]
 id = "vectors-mcp-owasp"
 path = "corpora/vectors-mcp-owasp"
 wheel = true
@@ -589,6 +613,18 @@ standards = ["mcp"]
 shapes = ["coverage-gap", "ordering"]
 
 [[corpus]]
+id = "vectors-monitor-coverage"
+path = "corpora/vectors-monitor-coverage"
+wheel = true
+sdist = true
+title = "Monitor coverage"
+summary = "A verifier must refuse a clean monitor verdict over a window the collector did not fully see or a channel outside the monitor's vantage, and a claim that a defence reduced harm when it took no effective action."
+record_class = "record"
+domains = ["effects", "provenance"]
+standards = []
+shapes = ["coverage-gap", "self-report"]
+
+[[corpus]]
 id = "vectors-observed-effect"
 path = "corpora/vectors-observed-effect"
 wheel = true
@@ -611,6 +647,18 @@ record_class = "record"
 domains = ["model-governance"]
 standards = ["eu-ai-act"]
 shapes = ["coverage-gap", "uncertainty"]
+
+[[corpus]]
+id = "vectors-propagation-step"
+path = "corpora/vectors-propagation-step"
+wheel = true
+sdist = true
+title = "Propagation steps"
+summary = "A verifier must accept a hop between agents attributed as propagation only through a message digest chain that reaches the receiver before it acted, and refuse a common-cause exposure attributed as propagation."
+record_class = "record"
+domains = ["effects", "provenance"]
+standards = []
+shapes = ["missing-binding", "broken-chain"]
 
 [[corpus]]
 id = "vectors-receipt-chain-end"
@@ -695,6 +743,18 @@ record_class = "record"
 domains = ["provenance", "identity"]
 standards = []
 shapes = ["self-report", "forged-signature", "coverage-gap"]
+
+[[corpus]]
+id = "vectors-signature-coverage"
+path = "corpora/vectors-signature-coverage"
+wheel = true
+sdist = true
+title = "Signature coverage"
+summary = "A verifier must refuse a record whose signature verifies while a reader sees something it never covered, and a signer may not give two records a reader tells apart one signature input."
+record_class = "record"
+domains = ["canonicalization", "provenance"]
+standards = ["rfc8785"]
+shapes = ["coverage-gap", "tampering"]
 
 [[corpus]]
 id = "vectors-source-coverage"

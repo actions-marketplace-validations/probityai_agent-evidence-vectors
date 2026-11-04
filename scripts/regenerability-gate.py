@@ -146,6 +146,11 @@ GENERATORS = (
     "corpora/vectors-refund-connected/gen_vectors.py",
     "corpora/vectors-aggregate-accounting/gen_vectors.py",
     "corpora/vectors-uncertain-effect/gen_vectors.py",
+    "corpora/vectors-monitor-coverage/gen_vectors.py",
+    "corpora/vectors-signature-coverage/gen_vectors.py",
+    "corpora/vectors-evidence-state/gen_vectors.py",
+    "corpora/vectors-incident-evidence-cell/gen_vectors.py",
+    "corpora/vectors-propagation-step/gen_vectors.py",
     "corpora/vectors-agent-card-receipt/gen_vectors.py",
     "corpora/vectors-credential-release/gen_vectors.py",
     "corpora/vectors-converted-argument-binding/gen_vectors.py",
@@ -181,6 +186,9 @@ GENERATORS = (
     # manifest and index emitted from both.
     "corpora/vectors-admission/gen_vectors.py",
     "scripts/gen-w3c-appendix.py",
+    # The jcsvectors Go module's byte copies of two corpora. It reads the
+    # committed corpora and writes nothing they depend on, so it runs last.
+    "scripts/gen-jcsvectors-data.py",
 )
 
 # Every file a generator above is responsible for, as a directory and a glob.
@@ -333,6 +341,17 @@ OWNED = (
     ("corpora/vectors-aggregate-accounting/cases", "**/record.json"),
     ("corpora/vectors-uncertain-effect", "MANIFEST.json"),
     ("corpora/vectors-uncertain-effect/cases", "**/record.json"),
+    ("corpora/vectors-monitor-coverage", "MANIFEST.json"),
+    ("corpora/vectors-signature-coverage", "MANIFEST.json"),
+    ("corpora/vectors-signature-coverage", "signer-pairs.json"),
+    ("corpora/vectors-signature-coverage/cases", "**/record.json"),
+    ("corpora/vectors-evidence-state", "MANIFEST.json"),
+    ("corpora/vectors-incident-evidence-cell", "MANIFEST.json"),
+    ("corpora/vectors-monitor-coverage/cases", "**/record.json"),
+    ("corpora/vectors-evidence-state/cases", "**/record.json"),
+    ("corpora/vectors-incident-evidence-cell/cases", "**/record.json"),
+    ("corpora/vectors-propagation-step", "MANIFEST.json"),
+    ("corpora/vectors-propagation-step/cases", "**/record.json"),
     ("corpora/vectors-agent-card-receipt", "MANIFEST.json"),
     ("corpora/vectors-credential-release", "MANIFEST.json"),
     ("corpora/vectors-agent-card-receipt/cases", "**/card.json"),
@@ -400,6 +419,9 @@ OWNED = (
     ("corpora/vectors-ietf-agent-record-drafts/cases", "v*.json"),
     ("corpora/vectors-ietf-agent-record-drafts", "MANIFEST.json"),
     ("corpora/vectors-ietf-agent-record-drafts", "INDEX.md"),
+    # The Go module embeds copies, because go:embed cannot reach corpora/.
+    ("jcsvectors/vectors-a2a-jcs-v01", "**/*.json"),
+    ("jcsvectors/jcs-byte-vectors", "*.json"),
 )
 
 # Deliberately NOT owned above, for the two reasons the header already gives.

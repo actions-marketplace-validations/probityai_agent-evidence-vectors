@@ -1126,6 +1126,16 @@ def declared_claims(src: Sources) -> tuple[Claim, ...]:
 
 
 DELEGATED: tuple[Delegated, ...] = (
+    # The corpus index's count of registered corpora. The index is rendered from
+    # REGISTRY.toml by corpus-registry.py, whose --check refuses an index the
+    # registry would not write. It was reported only when the registered total
+    # (57) walked onto the restart-record corpus's member total.
+    Delegated(
+        "corpora/README.md",
+        "the corpus index's count of registered corpora",
+        r"(?m)^\d+ corpora\. Each is named",
+        "scripts/corpus-registry.py",
+    ),
     # The W3C v0.1 reader matrix. matrix.md is rendered from matrix.json by
     # render.py, and the matrix tests fail when the committed table differs from
     # what render.py would write, so each reader row's tallies are matrix.json's.
@@ -2894,6 +2904,28 @@ FROZEN: tuple[Frozen, ...] = (
         'What one named third-party repository reported for one named workflow run '
         'on the date it ran, with the run linked in the same row. It records that '
         'run and does not track the corpus.',
+    ),
+    Frozen(
+        'docs/research/independence.md',
+        "the historical suiteRevision label 29 in the independence revision table",
+        '| 29 | Added three rejects for absent, null and empty predicates',
+        'A suiteRevision number of the adversarial-execution-evidence suite, not a count of '
+        'the receipt-signature corpus. It met that corpus total of 29 by coincidence.',
+    ),
+    Frozen(
+        'interop/ccs-draft10-reader/README.md',
+        "the member count of the CCS corpus the draft-10 reader signs",
+        'the corpus signs 29 members and encodes',
+        'A tally over the pinned CCS v1.4.0 corpus, not this repository\'s receipt-signature '
+        'corpus. It met that corpus total of 29 by coincidence.',
+    ),
+    Frozen(
+        'interop/ccs-draft10-reader/README.md',
+        "the reader's disagreements with the CCS corpus under Reading B",
+        'Of the 29 disagreements, recounted from',
+        'A tally over the pinned CCS v1.4.0 corpus, recounted from results/cases.jsonl, not a '
+        'count of this repository\'s receipt-signature corpus. It met that corpus total of 29 '
+        'by coincidence.',
     ),
 )
 
