@@ -155,7 +155,7 @@ jobs:
       - run: rustup default stable
       - run: cargo build --locked --example a2a_jcs
       - name: replay the published a2a-jcs-v01 corpus, rfc8785 target
-        uses: probityai/agent-evidence-vectors@a78eb265ece4163e5d4e08eb5865fac05d12cab0 # v0.29.3
+        uses: probityai/agent-evidence-vectors@6a1228fd69a2396a6db990a9c832adcb4ef735c0 # v0.34.1
         env:
           A2A_JCS_TARGET: rfc8785
         with:
