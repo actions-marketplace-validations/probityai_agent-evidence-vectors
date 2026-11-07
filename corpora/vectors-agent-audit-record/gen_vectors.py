@@ -45,6 +45,7 @@ sys.path.insert(0, HERE)
 
 from canonical import canonical_bytes, digest  # noqa: E402
 from cryptography.hazmat.primitives import serialization  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric import ec  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (  # noqa: E402
     Ed25519PrivateKey,
 )
@@ -53,6 +54,13 @@ from digest import corpus_digest  # noqa: E402
 SUITE = "agent-audit-record-conformance"
 PREDICATE_TYPE = (
     "https://probityai.github.io/agent-evidence-vectors/predicate/v1/agent-audit-record"
+)
+#: The second URI revision 03 publishes (Section 8), for the input set extended
+#: by principal-standing-source. A member carrying predicateType is judged by a
+#: verifier configured for it; every other member, by one configured for the
+#: URI above.
+PREDICATE_TYPE_V2 = (
+    "https://probityai.github.io/agent-evidence-vectors/predicate/v2/agent-audit-record"
 )
 PREDICATE_DOCUMENT = "https://datatracker.ietf.org/doc/draft-gilda-audit-agent-audit-record/00/"
 DRAFT = "draft-gilda-audit-agent-audit-record-00"
@@ -348,6 +356,7 @@ def member(
     aggregation: dict[str, Any] | None = None,
     within: bool | None = None,
     joint: dict[str, Any] | None = None,
+    predicate_type: str | None = None,
 ) -> None:
     if (verdict is None) == (readings is None):
         raise SystemExit(
@@ -376,6 +385,7 @@ def member(
             "aggregation": aggregation,
             "within": within,
             "joint": joint,
+            "predicateType": predicate_type,
         }
     )
 
@@ -1517,6 +1527,8 @@ def define() -> None:
     define_consumption_carryover()
     define_settlement()
     define_audit_next()
+    define_principal()
+    define_data_subject()
     define_reject_paths()
     rank = {draft_id: i for i, draft_id in enumerate(ORDER)}
     missing = [m["draftId"] for m in MEMBERS if m["draftId"] not in rank]
@@ -2936,6 +2948,14 @@ def define_consumption_carryover() -> None:
 # asset or payee at settlement is not (CS45, CS46). The terms come from the
 # chain and never from the signed payload (CS47). A later record of the ledger
 # counts the settled amount, not the held one (CS48, CS49).
+#
+# CS50 to CS54: the same case at a settlement of 0 (vendrell46, #307). An x402
+# EVM upto permit that settles 0 sends no transaction, so settled.transaction
+# is the empty string, valid only at amount 0 (CS50, CS51). The authorization
+# is not spent, so the facilitator can still settle it up to the maximum until
+# its deadline: the held entry keeps the operation key and carries the deadline
+# (CS52), and a later record of the ledger releases it only at or after that
+# deadline (CS53, CS54).
 # ---------------------------------------------------------------------------
 
 #: USDC on Base Sepolia, the asset of the x402 MCP transport's example, and the
@@ -2989,6 +3009,62 @@ def _settled(pred: dict[str, Any]) -> None:
         "source": "chain",
         "transaction": SETTLEMENT_TX,
     }
+
+
+#: The deadline of the upto permit, as the record shape writes instants.
+UPTO_DEADLINE = "2026-09-19T11:34:02Z"
+
+
+def _zero_settled(pred: dict[str, Any]) -> None:
+    """CS41's held permit, which the facilitator settled at 0: no transaction, the
+    operation key still held with its amount and the permit's deadline, and no
+    effect observed."""
+    _consumption(pred)["settled"] = {
+        "amount": 0,
+        "asset": {"id": USDC_BASE_SEPOLIA, "decimals": 6},
+        "payee": PAYEE_P,
+        "source": "chain",
+        "transaction": "",
+    }
+    _consumption(pred)["held"][0]["deadline"] = UPTO_DEADLINE
+    pred["effect"]["observed"] = "none"
+    pred["effect"]["writes"] = []
+    pred["effect"]["interval"]["afterRoot"] = BEFORE
+    pred["agreement"] = "not-exercised"
+
+
+def _read_state_at(pred: dict[str, Any], stamp: str) -> None:
+    """Move the consumption-state entry's lastResult, which maxAge holds within a
+    minute of reportedAt."""
+    pred["evaluation"]["inputs"][CONSUMPTION_ENTRY]["lastResult"] = stamp
+
+
+def _zero_settled_later(reported_at: str) -> Callable[[], list[dict[str, Any]]]:
+    """CS53 and CS54: the zero settlement of CS50, then a new operation under the
+    same limit document, dated reported_at, that reads a later revision, holds
+    nothing and counts what CS50 read as consumed."""
+
+    def records() -> list[dict[str, Any]]:
+        settling = from_pred("CS50")
+        later = _second_operation(
+            key=OP_R2,
+            revision=43,
+            same_request=False,
+            requested=5_000_000,
+            record="zero-settled-later",
+        )
+        _in_asset(later, USDC_BASE_SEPOLIA)
+        _consumption(later)["payee"] = PAYEE_P
+        later["decision"]["reportedAt"] = reported_at
+        issued = datetime.datetime.fromisoformat(reported_at.replace("Z", "+00:00"))
+        later["issuedAt"] = (issued + datetime.timedelta(seconds=9)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        read_at = datetime.datetime.fromisoformat(reported_at.replace("Z", "+00:00"))
+        read_before = read_at - datetime.timedelta(seconds=2)
+        _read_state_at(later, read_before.strftime("%Y-%m-%dT%H:%M:%SZ"))
+        seal_commitment(later)
+        return [_named(settling, "zero-settled-call"), _named(later, "zero-settled-later")]
+
+    return records
 
 
 def _settled_edit(name: str, value: Any) -> Callable[[dict[str, Any]], None]:
@@ -3102,6 +3178,40 @@ def define_settlement() -> None:
             ["consumption-value-invalid"],
             None,
         ),
+        (
+            "CS50",
+            "cs50-upto-settled-at-zero",
+            "CS41",
+            "CS41 where the facilitator settled the upto permit at 0: settled carries amount "
+            "0, source chain and an empty transaction, since a zero settlement sends none, and "
+            "the held entry keeps the operation key, its 12 USDC and the permit's deadline",
+            cs_from("CS41", "CS50", _zero_settled),
+            "valid",
+            [],
+            True,
+        ),
+        (
+            "CS51",
+            "cs51-empty-transaction-at-a-non-zero-amount",
+            "CS50",
+            "CS50 where settled carries 7 USDC and still an empty transaction: a settlement "
+            "that moved funds names the transaction that moved them",
+            mutate("CS50", _settled_edit("amount", UPTO_SETTLED)),
+            "malformed",
+            ["consumption-value-invalid"],
+            None,
+        ),
+        (
+            "CS52",
+            "cs52-zero-settlement-held-entry-has-no-deadline",
+            "CS50",
+            "CS50 where the held entry carries no deadline: nothing says how long the permit "
+            "can still settle",
+            mutate("CS50", lambda p: _consumption(p)["held"][0].pop("deadline")),
+            "malformed",
+            ["consumption-value-invalid"],
+            None,
+        ),
     ]
     for draft_id, slug, parent, row, build, verdict, codes, within in singles:
         member(
@@ -3146,6 +3256,45 @@ def define_settlement() -> None:
             None,
             row,
             _ledger_set(draft_id, _counted_after_settlement(30_000_000 + settled_amount)),
+            "valid",
+            tier="authoritative",
+            section="5.9",
+            revision=REVISION_04,
+            joint={
+                "verdict": verdict,
+                "codes": [joint_code] if joint_code else [],
+                "withinLimit": [True, True],
+            },
+        )
+    zero_sets = [
+        (
+            "CS53",
+            "cs53-set-zero-settlement-released-before-the-deadline",
+            "CS50, then a new operation under the same limit document that reads a later "
+            "revision, is dated 24 minutes before the permit's deadline and no longer holds the "
+            "call, which the first record shows as none: each record valid, the set malformed "
+            "because the permit can still settle",
+            "2026-09-19T11:10:02Z",
+            "malformed",
+            "consumption-set-release-unshown",
+        ),
+        (
+            "CS54",
+            "cs54-set-zero-settlement-released-at-the-deadline",
+            "CS53 where the later record is dated at the permit's deadline: each record "
+            "valid, the set valid",
+            UPTO_DEADLINE,
+            "valid",
+            None,
+        ),
+    ]
+    for draft_id, slug, row, reported_at, verdict, joint_code in zero_sets:
+        member(
+            draft_id,
+            slug,
+            None,
+            row,
+            _ledger_set(draft_id, _zero_settled_later(reported_at)),
             "valid",
             tier="authoritative",
             section="5.9",
@@ -3288,6 +3437,550 @@ def define_audit_next() -> None:
         ["issued-before-sealed"],
         revision=REVISION_03,
     )
+    define_principal_standing()
+
+
+# ---------------------------------------------------------------------------
+# Principal standing under the v2 URI (revision 03, rows PS1 and PS2), and the
+# open boundary beside them (PS1b). Contributed by Wes Jackson in
+# probityai/agent-evidence-vectors#412, built as written there; the boundary
+# case is Girish Konda's.
+#
+# Revision 03 adds principal-standing-source to the closed input set, and
+# because a closed set grows only under a new URI, publishes the extended set
+# under the v2 URI. PS1 is A10 under that URI: issuer standing fresh, principal
+# standing unavailable, recorded not-evaluated. PS2 is the same record under the
+# v1 URI, where the value is outside the set. PS1b puts principal standing
+# exactly at maxAge, where draft-jackson-wimse-evaluation-05 Section 3 forbids
+# using the input ("at or past its horizon") and Section 5.4 of revision 03
+# calls it fresh ("an age equal to maxAge is fresh"). No record satisfies both,
+# so the member is open until the two drafts carry one boundary.
+# ---------------------------------------------------------------------------
+
+#: The principal-standing value of PS1b: exactly 3600 seconds before reportedAt.
+AT_HORIZON = "2026-09-19T10:04:02Z"
+
+
+def build_ps1(principal_last_result: str = STALE, predicate_type: str = PREDICATE_TYPE_V2) -> Built:
+    pred = from_pred("A10")
+    pred["evaluation"] = {
+        "status": "not-evaluated",
+        "inputs": [
+            entry("policy-source", "2026-09-19T10:00:00Z", DAY),
+            entry("standing-source", "2026-09-19T11:00:00Z", HOUR),
+            entry("principal-standing-source", principal_last_result, HOUR),
+        ],
+        "unavailableInput": ["principal-standing-source"],
+    }
+    stmt = statement(pred)
+    stmt["predicateType"] = predicate_type
+    return {"payload": canonical_bytes(stmt)}
+
+
+TWO_READINGS_PS1B = [
+    {
+        "verdict": "valid",
+        "rationale": "draft-jackson-wimse-evaluation-05 Section 3: a verifier must not use "
+        "an input at or past its horizon, its as-of time plus the pinned maximum age, so at "
+        "an age equal to maxAge the input is unavailable and not-evaluated naming it is the "
+        "record required. The reading if this draft adopts that boundary (an input is fresh "
+        "when its age is less than maxAge, and FR2 becomes malformed)",
+    },
+    {
+        "verdict": "malformed",
+        "rationale": "Section 5.4 of draft-gilda-audit-agent-audit-record-03 as filed: an "
+        "age equal to maxAge is fresh (FR2), so the derived unavailable set is empty and a "
+        "not-evaluated record naming the input fails the recompute of Section 4.6. The "
+        "reading if draft-jackson-wimse-evaluation adopts this draft's boundary (past its "
+        "horizon, in place of at or past)",
+    },
+]
+
+
+def define_principal_standing() -> None:
+    member(
+        "PS1",
+        "ps1-principal-standing-unavailable-v2",
+        "A10",
+        "under the v2 predicate type URI, not-evaluated with unavailableInput of "
+        "principal-standing-source and the matching entry",
+        build_ps1,
+        "valid",
+        tier="authoritative",
+        revision=REVISION_03,
+        predicate_type=PREDICATE_TYPE_V2,
+    )
+    member(
+        "PS2",
+        "ps2-principal-standing-under-v1",
+        "PS1",
+        "the same record under the v1 predicate type URI",
+        lambda: build_ps1(predicate_type=PREDICATE_TYPE),
+        "malformed",
+        ["value-outside-vocabulary"],
+        revision=REVISION_03,
+    )
+    member(
+        "PS1b",
+        "ps1b-principal-standing-age-equal-to-max-age",
+        "PS1",
+        "principal-standing-source exactly at maxAge (age 3600 under 3600) and not "
+        "answering, still not-evaluated naming it: open between "
+        "draft-jackson-wimse-evaluation-05 Section 3 and this section",
+        lambda: build_ps1(AT_HORIZON),
+        None,
+        ["evaluation-inconsistent"],
+        readings=TWO_READINGS_PS1B,
+        section="5.4",
+        predicate_type=PREDICATE_TYPE_V2,
+    )
+
+
+# ---------------------------------------------------------------------------
+# The authenticated principal (revision 04, rows PR1 to PR11).
+#
+# A decision point that authenticated the call through an identity provider
+# knows who the principal is: the issuer, the subject, the client, the
+# audience, how the client authenticated, and the key the issuer signed with.
+# The optional `principal` member carries that inside the signed bytes. It is
+# bound to the agent by its credential digest (`tokenDigest` equals
+# `agent.credentialDigest`, the key-hash binding), to the delegation by its
+# subject, and to the issuer's key by the RFC 7638 thumbprint of the JWK that
+# `kid` selects from the JWKS snapshot whose digest it names. The token itself
+# is never carried. PR1 to PR3 are accepted; each reject member changes one
+# value of PR1 and reaches one refusal.
+# ---------------------------------------------------------------------------
+
+#: The issuer's signing keys: a P-256 key (PR1, PR2) and an Ed25519 key (PR3),
+#: each from a fixed scalar so every machine builds the same bytes.
+IDP_P256_KEY = ec.derive_private_key(0x5EED_0001, ec.SECP256R1())
+IDP_ED25519_KEY = Ed25519PrivateKey.from_private_bytes(bytes.fromhex("00" * 31 + "77"))
+IDP_P256_KID = "idp-2026-09-p256"
+IDP_ED25519_KID = "idp-2026-09-ed25519"
+
+
+def _b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _p256_jwk() -> dict[str, Any]:
+    numbers = IDP_P256_KEY.public_key().public_numbers()
+    return {
+        "crv": "P-256",
+        "kid": IDP_P256_KID,
+        "kty": "EC",
+        "x": _b64url(numbers.x.to_bytes(32, "big")),
+        "y": _b64url(numbers.y.to_bytes(32, "big")),
+    }
+
+
+def _ed25519_jwk() -> dict[str, Any]:
+    return {
+        "crv": "Ed25519",
+        "kid": IDP_ED25519_KID,
+        "kty": "OKP",
+        "x": _b64url(raw_public(IDP_ED25519_KEY)),
+    }
+
+
+#: The members RFC 7638 Section 3.2 hashes, by key type (OKP from RFC 8037).
+THUMBPRINT_MEMBERS = {
+    "RSA": ("e", "kty", "n"),
+    "EC": ("crv", "kty", "x", "y"),
+    "OKP": ("crv", "kty", "x"),
+}
+
+
+def jwk_thumbprint(key: dict[str, Any]) -> str:
+    body = {name: key[name] for name in THUMBPRINT_MEMBERS[key["kty"]]}
+    return _b64url(hashlib.sha256(canonical_bytes(body)).digest())
+
+
+#: The issuer's JWKS snapshot the decision point held: both keys.
+IDP_JWKS = {"keys": [_p256_jwk(), _ed25519_jwk()]}
+IDP_ISSUER = "https://idp.example.org/oauth2/default"
+#: The access token the agent presented. Only its digest is recorded.
+PRINCIPAL_TOKEN = b"eyJhbGciOiJFUzI1NiIsImtpZCI6ImlkcC0yMDI2LTA5LXAyNTYifQ.example-access-token.sig"
+PRINCIPAL_TOKEN_DIGEST = hashlib.sha256(PRINCIPAL_TOKEN).hexdigest()
+
+
+def principal_of(key: dict[str, Any], **changes: Any) -> dict[str, Any]:
+    principal: dict[str, Any] = {
+        "issuer": IDP_ISSUER,
+        "subject": "user:alice@example.org",
+        "clientId": "reconciler",
+        "audience": ["mcp://files"],
+        "authMethod": "private_key_jwt",
+        "source": "jwt-access-token",
+        "tokenDigest": PRINCIPAL_TOKEN_DIGEST,
+        "issuedAt": "2026-09-19T11:00:00Z",
+        "expiresAt": "2026-09-19T12:00:00Z",
+        "kid": key["kid"],
+        "key": key,
+        "keyThumbprint": jwk_thumbprint(key),
+        "jwksDigest": digest(IDP_JWKS),
+        "tenant": "acme-payments",
+    }
+    principal.update(changes)
+    return principal
+
+
+def _with_principal(principal: dict[str, Any]) -> Callable[[dict[str, Any]], None]:
+    """The agent presented the token as an OAuth access token, so its credential
+    digest is the token digest the principal names."""
+
+    def change(pred: dict[str, Any]) -> None:
+        pred["agent"]["authentication"] = "oauth-access-token"
+        pred["agent"]["credentialDigest"] = PRINCIPAL_TOKEN_DIGEST
+        pred["principal"] = principal
+
+    return change
+
+
+def _system_principal(pred: dict[str, Any]) -> None:
+    _with_principal(
+        principal_of(
+            _p256_jwk(),
+            subject="reconciler",
+            audience=["mcp://files", "mcp://ledger"],
+            authMethod="client_secret_basic",
+        )
+    )(pred)
+    del pred["principal"]["tenant"]
+    pred["delegation"]["subject"] = "system:nightly-reconcile"
+    pred["delegation"]["subjectKind"] = "system"
+    seal_commitment(pred)
+
+
+def _principal_edit(name: str, value: Any) -> Callable[[dict[str, Any]], None]:
+    def change(pred: dict[str, Any]) -> None:
+        pred["principal"][name] = value
+
+    return change
+
+
+def _principal_drop(name: str) -> Callable[[dict[str, Any]], None]:
+    def change(pred: dict[str, Any]) -> None:
+        del pred["principal"][name]
+
+    return change
+
+
+def define_principal() -> None:
+    member(
+        "PR1",
+        "pr1-principal-user-access-token",
+        "A1",
+        "A1 with a principal: an RFC 9068 access token from an https issuer for the user the "
+        "delegation names, the agent's credential digest equal to the token digest, the issuer "
+        "key a P-256 JWK whose RFC 7638 thumbprint is recorded, and a tenant",
+        derived("PR1", "A1", _with_principal(principal_of(_p256_jwk()))),
+        "valid",
+        tier="authoritative",
+        revision=REVISION_04,
+    )
+    member(
+        "PR2",
+        "pr2-principal-system-client-credentials",
+        "A1",
+        "a client-credentials principal: delegation.subjectKind of system, the principal's "
+        "subject the client itself, two audiences, client_secret_basic, no tenant",
+        derived("PR2", "A1", _system_principal),
+        "valid",
+        tier="authoritative",
+        revision=REVISION_04,
+    )
+    member(
+        "PR3",
+        "pr3-principal-id-token-ed25519",
+        "PR1",
+        "PR1 established from an OpenID Connect ID token signed with the issuer's Ed25519 key, "
+        "the client authenticated by tls_client_auth",
+        derived(
+            "PR3",
+            "PR1",
+            _with_principal(
+                principal_of(_ed25519_jwk(), source="id-token", authMethod="tls_client_auth")
+            ),
+        ),
+        "valid",
+        tier="authoritative",
+        revision=REVISION_04,
+    )
+    rejects: list[tuple[str, str, str, Callable[[dict[str, Any]], None], str]] = [
+        (
+            "PR4",
+            "pr4-principal-thumbprint-mismatch",
+            "keyThumbprint is the RFC 7638 thumbprint of the issuer's Ed25519 key while key is "
+            "its P-256 key",
+            _principal_edit("keyThumbprint", jwk_thumbprint(_ed25519_jwk())),
+            "principal-thumbprint-mismatch",
+        ),
+        (
+            "PR5",
+            "pr5-principal-expired-assertion",
+            "the assertion expired at 10:00:00, an hour before decision.reportedAt",
+            _expired,
+            "principal-expired",
+        ),
+        (
+            "PR6",
+            "pr6-principal-credential-unbound",
+            "tokenDigest is the digest of another token than the credential agent.credentialDigest "
+            "names: the key-hash binding is broken",
+            _principal_edit("tokenDigest", h("credential/another-access-token")),
+            "principal-credential-unbound",
+        ),
+        (
+            "PR7",
+            "pr7-principal-issuer-missing",
+            "principal without issuer",
+            _principal_drop("issuer"),
+            "principal-member-missing",
+        ),
+        (
+            "PR8",
+            "pr8-principal-subject-mismatch",
+            "the principal's subject is another user than the delegation's user subject",
+            _principal_edit("subject", "user:bob@example.org"),
+            "principal-subject-mismatch",
+        ),
+        (
+            "PR9",
+            "pr9-principal-kid-mismatch",
+            "kid names a key of the snapshot other than the key carried",
+            _principal_edit("kid", IDP_ED25519_KID),
+            "principal-kid-mismatch",
+        ),
+        (
+            "PR10",
+            "pr10-principal-issued-after-decision",
+            "the assertion was issued at 11:30:00, after decision.reportedAt",
+            _principal_edit("issuedAt", "2026-09-19T11:30:00Z"),
+            "principal-not-yet-valid",
+        ),
+        (
+            "PR11",
+            "pr11-principal-member-unknown",
+            "principal carrying the raw token in a member this document does not define",
+            _principal_edit("token", PRINCIPAL_TOKEN.decode("ascii")),
+            "principal-member-unknown",
+        ),
+    ]
+    for draft_id, slug, row, change, code in rejects:
+        member(
+            draft_id,
+            slug,
+            "PR1",
+            row,
+            mutate("PR1", change),
+            "malformed",
+            [code],
+            revision=REVISION_04,
+        )
+
+
+def _expired(pred: dict[str, Any]) -> None:
+    pred["principal"]["issuedAt"] = "2026-09-19T09:00:00Z"
+    pred["principal"]["expiresAt"] = "2026-09-19T10:00:00Z"
+
+
+# ---------------------------------------------------------------------------
+# Whose data a call touched, and why (revision 04, rows DS1 to DS10).
+#
+# A server that answers a data subject's access request must say who consulted
+# the subject's data and for what purpose. The delegated subject is the person
+# the agent acts for; the person whose data was read is usually another. The
+# optional `dataSubject` member carries a keyed reference to the data subject (a
+# SHA-256 digest of the RFC 8785 bytes of a secret salt and the subject's
+# identifier, which the server recomputes for a request and which exposes no raw
+# identifier to the holders of the record), the relation between that subject
+# and the delegated subject, and the purpose, taken from a list the server
+# declares and carries with the digest of that list. DS1 to DS3 are accepted;
+# each reject member changes one value of an accepted member and reaches one
+# refusal.
+# ---------------------------------------------------------------------------
+
+#: The server's secret salt (base64url) and the name by which it is kept.
+DATA_SUBJECT_SALT = _b64url(hashlib.sha256(b"agent-audit-record/data-subject-salt").digest())
+DATA_SUBJECT_SALT_ID = "ds-salt-2026-09"
+DATA_SUBJECT_SCHEME = "salted-sha256-jcs"
+CUSTOMER_ID = "customer:C-1048213"
+DELEGATE_ID = "user:alice@example.org"
+PURPOSES = ["account-servicing", "fraud-review", "regulatory-reporting"]
+SYSTEM_PURPOSES = ["batch-reconciliation", "regulatory-reporting"]
+
+
+def data_subject_reference(subject_id: str) -> str:
+    """What the server recomputes from its salt and an identifier."""
+    return digest({"salt": DATA_SUBJECT_SALT, "subject": subject_id})
+
+
+def data_subject_of(**changes: Any) -> dict[str, Any]:
+    member_: dict[str, Any] = {
+        "scheme": DATA_SUBJECT_SCHEME,
+        "saltId": DATA_SUBJECT_SALT_ID,
+        "reference": data_subject_reference(CUSTOMER_ID),
+        "relation": "other",
+        "delegateReference": data_subject_reference(DELEGATE_ID),
+        "purpose": "account-servicing",
+        "purposes": PURPOSES,
+        "purposesDigest": digest(PURPOSES),
+    }
+    member_.update(changes)
+    return member_
+
+
+def _with_data_subject(value: dict[str, Any]) -> Callable[[dict[str, Any]], None]:
+    def change(pred: dict[str, Any]) -> None:
+        pred["dataSubject"] = value
+
+    return change
+
+
+def _system_data_subject(pred: dict[str, Any]) -> None:
+    pred["delegation"]["subject"] = "system:nightly-reconcile"
+    pred["delegation"]["subjectKind"] = "system"
+    value = data_subject_of(
+        purpose="batch-reconciliation",
+        purposes=SYSTEM_PURPOSES,
+        purposesDigest=digest(SYSTEM_PURPOSES),
+    )
+    del value["delegateReference"]
+    pred["dataSubject"] = value
+    seal_commitment(pred)
+
+
+def _data_subject_edit(name: str, value: Any) -> Callable[[dict[str, Any]], None]:
+    def change(pred: dict[str, Any]) -> None:
+        pred["dataSubject"][name] = value
+
+    return change
+
+
+def define_data_subject() -> None:
+    member(
+        "DS1",
+        "ds1-data-subject-third-party",
+        "A1",
+        "A1 with a dataSubject: the call read customer C's data for the staff member the "
+        "delegation names; the record carries C's keyed reference and the staff member's, "
+        "relation other, and a purpose on the server's declared list",
+        derived("DS1", "A1", _with_data_subject(data_subject_of())),
+        "valid",
+        tier="authoritative",
+        revision=REVISION_04,
+    )
+    member(
+        "DS2",
+        "ds2-data-subject-is-the-delegate",
+        "A1",
+        "the person whose data was read is the user the agent acts for: relation delegate, "
+        "no separate delegate reference",
+        derived("DS2", "A1", _delegate_data_subject),
+        "valid",
+        tier="authoritative",
+        revision=REVISION_04,
+    )
+    member(
+        "DS3",
+        "ds3-data-subject-system-caller",
+        "A1",
+        "a system caller: delegation.subjectKind of system, so the data subject has no delegate "
+        "to be told apart from, and the server's declared list is another",
+        derived("DS3", "A1", _system_data_subject),
+        "valid",
+        tier="authoritative",
+        revision=REVISION_04,
+    )
+    rejects: list[tuple[str, str, str, str, Callable[[dict[str, Any]], None], str]] = [
+        (
+            "DS4",
+            "ds4-data-subject-reference-missing",
+            "DS1",
+            "dataSubject without reference",
+            _data_subject_drop("reference"),
+            "data-subject-member-missing",
+        ),
+        (
+            "DS5",
+            "ds5-data-subject-raw-identifier",
+            "DS1",
+            "dataSubject carrying the raw customer identifier in a member this document does "
+            "not define",
+            _data_subject_edit("customerId", CUSTOMER_ID),
+            "data-subject-member-unknown",
+        ),
+        (
+            "DS6",
+            "ds6-data-subject-reference-not-a-digest",
+            "DS1",
+            "reference the raw customer identifier instead of a keyed digest",
+            _data_subject_edit("reference", CUSTOMER_ID),
+            "data-subject-malformed",
+        ),
+        (
+            "DS7",
+            "ds7-data-subject-merged-with-delegate",
+            "DS1",
+            "relation other while the data subject's reference is the delegate's: the two "
+            "people merged",
+            _data_subject_edit("reference", data_subject_reference(DELEGATE_ID)),
+            "data-subject-merged",
+        ),
+        (
+            "DS8",
+            "ds8-data-subject-relation-delegate-for-system",
+            "DS3",
+            "relation delegate under a system caller, which has no user to be the data subject",
+            _data_subject_edit("relation", "delegate"),
+            "data-subject-relation-mismatch",
+        ),
+        (
+            "DS9",
+            "ds9-data-subject-purpose-undeclared",
+            "DS1",
+            "a purpose that is not on the list the server declared",
+            _data_subject_edit("purpose", "marketing"),
+            "data-subject-purpose-undeclared",
+        ),
+        (
+            "DS10",
+            "ds10-data-subject-purposes-digest-mismatch",
+            "DS1",
+            "purposesDigest is the digest of another list than the one the record carries",
+            _data_subject_edit("purposesDigest", h("purposes/another-list")),
+            "data-subject-purposes-digest-mismatch",
+        ),
+    ]
+    for draft_id, slug, parent, row, change, code in rejects:
+        member(
+            draft_id,
+            slug,
+            parent,
+            row,
+            mutate(parent, change),
+            "malformed",
+            [code],
+            revision=REVISION_04,
+        )
+
+
+def _delegate_data_subject(pred: dict[str, Any]) -> None:
+    value = data_subject_of(
+        reference=data_subject_reference(DELEGATE_ID),
+        relation="delegate",
+        purpose="fraud-review",
+    )
+    del value["delegateReference"]
+    pred["dataSubject"] = value
+
+
+def _data_subject_drop(name: str) -> Callable[[dict[str, Any]], None]:
+    def change(pred: dict[str, Any]) -> None:
+        del pred["dataSubject"][name]
+
+    return change
 
 
 # ---------------------------------------------------------------------------
@@ -3809,10 +4502,24 @@ def _set_all_malformed() -> Built:
 # The section of draft-gilda-audit-agent-audit-record-04 whose text makes each
 # member malformed.
 REJECT_SECTIONS: dict[str, str] = {
-    "X1": "4.1.1", "X17": "4.9", "X18": "4.9",
-    "X2": "4.6", "X3": "4.3", "X4": "4.8", "X5": "4.8", "X6": "5.9", "X7": "5.9",
-    "X8": "4.2", "X9": "4.4", "X10": "4.6", "X11": "4.7", "X12": "4.7",
-    "X13": "4.7", "X14": "4.7", "X15": "4.6", "X16": "4.7",
+    "X1": "4.1.1",
+    "X17": "4.9",
+    "X18": "4.9",
+    "X2": "4.6",
+    "X3": "4.3",
+    "X4": "4.8",
+    "X5": "4.8",
+    "X6": "5.9",
+    "X7": "5.9",
+    "X8": "4.2",
+    "X9": "4.4",
+    "X10": "4.6",
+    "X11": "4.7",
+    "X12": "4.7",
+    "X13": "4.7",
+    "X14": "4.7",
+    "X15": "4.6",
+    "X16": "4.7",
 }
 
 
@@ -3822,69 +4529,116 @@ def define_reject_paths() -> None:
     existing member. Each is its parent with that one field changed."""
     rows: list[tuple[str, str, str, str, Callable[[], Built], list[str]]] = [
         (
-            "X1", "x1-float-in-statement", "A1", "a number with a fraction in the Statement",
-            _raw_payload("A1", b',"ratio":0.5}'), ["value-not-representable"],
+            "X1",
+            "x1-float-in-statement",
+            "A1",
+            "a number with a fraction in the Statement",
+            _raw_payload("A1", b',"ratio":0.5}'),
+            ["value-not-representable"],
         ),
         (
-            "X2", "x2-payload-not-json", "A1", "a payload that is not JSON",
-            lambda: {"payload": b"{not json"}, ["not-parseable"],
+            "X2",
+            "x2-payload-not-json",
+            "A1",
+            "a payload that is not JSON",
+            lambda: {"payload": b"{not json"},
+            ["not-parseable"],
         ),
         (
-            "X3", "x3-issued-at-no-offset", "A1", "issuedAt carrying no UTC offset",
-            mutate("A1", _set("issuedAt", "2026-09-19T11:04:06")), ["timestamp-malformed"],
+            "X3",
+            "x3-issued-at-no-offset",
+            "A1",
+            "issuedAt carrying no UTC offset",
+            mutate("A1", _set("issuedAt", "2026-09-19T11:04:06")),
+            ["timestamp-malformed"],
         ),
         (
-            "X4", "x4-statement-type-unexpected", "A1", "_type naming another Statement type",
+            "X4",
+            "x4-statement-type-unexpected",
+            "A1",
+            "_type naming another Statement type",
             _statement_edit("A1", lambda st: st.__setitem__("_type", "https://example.com/Stmt")),
             ["statement-type-unexpected"],
         ),
         (
-            "X5", "x5-predicate-type-mismatch", "A1", "predicateType naming another predicate",
+            "X5",
+            "x5-predicate-type-mismatch",
+            "A1",
+            "predicateType naming another predicate",
             _statement_edit(
                 "A1", lambda st: st.__setitem__("predicateType", "https://example.com/other/v1")
             ),
             ["predicate-type-mismatch"],
         ),
         (
-            "X6", "x6-held-entry-extra-member", "CS4",
+            "X6",
+            "x6-held-entry-extra-member",
+            "CS4",
             "a held entry with a member beyond the three",
-            mutate("CS4", _held_extra), ["consumption-malformed"],
+            mutate("CS4", _held_extra),
+            ["consumption-malformed"],
         ),
         (
-            "X7", "x7-operation-key-empty", "CS4", "decision.operationKey the empty string",
-            mutate("CS4", _blank_key), ["operation-key-invalid"],
+            "X7",
+            "x7-operation-key-empty",
+            "CS4",
+            "decision.operationKey the empty string",
+            mutate("CS4", _blank_key),
+            ["operation-key-invalid"],
         ),
         (
-            "X8", "x8-subject-digest-not-request", "A1", "the first subject's digest another value",
+            "X8",
+            "x8-subject-digest-not-request",
+            "A1",
+            "the first subject's digest another value",
             _statement_edit(
                 "A1", lambda st: st["subject"][0]["digest"].__setitem__("sha256", AFTER)
             ),
             ["subject-request-mismatch"],
         ),
         (
-            "X9", "x9-envelope-payload-type", "A1", "payloadType another media type",
-            _unreadable_envelope, ["envelope-unreadable"],
+            "X9",
+            "x9-envelope-payload-type",
+            "A1",
+            "payloadType another media type",
+            _unreadable_envelope,
+            ["envelope-unreadable"],
         ),
         (
-            "X10", "x10-predicate-not-an-object", "A1", "predicate a string, correctly signed",
+            "X10",
+            "x10-predicate-not-an-object",
+            "A1",
+            "predicate a string, correctly signed",
             _statement_edit("A1", lambda st: st.__setitem__("predicate", "none")),
             ["statement-shape"],
         ),
     ]
     for draft_id, slug, parent, row, build, codes in rows:
         member(
-            draft_id, slug, parent, row, build, "malformed", codes,
+            draft_id,
+            slug,
+            parent,
+            row,
+            build,
+            "malformed",
+            codes,
             section=REJECT_SECTIONS.get(draft_id),
         )
 
     dated: list[tuple[str, str, str, str, Callable[[], Built], str]] = [
         (
-            "X11", "x11-received-not-boolean", "R1", "received a string, not a boolean",
+            "X11",
+            "x11-received-not-boolean",
+            "R1",
+            "received a string, not a boolean",
             retained("X11", _entry_edit(lambda e: e.__setitem__("received", "no")), "R1"),
             "entry-shape-malformed",
         ),
         (
-            "X12", "x12-entry-names-another-envelope", "R1", "envelopeDigest another envelope's",
+            "X12",
+            "x12-entry-names-another-envelope",
+            "R1",
+            "envelopeDigest another envelope's",
             retained(
                 "X12",
                 _entry_edit(lambda e: e.__setitem__("envelopeDigest", h("other"))),
@@ -3893,13 +4647,17 @@ def define_reject_paths() -> None:
             "entry-envelope-digest-mismatch",
         ),
         (
-            "X13", "x13-root-element-without-root-digest", "R1",
+            "X13",
+            "x13-root-element-without-root-digest",
+            "R1",
             "a delegation-root element beside a record carrying no delegation.rootDigest",
             retained("X13", _entry_edit(_extra_root), "R1"),
             "entry-delegation-root-unexpected",
         ),
         (
-            "X14", "x14-root-element-not-base64", "R13",
+            "X14",
+            "x14-root-element-not-base64",
+            "R13",
             "the delegation-root element's value not base64",
             retained("X14", _entry_edit(_garbled_root), "R13", make_envelope=rooted_envelope),
             "entry-delegation-root-unreadable",
@@ -3907,7 +4665,13 @@ def define_reject_paths() -> None:
     ]
     for draft_id, slug, parent, row, build, code in dated:
         member(
-            draft_id, slug, parent, row, build, "valid", tier="authoritative",
+            draft_id,
+            slug,
+            parent,
+            row,
+            build,
+            "valid",
+            tier="authoritative",
             section=REJECT_SECTIONS.get(draft_id),
             dating=dating(
                 dated_at=None if draft_id == "X11" else "2026-09-19T11:05:00Z",
@@ -3916,30 +4680,46 @@ def define_reject_paths() -> None:
             ),
         )
     member(
-        "X15", "x15-retained-record-unparseable", "R1",
+        "X15",
+        "x15-retained-record-unparseable",
+        "R1",
         "the retained record's payload not JSON: the record malformed and the dating unreadable",
-        _unparseable_retained, "malformed", ["not-parseable"],
+        _unparseable_retained,
+        "malformed",
+        ["not-parseable"],
         section=REJECT_SECTIONS.get("X15"),
         dating=dating(dated_at=None, entry_="malformed", code="entry-record-unreadable"),
     )
     member(
-        "X16", "x16-retained-without-retention", "R1",
+        "X16",
+        "x16-retained-without-retention",
+        "R1",
         "a retained member with no retention entry",
-        _retained_without_entry, "malformed", ["retained-unreadable"],
+        _retained_without_entry,
+        "malformed",
+        ["retained-unreadable"],
         section=REJECT_SECTIONS.get("X16"),
         dating=dating(dated_at=None, entry_="malformed", code="retained-unreadable"),
     )
     member(
-        "X17", "x17-set-without-records", "SQ4",
+        "X17",
+        "x17-set-without-records",
+        "SQ4",
         "a set member whose records member is named otherwise",
-        _set_wrong_key, "malformed", [],
+        _set_wrong_key,
+        "malformed",
+        [],
         joint={"verdict": "malformed", "codes": ["set-unreadable"]},
         section=REJECT_SECTIONS.get("X17"),
     )
     member(
-        "X18", "x18-set-of-malformed-records", "A1",
+        "X18",
+        "x18-set-of-malformed-records",
+        "A1",
         "a set whose two records are each malformed under IS1 and IS2",
-        _set_all_malformed, "malformed", ["issued-before-sealed"],
+        _set_all_malformed,
+        "malformed",
+        ["issued-before-sealed"],
         joint={"verdict": "malformed", "codes": ["set-record-malformed"]},
         section=REJECT_SECTIONS.get("X18"),
     )
@@ -4163,10 +4943,12 @@ ORDER = (
     "CS1 CS2 CS3 CS4 CS5 CS6 CS7 CS8 CS9 CS10 CS11 CS12 CS13 CS14 CS15 CS16 CS17 "
     "CS18 CS19 CS20 CS21 CS22 CS23 CS24 CS25 "
     "CS26 CS27 CS28 CS29 CS30 CS31 CS32 CS33 CS34 CS35 CS36 CS37 CS38 CS39 CS40 "
-    "CS41 CS42 CS43 CS44 CS45 CS46 CS47 CS48 CS49 "
+    "CS41 CS42 CS43 CS44 CS45 CS46 CS47 CS48 CS49 CS50 CS51 CS52 CS53 CS54 "
     "A21 SQ1 SQ2 SQ3 SQ4 SQ5 "
     "R10 R11 R12 R13 R14 R15 R16 "
-    "IS1 IS2 "
+    "IS1 IS2 PS1 PS2 PS1b "
+    "PR1 PR2 PR3 PR4 PR5 PR6 PR7 PR8 PR9 PR10 PR11 "
+    "DS1 DS2 DS3 DS4 DS5 DS6 DS7 DS8 DS9 DS10 "
     "X1 X2 X3 X4 X5 X6 X7 X8 X9 X10 X11 X12 X13 X14 X15 X16 X17 X18"
 ).split()
 
@@ -4205,6 +4987,8 @@ def optional_fields(entry: Member, ids: dict[str, str]) -> dict[str, Any]:
         out["draftRevision"] = entry["revision"]
     if entry["aggregation"] is not None:
         out["aggregation"] = entry["aggregation"]
+    if entry["predicateType"] is not None:
+        out["predicateType"] = entry["predicateType"]
     return out
 
 
@@ -4327,6 +5111,8 @@ def emit() -> None:
             "above may fail it. A member carrying aggregation lists the values of one "
             "input the decision depended on, as the producer held them: a producer's "
             "aggregation over those values must yield the entry the record carries. "
+            "A member carrying predicateType is judged by a verifier configured to "
+            "accept that predicate type URI in place of the one above. "
             "R1 to R9 are retained records: the file "
             "carries the envelope beside its retention entry, expected.verdict is the "
             "envelope's verdict, and expected.dating is the result of the dating check "

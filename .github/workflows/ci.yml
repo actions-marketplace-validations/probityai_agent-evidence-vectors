@@ -30,7 +30,7 @@ jobs:
     env:
       UV_LINK_MODE: copy
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
           python-version: '3.13'
@@ -71,7 +71,7 @@ jobs:
     # specification passed every pull request and failed at publication.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
           python-version: '3.13'
@@ -98,7 +98,7 @@ jobs:
   go:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
@@ -125,6 +125,10 @@ jobs:
           node-version: '22'
       - name: check canonical JSON transcript bytes
         run: node corpora/jcs-byte-vectors/check.mjs
+      - name: the JCS drift and depth families are generated and agree with the Python reference
+        run: |
+          python3 scripts/gen-jcs-drift-vectors.py --check
+          python3 scripts/jcs-drift-vectors-test.py
       # These readers use the package's supported Python runtime. The
       # obligation proof also loads the reject generator to re-sign a record,
       # so this job needs its declared dependencies. The separate Python
@@ -348,7 +352,7 @@ jobs:
       # every branch and tag. A shallow checkout carries the pushed commit, no
       # origin/main and no tags, and that gate then reports that it did not run
       # rather than guessing, so the whole job would stop here.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
       # The package floor is 3.11 (the held-out runner workflow proves it), so
@@ -362,7 +366,7 @@ jobs:
       - name: Install checkout wheel for distribution imports
         run: uv pip install --no-deps .
       - name: mypy --strict
-        run: uv run mypy packaging/run_vectors.py packaging/agent_evidence_vectors/w3creport.py packaging/agent_evidence_vectors/observedeffect.py packaging/agent_evidence_vectors/auditrecord.py packaging/agent_evidence_vectors/runmetrics.py packaging/agent_evidence_vectors/contextdiscovery.py corpora/vectors-w3c-report/gen_vectors.py corpora/vectors-w3c-report/origin/derive_pairs.py scripts/w3c-rails-parity-test.py scripts/w3c-reader-differential.py scripts/w3c-report-rules-test.py scripts/json-encoding-differential-test.py packaging/agent_evidence_vectors/receiptsignature.py packaging/agent_evidence_vectors/a2ajcs.py scripts/a2a-jcs-rails-test.py packaging/agent_evidence_vectors/changeadmission.py packaging/agent_evidence_vectors/agenticprocess.py scripts/receipt-signature-rails-test.py packaging/agent_evidence_vectors/delegationlifecycle.py scripts/delegation-lifecycle-rails-test.py corpora/vectors-delegation-lifecycle/mutate.py corpora/vectors-receipt-signature/digest.py corpora/vectors-receipt-signature/tools/veritasacta-verify.py scripts/gen-w3c-appendix.py vectors/reject/gen_invalid_vectors.py vectors/accept/gen_valid_vectors.py vectors/gen_manifest.py scripts/spec-drift-gate.py scripts/interpretation-registry-gate.py scripts/interpretation-registry-gate-test.py scripts/coverage-matrix-gate.py scripts/complexity-table-gate.py scripts/specpins.py scripts/spec-anchor-gate.py scripts/spec-anchor-gate-test.py scripts/code-contract-gate.py scripts/code-contract-gate-test.py scripts/consumer-lag-gate.py scripts/consumer-lag-gate-test.py scripts/independent-runs-gate.py scripts/suite-commit-gate.py scripts/suite-commit-gate-test.py scripts/condition-registry-gate.py scripts/condition-registry-gate-test.py scripts/condition-forcing-gate.py scripts/condition-forcing-gate-test.py scripts/condition-forcing-crosscheck.py scripts/condition-forcing-crosscheck-test.py scripts/external-rail-gate.py scripts/predicate-state-gate.py scripts/forcing-gate.py scripts/forcing-gate-test.py scripts/countcensus.py scripts/countcensus-sparse-test.py scripts/count-gate.py scripts/count-gate-test.py scripts/distribution-gate.py scripts/distribution-gate-test.py scripts/test_doc_gate_migration.py scripts/test_site_navigation.py docs/site/build.py scripts/regenerability-gate.py scripts/mutationdiff.py scripts/accept-anchor-gate.py scripts/accept-anchor-gate-test.py scripts/liveness-probe.py scripts/liveness-probe-test.py scripts/citation-metadata-gate.py scripts/citation-metadata-gate-test.py scripts/expectation-slack-gate.py scripts/expectation-slack-gate-test.py scripts/observed-code-closure-gate.py scripts/observed-code-closure-gate-test.py scripts/uncited-crosscheck-gate.py scripts/reading-differential.py scripts/reading-differential-test.py scripts/vendor-remap-test.py scripts/vector-distinctness-gate.py scripts/vector-distinctness-gate-test.py scripts/surface-leakage-gate.py scripts/surface-leakage-gate-test.py scripts/harness-output-contract-test.py scripts/stage-column-test.py scripts/starhint-test.py packaging/agent_evidence_vectors/starhint.py scripts/verifier-must-run-test.py scripts/report-provenance-test.py scripts/action-retention-test.py scripts/action-build-pin-test.py scripts/verify-release-tag.py scripts/verify-release-tag-test.py scripts/workflow-steps-gate.py scripts/workflow-steps-gate-test.py scripts/readme-lint.py scripts/readme-lint-test.py scripts/action-download-budget.py scripts/action-download-budget-test.py scripts/runner-labels-gate.py scripts/runner-labels-gate-test.py scripts/_go_selector.py scripts/go-selector-test.py scripts/_lockfile.py scripts/_lockfile-test.py scripts/manifest-revision-test.py scripts/statement-layer-test.py scripts/independent-runs-gate-test.py scripts/indeterminate-readers-test.py scripts/write-chain-replay-test.py scripts/audit-record-dating-rows-test.py scripts/indeterminate-scoring-gate.py scripts/indeterminate-scoring-gate-test.py interop/action-tuple-framed-v1/reader.py packaging/agent_evidence_vectors/heldout.py scripts/heldout-runner-test.py scripts/predicate-uri-gate.py scripts/predicate-uri-gate-test.py scripts/oracle-verifier.py scripts/oracle-every-corpus-test.py packaging/agent_evidence_vectors/admission.py scripts/admission-rails-test.py packaging/agent_evidence_vectors/w3cintake.py scripts/w3c-intake-parity-test.py scripts/gen-intake-records.py scripts/badge-grants-gate.py scripts/badge-grants-gate-test.py packaging/agent_evidence_vectors/selfreportedrecord.py scripts/self-reported-record-rails-test.py packaging/agent_evidence_vectors/approvalbinding.py scripts/approval-binding-rails-test.py
+        run: uv run mypy packaging/run_vectors.py packaging/agent_evidence_vectors/w3creport.py packaging/agent_evidence_vectors/observedeffect.py packaging/agent_evidence_vectors/auditrecord.py packaging/agent_evidence_vectors/runmetrics.py packaging/agent_evidence_vectors/contextdiscovery.py corpora/vectors-w3c-report/gen_vectors.py corpora/vectors-w3c-report/origin/derive_pairs.py scripts/w3c-rails-parity-test.py scripts/w3c-reader-differential.py scripts/w3c-report-rules-test.py scripts/json-encoding-differential-test.py packaging/agent_evidence_vectors/receiptsignature.py packaging/agent_evidence_vectors/a2ajcs.py scripts/a2a-jcs-rails-test.py packaging/agent_evidence_vectors/changeadmission.py packaging/agent_evidence_vectors/agenticprocess.py scripts/receipt-signature-rails-test.py packaging/agent_evidence_vectors/delegationlifecycle.py scripts/delegation-lifecycle-rails-test.py corpora/vectors-delegation-lifecycle/mutate.py corpora/vectors-receipt-signature/digest.py corpora/vectors-receipt-signature/tools/veritasacta-verify.py scripts/gen-w3c-appendix.py vectors/reject/gen_invalid_vectors.py vectors/accept/gen_valid_vectors.py vectors/gen_manifest.py scripts/spec-drift-gate.py scripts/interpretation-registry-gate.py scripts/interpretation-registry-gate-test.py scripts/coverage-matrix-gate.py scripts/complexity-table-gate.py scripts/specpins.py scripts/spec-anchor-gate.py scripts/spec-anchor-gate-test.py scripts/code-contract-gate.py scripts/code-contract-gate-test.py scripts/receipt-verdict-codes-gate.py scripts/receipt-verdict-codes-gate-test.py scripts/consumer-lag-gate.py scripts/consumer-lag-gate-test.py scripts/independent-runs-gate.py scripts/suite-commit-gate.py scripts/suite-commit-gate-test.py scripts/condition-registry-gate.py scripts/condition-registry-gate-test.py scripts/condition-forcing-gate.py scripts/condition-forcing-gate-test.py scripts/condition-forcing-crosscheck.py scripts/condition-forcing-crosscheck-test.py scripts/external-rail-gate.py scripts/predicate-state-gate.py scripts/forcing-gate.py scripts/forcing-gate-test.py scripts/countcensus.py scripts/countcensus-sparse-test.py scripts/count-gate.py scripts/count-gate-test.py scripts/distribution-gate.py scripts/distribution-gate-test.py scripts/test_doc_gate_migration.py scripts/test_site_navigation.py docs/site/build.py scripts/regenerability-gate.py scripts/mutationdiff.py scripts/accept-anchor-gate.py scripts/accept-anchor-gate-test.py scripts/liveness-probe.py scripts/liveness-probe-test.py scripts/citation-metadata-gate.py scripts/citation-metadata-gate-test.py scripts/expectation-slack-gate.py scripts/expectation-slack-gate-test.py scripts/observed-code-closure-gate.py scripts/observed-code-closure-gate-test.py scripts/uncited-crosscheck-gate.py scripts/reading-differential.py scripts/reading-differential-test.py scripts/vendor-remap-test.py scripts/vector-distinctness-gate.py scripts/vector-distinctness-gate-test.py scripts/surface-leakage-gate.py scripts/surface-leakage-gate-test.py scripts/harness-output-contract-test.py scripts/stage-column-test.py scripts/starhint-test.py packaging/agent_evidence_vectors/starhint.py scripts/verifier-must-run-test.py scripts/report-provenance-test.py scripts/action-retention-test.py scripts/action-build-pin-test.py scripts/verify-release-tag.py scripts/verify-release-tag-test.py scripts/workflow-steps-gate.py scripts/workflow-steps-gate-test.py scripts/readme-lint.py scripts/readme-lint-test.py scripts/action-download-budget.py scripts/action-download-budget-test.py scripts/runner-labels-gate.py scripts/runner-labels-gate-test.py scripts/_go_selector.py scripts/go-selector-test.py scripts/_lockfile.py scripts/_lockfile-test.py scripts/manifest-revision-test.py scripts/statement-layer-test.py scripts/independent-runs-gate-test.py scripts/indeterminate-readers-test.py scripts/write-chain-replay-test.py scripts/audit-record-dating-rows-test.py scripts/indeterminate-scoring-gate.py scripts/indeterminate-scoring-gate-test.py interop/action-tuple-framed-v1/reader.py packaging/agent_evidence_vectors/heldout.py scripts/heldout-runner-test.py scripts/predicate-uri-gate.py scripts/predicate-uri-gate-test.py scripts/oracle-verifier.py scripts/oracle-every-corpus-test.py packaging/agent_evidence_vectors/admission.py scripts/admission-rails-test.py packaging/agent_evidence_vectors/w3cintake.py scripts/w3c-intake-parity-test.py scripts/gen-intake-records.py scripts/badge-grants-gate.py scripts/badge-grants-gate-test.py packaging/agent_evidence_vectors/selfreportedrecord.py scripts/self-reported-record-rails-test.py packaging/agent_evidence_vectors/approvalbinding.py scripts/approval-binding-rails-test.py
       # Type-checks by DIRECTORY, which is why it sits beside the pass above
       # rather than replacing it. That one is driven from the list of files
       # written out on the line above, and a list is only accurate on the day it
@@ -546,6 +550,14 @@ jobs:
         run: |
           python3 scripts/code-contract-gate.py
           python3 scripts/code-contract-gate-test.py
+      # The seven receipt verdict codes classify the failure codes above. The
+      # registry is held to aee/codes.go and the manifest in both directions, so a
+      # new failure code cannot land without a verdict code and a code the registry
+      # does not name is refused, never defaulted.
+      - name: receipt verdict-code gate
+        run: |
+          python3 scripts/receipt-verdict-codes-gate.py
+          python3 scripts/receipt-verdict-codes-gate-test.py
       # A reject vector is graded by intersecting the codes a rail emits with
       # the codes it declares, so a cell naming both conditions a statement
       # deliberately carries is satisfied by either one of them and forces
@@ -1078,6 +1090,10 @@ jobs:
         run: uv run --extra dev pytest corpora/vectors-propagation-step/tests -q
       - name: containment-journal cases regenerate, force every check and refuse a cut edge that still delivers
         run: uv run --extra dev pytest corpora/vectors-containment-journal/tests -q
+      - name: decision-client cases regenerate, force every check and fail a client that reads a fault as an allow
+        run: uv run --extra dev pytest corpora/vectors-decision-client-failure-modes/tests -q
+      - name: refusal-reason-priority cases regenerate, force every check and refuse a checker that scores any applicable value
+        run: uv run --extra dev pytest corpora/vectors-refusal-reason-priority/tests -q
       - name: agent-card-receipt cases regenerate and force every check
         run: uv run --extra dev pytest corpora/vectors-agent-card-receipt/tests -q
       - name: credential-release cases regenerate and force every check
@@ -1094,19 +1110,37 @@ jobs:
         run: uv run --extra dev pytest corpora/vectors-chunked-export/tests -q
       - name: done corpora regenerate, are judged clean and force every rule
         run: uv run --extra dev pytest corpora/vectors-done-receipt/tests -q
-      # probity-verify is the implementation the done rules come from, pinned in
+      # agent-evidence-verify is the implementation the done rules come from, pinned in
       # pyproject.toml's crosscheck group. Every done member goes through it, and so
-      # do its own example runs, fetched at the same commit and read by our reader.
-      - name: the done readers agree with probity-verify on every member
+      # do its own example runs, read from the same release's sdist (checked against
+      # the sha256 locked in uv.lock) and read by our reader.
+      - name: the done readers agree with agent-evidence-verify on every member
         run: |
-          rev=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['tool']['uv']['sources']['probity-verify']['rev'])")
-          probity="${RUNNER_TEMP:-$(mktemp -d)}/probity-at-pin"
-          git clone --quiet --filter=blob:none --no-checkout https://github.com/probityai/probity "$probity"
-          git -C "$probity" checkout --quiet "$rev" -- packages/probity-verify/examples/done-receipt
+          set -euo pipefail
+          verify="${RUNNER_TEMP:-$(mktemp -d)}/verify-sdist"
+          mkdir -p "$verify"
+          examples=$(python3 - "$verify" <<'PY'
+          import hashlib, sys, tarfile, tomllib, urllib.request
+          from pathlib import Path
+
+          out = Path(sys.argv[1])
+          pkg = next(p for p in tomllib.load(open("uv.lock", "rb"))["package"]
+                     if p["name"] == "agent-evidence-verify")
+          data = urllib.request.urlopen(pkg["sdist"]["url"], timeout=120).read()
+          if "sha256:" + hashlib.sha256(data).hexdigest() != pkg["sdist"]["hash"]:
+              sys.exit("the sdist does not match the hash locked in uv.lock")
+          archive = out / "sdist.tar.gz"
+          archive.write_bytes(data)
+          root = f"agent_evidence_verify-{pkg['version']}/examples/done-receipt"
+          with tarfile.open(archive) as tar:
+              tar.extractall(out, members=[m for m in tar.getmembers() if m.name.startswith(root)], filter="data")
+          print(out / root)
+          PY
+          )
           uv run --locked --extra dev --group crosscheck python corpora/vectors-done-receipt/crosscheck_probity_verify.py \
             corpora/vectors-done-contract corpora/vectors-done-receipt corpora/vectors-spoofed-tool-output \
             corpora/vectors-test-tampering corpora/vectors-grader-isolation corpora/vectors-done-probes \
-            --examples "$probity/packages/probity-verify/examples/done-receipt"
+            --examples "$examples"
       - name: TRACE registry anchor cases regenerate and force every check
         run: uv run --extra dev pytest corpora/vectors-trace-anchor/tests -q
       - name: vectors-agent-payment-mandate cases regenerate, agree and every rule is load-bearing
@@ -1192,6 +1226,16 @@ jobs:
       # rule in turn, standing in the library behaviour a reject is built against.
       - name: the agent-decision corpus behaves as its manifest claims
         run: uv run --extra generators python corpora/vectors-agent-decision/check_vectors.py
+      # The control-decision corpus binds an Agent Control Specification verdict
+      # to its input and policy digests. The checker judges every member and
+      # shows each rule refuses at least one; the replay runs the recorded
+      # runtime release on every member's disclosed bytes, the check a
+      # distrusting consumer makes.
+      - name: the control-decision corpus behaves as its manifest claims
+        run: uv run --extra generators python corpora/vectors-acs-decision-record/check_vectors.py
+      - name: the recorded ACS runtime reproduces every control-decision verdict
+        working-directory: corpora/vectors-acs-decision-record/run
+        run: uv run --locked python replay.py
       # The W3C intake-criteria corpus: judged clean, regenerated byte for byte,
       # each ground's check deleted in turn from the checker's source to show the
       # corpus goes red without it, the command line's root reporting, and every
@@ -1328,6 +1372,12 @@ jobs:
       # to go red.
       - name: the action's reference stage counts, prints and cannot be switched off
         run: uv run --group crosscheck python scripts/action-reference-stage-test.py
+      # The per-corpus N of M on the status shields (assets/status/reference/) is
+      # recomputed from the reference verifier and must equal the committed files.
+      - name: the reference coverage shields match the reference verifier
+        run: |
+          uv run --group crosscheck python scripts/reference-coverage-test.py
+          uv run --group crosscheck python scripts/reference-coverage.py --check
       # The release tag check accepts only a tag signed by the pinned key. The
       # test builds throwaway keys and ends by deleting the fingerprint pin in
       # a copy of the script and requiring itself to go red.
@@ -1406,7 +1456,7 @@ jobs:
   forcing:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
@@ -1461,7 +1511,7 @@ jobs:
   action:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
@@ -1583,6 +1633,45 @@ jobs:
         env:
           OUTCOME: ${{ steps.runtimebad.outcome }}
           RESULT: ${{ steps.runtimebad.outputs.result }}
+        run: |
+          echo "outcome=$OUTCOME result=$RESULT"
+          test "$OUTCOME" = failure
+          test "$RESULT" = fail
+      # A decision client through the same runtime input: the closed reference
+      # client withholds the action on every fault and must pass every scenario;
+      # the open client reads a fault or an unknown verdict as an allow and must
+      # fail the job.
+      - name: the action drives a decision client through the failure-mode matrix
+        id: decisionclient
+        uses: ./
+        with:
+          corpus: vectors-decision-client-failure-modes
+          runtime: python3 corpora/vectors-decision-client-failure-modes/tests/client_adapter.py --policy closed
+          artifact-name: agent-evidence-vectors-results-decision-client
+          report-path: decision-client-report.json
+      - name: every decision-client scenario ran and passed
+        env:
+          RESULT: ${{ steps.decisionclient.outputs.result }}
+          VECTORS: ${{ steps.decisionclient.outputs.vectors }}
+          EXECUTED: ${{ steps.decisionclient.outputs.executed }}
+        run: |
+          echo "result=$RESULT scenarios=$VECTORS executed=$EXECUTED"
+          test "$RESULT" = pass
+          test "$VECTORS" -gt 0
+          test "$EXECUTED" = "$VECTORS"
+      - name: the action fails a decision client that fails open
+        id: decisionclientbad
+        continue-on-error: true
+        uses: ./
+        with:
+          corpus: vectors-decision-client-failure-modes
+          runtime: python3 corpora/vectors-decision-client-failure-modes/tests/client_adapter.py --policy open
+          artifact-name: agent-evidence-vectors-results-decision-client-bad
+          report-path: decision-client-bad-report.json
+      - name: and that decision-client job would have failed
+        env:
+          OUTCOME: ${{ steps.decisionclientbad.outcome }}
+          RESULT: ${{ steps.decisionclientbad.outputs.result }}
         run: |
           echo "outcome=$OUTCOME result=$RESULT"
           test "$OUTCOME" = failure

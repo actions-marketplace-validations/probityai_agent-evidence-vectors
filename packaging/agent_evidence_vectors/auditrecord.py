@@ -21,11 +21,16 @@ and the identity of a retry (``consumption_findings``, ``within_limit``,
 ``verify_set``). ``consumption.supersedes`` names the limit document a record's
 ``limitDigest`` replaced, ``consumption.payee`` and each held entry's ``payee``
 the account a payment goes to, and ``consumption.settled`` the terms a paid call
-settled on as read from the chain (CS41 to CS49). A set member (CS7, CS8, CS17,
-CS18 to CS22, CS25, CS48, CS49) is a file
+settled on as read from the chain (CS41 to CS54). A set member (CS7, CS8, CS17,
+CS18 to CS22, CS25, CS48, CS49, CS53, CS54) is a file
 of several records judged one by one and then as a set, under one ledger: the
 ``limitDigest`` values that ``supersedes`` links, so a permit held under a
 limit that was then replaced is still seen.
+
+The input set follows the predicate type URI the verifier is configured to
+accept: under the ``v2`` URI of revision 03 it also holds
+``principal-standing-source``, and under the ``v1`` URI it is unchanged (PS1,
+PS2). A manifest entry carrying ``predicateType`` is judged under that URI.
 
 ``evaluation.inputs`` is required under both statuses, each entry's age runs
 from its ``lastResult`` to ``decision.reportedAt``, and the unavailable inputs
@@ -144,6 +149,38 @@ EVALUATION_INPUTS = frozenset(
 #: What a decision that could not be evaluated names as missing, drawn from the
 #: same table. A separate name so a sweep can narrow one without the other.
 UNAVAILABLE_INPUTS = EVALUATION_INPUTS
+#: The predicate type URI the sets above belong to, and the second URI that
+#: revision 03 publishes for the extended set (Section 8). A closed set grows
+#: only under a new URI, so a verifier configured for the v1 URI never meets a
+#: value it is required to refuse there (rows PS1 and PS2).
+PREDICATE_TYPE_V1 = (
+    "https://probityai.github.io/agent-evidence-vectors/predicate/v1/agent-audit-record"
+)
+PREDICATE_TYPE_V2 = (
+    "https://probityai.github.io/agent-evidence-vectors/predicate/v2/agent-audit-record"
+)
+#: What the v2 URI adds to both input sets, and only under that URI: the source
+#: the principal's standing is established from, kept apart from
+#: ``standing-source``, which names the source of issuer standing.
+V2_INPUTS = frozenset({"principal-standing-source"})
+
+
+def evaluation_inputs(predicate_type: str) -> frozenset[str]:
+    """The inputs an evaluation entry may name under ``predicate_type``, the URI
+    the verifier was configured to accept. Read at call time, so a sweep that
+    narrows ``EVALUATION_INPUTS`` or ``V2_INPUTS`` narrows this too."""
+    if predicate_type == PREDICATE_TYPE_V2:
+        return EVALUATION_INPUTS | V2_INPUTS
+    return EVALUATION_INPUTS
+
+
+def unavailable_inputs(predicate_type: str) -> frozenset[str]:
+    """The inputs ``unavailableInput`` may name under ``predicate_type``."""
+    if predicate_type == PREDICATE_TYPE_V2:
+        return UNAVAILABLE_INPUTS | V2_INPUTS
+    return UNAVAILABLE_INPUTS
+
+
 #: The three members an evaluation entry carries, each required, and no other.
 ENTRY_MEMBERS = frozenset({"input", "lastResult", "maxAge"})
 #: The one member an entry may carry beside them, and only on a consumption-state
@@ -165,7 +202,7 @@ CONSUMPTION_MEMBERS = (
 #: The members ``consumption`` may carry beside them: the digest of the limit
 #: document this record's ``limitDigest`` replaced (a raise or a cut), the exact
 #: asset, the payee digest of this request's payment, and the terms the call
-#: settled on (CS41 to CS49).
+#: settled on (CS41 to CS54).
 CONSUMPTION_OPTIONAL = ("supersedes", "asset", "payee", "settled")
 #: The members of ``asset``, the optional exact asset a consumption counts in
 #: when no ISO 4217 code names it (a token on one chain): a CAIP-19 asset id and
@@ -183,9 +220,10 @@ CAIP19 = re.compile(
 CONSUMPTION_COUNTS = ("limit", "consumed", "reserved", "requested", "stateRevision")
 #: The members of one ``held`` entry, an earlier permit that has not settled,
 #: and the one it may carry beside them: the payee digest of that permit's
-#: payment (CS41, CS42).
+#: payment (CS41, CS42), and the deadline of that permit, an instant, which a
+#: zero settlement keeps (CS50 to CS54).
 HELD_MEMBERS = ("operationKey", "requestDigest", "amount")
-HELD_OPTIONAL = ("payee",)
+HELD_OPTIONAL = ("payee", "deadline")
 #: The members of ``settled``, each required: the amount, asset and payee the
 #: call settled on, where they were read, and the transaction read. The terms
 #: are read from the chain through the transaction the server returned; the
@@ -221,6 +259,9 @@ CONSUMPTION_CHECKS = frozenset(
         "settled-amount",
         "settled-terms",
         "settled-source",
+        "zero-settled-transaction",
+        "empty-transaction-nonzero",
+        "zero-settled-deadline",
     }
 )
 #: The lastResult of an input the decision point never held a value of.
@@ -653,16 +694,17 @@ def _entry_unavailable(entry: dict[str, Any], reported_at: datetime.datetime) ->
     return bool(age > entry["maxAge"])
 
 
-def _entry_shape(entry: Any) -> None:
-    """Exactly input, lastResult and maxAge; an input from the closed set; a
-    maxAge that is a non-negative integer."""
+def _entry_shape(entry: Any, inputs: frozenset[str] | None = None) -> None:
+    """Exactly input, lastResult and maxAge; an input from the closed set
+    (``inputs``, the v1 set when not given); a maxAge that is a non-negative
+    integer."""
     if not isinstance(entry, dict):
         raise Malformed("evaluation-entry-malformed")
     if not ENTRY_MEMBERS <= set(entry):
         raise Malformed("member-missing")
     if set(entry) - ENTRY_MEMBERS - ENTRY_OPTIONAL:
         raise Malformed("evaluation-entry-malformed")
-    if entry["input"] not in EVALUATION_INPUTS:
+    if entry["input"] not in (EVALUATION_INPUTS if inputs is None else inputs):
         raise Malformed("value-outside-vocabulary")
     max_age = entry["maxAge"]
     if isinstance(max_age, bool) or not isinstance(max_age, int) or max_age < 0:
@@ -706,9 +748,11 @@ def aggregate_values(values: list[dict[str, Any]]) -> dict[str, Any]:
     return {"lastResult": chosen["lastResult"], "maxAge": chosen["maxAge"]}
 
 
-def derive_unavailable(pred: dict[str, Any]) -> list[str]:
+def derive_unavailable(pred: dict[str, Any], predicate_type: str = PREDICATE_TYPE_V1) -> list[str]:
     """The inputs a verifier derives as unavailable from ``evaluation.inputs``,
-    in entry order, after holding every entry to its shape (FR5, FR6, FR9 to FR13)."""
+    in entry order, after holding every entry to its shape (FR5, FR6, FR9 to FR13)
+    and its input to the set ``predicate_type`` names."""
+    allowed = evaluation_inputs(predicate_type)
     entries = pred["evaluation"]["inputs"]
     if not isinstance(entries, list):
         raise Malformed("evaluation-entry-malformed")
@@ -716,7 +760,7 @@ def derive_unavailable(pred: dict[str, Any]) -> list[str]:
     seen: set[str] = set()
     unavailable: list[str] = []
     for entry in entries:
-        _entry_shape(entry)
+        _entry_shape(entry, allowed)
         if entry["input"] in seen:
             raise Malformed("evaluation-input-repeated")
         seen.add(entry["input"])
@@ -732,7 +776,8 @@ def _rule_evaluation(state: _State) -> None:
     evaluation = state.predicate["evaluation"]
     if set(evaluation) - EVALUATION_MEMBERS:
         raise Malformed("evaluation-malformed")
-    derived = derive_unavailable(state.predicate)
+    predicate_type = state.policy.predicate_type
+    derived = derive_unavailable(state.predicate, predicate_type)
     if evaluation["status"] == "evaluated":
         if "unavailableInput" in evaluation or derived:
             raise Malformed("evaluation-inconsistent")
@@ -740,8 +785,9 @@ def _rule_evaluation(state: _State) -> None:
     inputs = evaluation.get("unavailableInput")
     if not isinstance(inputs, list) or not inputs:
         raise Malformed("evaluation-inconsistent")
+    allowed = unavailable_inputs(predicate_type)
     for value in inputs:
-        if value not in UNAVAILABLE_INPUTS:
+        if value not in allowed:
             raise Malformed("value-outside-vocabulary")
     if len(set(inputs)) != len(inputs) or set(inputs) != set(derived):
         raise Malformed("evaluation-inconsistent")
@@ -851,6 +897,11 @@ def _held_shape(item: Any) -> None:
         raise Malformed("consumption-value-invalid")
     if not _is_count(item["amount"]):
         raise Malformed("consumption-value-invalid")
+    if "deadline" in item:
+        try:
+            _instant(item["deadline"])
+        except Malformed as exc:
+            raise Malformed("consumption-value-invalid") from exc
 
 
 def _supersedes_shape(consumption: dict[str, Any]) -> None:
@@ -889,7 +940,10 @@ def _asset_shape(asset: Any) -> None:
 def _settled_shape(settled: Any) -> None:
     """The optional settled terms: exactly amount, asset, payee, source and
     transaction; the amount a count, the asset an asset, the payee a digest, the
-    source the chain (CS47) and the transaction a non-empty string."""
+    source the chain (CS47) and the transaction a string, empty only when the
+    amount is 0 (CS50): an x402 EVM upto permit that settles 0 sends no
+    transaction, so the empty string is a zero settlement and nothing else
+    (CS51)."""
     if not isinstance(settled, dict):
         raise Malformed("consumption-malformed")
     if any(name not in settled for name in SETTLED_MEMBERS):
@@ -902,7 +956,14 @@ def _settled_shape(settled: Any) -> None:
     if "settled-source" in CONSUMPTION_CHECKS and settled["source"] not in SETTLED_SOURCES:
         raise Malformed("consumption-value-invalid")
     transaction = settled["transaction"]
-    if not isinstance(transaction, str) or not transaction:
+    if not isinstance(transaction, str):
+        raise Malformed("consumption-value-invalid")
+    if transaction:
+        return
+    zero = settled["amount"] == 0
+    if zero and "zero-settled-transaction" not in CONSUMPTION_CHECKS:
+        raise Malformed("consumption-value-invalid")
+    if not zero and "empty-transaction-nonzero" in CONSUMPTION_CHECKS:
         raise Malformed("consumption-value-invalid")
 
 
@@ -997,6 +1058,21 @@ def _rule_consumption(state: _State) -> None:
     ):
         raise Malformed("consumption-key-reused")
     _settled_against_approved(consumption)
+    _zero_settlement_held(consumption, decision)
+
+
+def _zero_settlement_held(consumption: dict[str, Any], decision: dict[str, Any]) -> None:
+    """A zero settlement keeps the operation in held with a deadline (CS52): the
+    permit's nonce is unspent, so the facilitator can still settle it up to its
+    maximum until the deadline."""
+    settled = consumption.get("settled")
+    if settled is None or settled["amount"] != 0:
+        return
+    if "zero-settled-deadline" not in CONSUMPTION_CHECKS:
+        return
+    held = held_for(consumption, decision)
+    if held is None or "deadline" not in held:
+        raise Malformed("consumption-value-invalid")
 
 
 def _settled_against_approved(consumption: dict[str, Any]) -> None:
@@ -1019,6 +1095,241 @@ def _rule_delegation(state: _State) -> None:
     delegation = state.predicate["delegation"]
     if delegation["subjectKind"] == "none" and delegation["subject"] != "none":
         raise Malformed("delegation-subject-inconsistent")
+
+
+# --------------------------------------------------------------------------
+# The authenticated principal (revision 04, rows PR1 to PR11).
+# --------------------------------------------------------------------------
+
+#: The members ``principal`` carries, each required, and the one it may carry
+#: beside them. Any other member is refused, so a producer cannot add a claim a
+#: verifier would read past.
+PRINCIPAL_MEMBERS = (
+    "issuer",
+    "subject",
+    "clientId",
+    "audience",
+    "authMethod",
+    "source",
+    "tokenDigest",
+    "issuedAt",
+    "expiresAt",
+    "kid",
+    "key",
+    "keyThumbprint",
+    "jwksDigest",
+)
+PRINCIPAL_OPTIONAL = ("tenant",)
+#: How the client authenticated to the issuer: the IANA registry "OAuth Token
+#: Endpoint Authentication Methods" as RFC 7591 and RFC 8705 populate it.
+PRINCIPAL_AUTH_METHODS = frozenset(
+    {
+        "none",
+        "client_secret_post",
+        "client_secret_basic",
+        "client_secret_jwt",
+        "private_key_jwt",
+        "tls_client_auth",
+        "self_signed_tls_client_auth",
+    }
+)
+#: What the decision point validated to establish the principal: an RFC 9068
+#: access token, an OpenID Connect ID token, or an RFC 7523 assertion. Each is a
+#: JWS whose header ``kid`` names a key of the issuer's JWKS.
+PRINCIPAL_SOURCES = frozenset({"jwt-access-token", "id-token", "jwt-assertion"})
+#: The members RFC 7638 Section 3.2 hashes, by key type (RSA and EC from RFC
+#: 7638, OKP from RFC 8037 Section 2).
+THUMBPRINT_MEMBERS: dict[str, tuple[str, ...]] = {
+    "RSA": ("e", "kty", "n"),
+    "EC": ("crv", "kty", "x", "y"),
+    "OKP": ("crv", "kty", "x"),
+}
+#: Members that make a JWK a private key; ``key`` is the issuer's public key.
+JWK_PRIVATE_MEMBERS = frozenset({"d", "p", "q", "dp", "dq", "qi", "oth", "k"})
+
+
+def jwk_thumbprint(key: dict[str, Any]) -> str:
+    """The RFC 7638 SHA-256 thumbprint of a public JWK, base64url without padding:
+    the RFC 8785 bytes of the required members only."""
+    required = THUMBPRINT_MEMBERS[key["kty"]]
+    body = {name: key[name] for name in required}
+    digest_bytes = hashlib.sha256(canonical_bytes(body)).digest()
+    return base64.urlsafe_b64encode(digest_bytes).rstrip(b"=").decode("ascii")
+
+
+def _text(value: Any) -> bool:
+    return isinstance(value, str) and value != ""
+
+
+def _principal_key_shape(key: Any) -> None:
+    """A public JWK of a type RFC 7638 defines, every hashed member a string."""
+    if not isinstance(key, dict) or key.get("kty") not in THUMBPRINT_MEMBERS:
+        raise Malformed("principal-malformed")
+    if set(key) & JWK_PRIVATE_MEMBERS:
+        raise Malformed("principal-malformed")
+    if not all(_text(key.get(name)) for name in THUMBPRINT_MEMBERS[key["kty"]]):
+        raise Malformed("principal-malformed")
+
+
+def _principal_issuer_audience(principal: dict[str, Any]) -> None:
+    """An https issuer, and an audience of distinct non-empty strings."""
+    issuer = principal["issuer"]
+    if not isinstance(issuer, str) or not issuer.startswith("https://") or len(issuer) == 8:
+        raise Malformed("principal-malformed")
+    audience = principal["audience"]
+    if (
+        not isinstance(audience, list)
+        or not audience
+        or not all(_text(item) for item in audience)
+        or len(set(audience)) != len(audience)
+    ):
+        raise Malformed("principal-malformed")
+
+
+def _principal_shape(principal: Any) -> None:
+    if not isinstance(principal, dict):
+        raise Malformed("principal-malformed")
+    if any(name not in principal for name in PRINCIPAL_MEMBERS):
+        raise Malformed("principal-member-missing")
+    if set(principal) - set(PRINCIPAL_MEMBERS) - set(PRINCIPAL_OPTIONAL):
+        raise Malformed("principal-member-unknown")
+    texts = ("subject", "clientId", "kid", "keyThumbprint")
+    if not all(_text(principal[name]) for name in texts):
+        raise Malformed("principal-malformed")
+    _principal_issuer_audience(principal)
+    if principal["authMethod"] not in PRINCIPAL_AUTH_METHODS:
+        raise Malformed("principal-malformed")
+    if principal["source"] not in PRINCIPAL_SOURCES:
+        raise Malformed("principal-malformed")
+    if not _is_digest(principal["tokenDigest"]) or not _is_digest(principal["jwksDigest"]):
+        raise Malformed("principal-malformed")
+    if "tenant" in principal and not _text(principal["tenant"]):
+        raise Malformed("principal-malformed")
+    _principal_key_shape(principal["key"])
+
+
+def _principal_lifetime(principal: dict[str, Any], reported_at: Any) -> None:
+    """Issued no later than the decision and not expired at it, both within the
+    skew tolerance; a lifetime that ends before it starts is malformed."""
+    try:
+        issued = _instant(principal["issuedAt"])
+        expires = _instant(principal["expiresAt"])
+    except Malformed as exc:
+        raise Malformed("principal-malformed") from exc
+    if expires <= issued:
+        raise Malformed("principal-malformed")
+    decided = _instant(reported_at)
+    if issued - decided > SKEW_TOLERANCE:
+        raise Malformed("principal-not-yet-valid")
+    if decided - expires > SKEW_TOLERANCE:
+        raise Malformed("principal-expired")
+
+
+def _rule_principal(state: _State) -> None:
+    """The optional principal member: the IdP-authenticated principal the
+    decision point established, bound to the agent's credential by its digest
+    and to the issuer's key by its RFC 7638 thumbprint (PR1 to PR11)."""
+    pred = state.predicate
+    if "principal" not in pred:
+        return
+    principal = pred["principal"]
+    _principal_shape(principal)
+    delegation = pred["delegation"]
+    if delegation["subjectKind"] == "user" and principal["subject"] != delegation["subject"]:
+        raise Malformed("principal-subject-mismatch")
+    if principal["tokenDigest"] != pred["agent"]["credentialDigest"]:
+        raise Malformed("principal-credential-unbound")
+    _principal_lifetime(principal, pred["decision"]["reportedAt"])
+    if principal["key"].get("kid") != principal["kid"]:
+        raise Malformed("principal-kid-mismatch")
+    if principal["keyThumbprint"] != jwk_thumbprint(principal["key"]):
+        raise Malformed("principal-thumbprint-mismatch")
+
+
+# --------------------------------------------------------------------------
+# Whose data a call touched, and why (revision 04, rows DS1 to DS10).
+# --------------------------------------------------------------------------
+
+#: The members ``dataSubject`` carries, each required, and the one it may carry
+#: beside them. Any other member is refused, so a raw identifier cannot ride in
+#: a member a verifier would read past.
+DATA_SUBJECT_MEMBERS = (
+    "scheme",
+    "saltId",
+    "reference",
+    "relation",
+    "purpose",
+    "purposes",
+    "purposesDigest",
+)
+DATA_SUBJECT_OPTIONAL = ("delegateReference",)
+#: The keyed reference scheme: SHA-256, as hex, of the RFC 8785 bytes of
+#: ``{"salt": <base64url salt>, "subject": <identifier>}``.
+DATA_SUBJECT_SCHEME = "salted-sha256-jcs"
+#: ``delegate``: the data subject is the user the agent acts for. ``other``: it
+#: is another person, whose reference differs from the delegate's.
+DATA_SUBJECT_RELATIONS = frozenset({"delegate", "other"})
+
+
+def data_subject_reference(salt: str, subject_id: str) -> str:
+    """The keyed reference to a data subject: what the server recomputes from its
+    salt (base64url) and an identifier when it answers an access request."""
+    body = {"salt": salt, "subject": subject_id}
+    return hashlib.sha256(canonical_bytes(body)).hexdigest()
+
+
+def _data_subject_shape(value: Any) -> None:
+    if not isinstance(value, dict):
+        raise Malformed("data-subject-malformed")
+    if any(name not in value for name in DATA_SUBJECT_MEMBERS):
+        raise Malformed("data-subject-member-missing")
+    if set(value) - set(DATA_SUBJECT_MEMBERS) - set(DATA_SUBJECT_OPTIONAL):
+        raise Malformed("data-subject-member-unknown")
+    purposes = value["purposes"]
+    digests = [value["reference"], value["purposesDigest"]]
+    digests += [value["delegateReference"]] if "delegateReference" in value else []
+    if (
+        value["scheme"] != DATA_SUBJECT_SCHEME
+        or value["relation"] not in DATA_SUBJECT_RELATIONS
+        or not _text(value["saltId"])
+        or not _text(value["purpose"])
+        or not all(_is_digest(item) for item in digests)
+        or not isinstance(purposes, list)
+        or not purposes
+        or not all(_text(item) for item in purposes)
+        or len(set(purposes)) != len(purposes)
+    ):
+        raise Malformed("data-subject-malformed")
+
+
+def _data_subject_relation(value: dict[str, Any], delegation: dict[str, Any]) -> None:
+    """A user caller names its own reference beside the data subject's unless the
+    two are one person; a system caller has no delegate to name."""
+    is_user = delegation["subjectKind"] == "user"
+    has_delegate = "delegateReference" in value
+    if value["relation"] == "delegate":
+        if not is_user or has_delegate:
+            raise Malformed("data-subject-relation-mismatch")
+    elif has_delegate != is_user:
+        raise Malformed("data-subject-relation-mismatch")
+    if has_delegate and value["delegateReference"] == value["reference"]:
+        raise Malformed("data-subject-merged")
+
+
+def _rule_data_subject(state: _State) -> None:
+    """The optional dataSubject member: a keyed reference to the person whose data
+    the call read, kept apart from the delegated subject, and a purpose taken
+    from the list the server declared (DS1 to DS10)."""
+    pred = state.predicate
+    if "dataSubject" not in pred:
+        return
+    value = pred["dataSubject"]
+    _data_subject_shape(value)
+    _data_subject_relation(value, pred["delegation"])
+    if value["purposesDigest"] != hashlib.sha256(canonical_bytes(value["purposes"])).hexdigest():
+        raise Malformed("data-subject-purposes-digest-mismatch")
+    if value["purpose"] not in value["purposes"]:
+        raise Malformed("data-subject-purpose-undeclared")
 
 
 def _rule_binding(state: _State) -> None:
@@ -1190,6 +1501,8 @@ RULES: list[tuple[str, Callable[[_State], None]]] = [
     ("sequence", _rule_sequence),
     ("consumption", _rule_consumption),
     ("delegation", _rule_delegation),
+    ("principal", _rule_principal),
+    ("data-subject", _rule_data_subject),
     ("binding", _rule_binding),
     ("request-digest", _rule_request_digest),
     ("subject-after-root", _rule_subject_after_root),
@@ -1917,10 +2230,49 @@ def _set_settled_uncounted(group: list[dict[str, Any]]) -> bool:
     return False
 
 
+#: Whether a record dated exactly at the deadline ends a zero settlement's hold
+#: (CS54): the hold ends at or after the deadline.
+DEADLINE_READING = {"inclusive": True}
+
+
+def _hold_ended(later: dict[str, Any], deadline: datetime.datetime) -> bool:
+    moment = _instant(later["decision"]["reportedAt"])
+    return moment >= deadline if DEADLINE_READING["inclusive"] else moment > deadline
+
+
+def _set_unexpired_hold(group: list[dict[str, Any]]) -> bool:
+    """The hold of an operation that settled 0 ends only when a later record of
+    the ledger is at or after the held entry's deadline, or a record of that
+    operation shows occurred. A record before the deadline that no longer holds
+    the key, whether or not the operation's own record shows none, released a
+    permit the facilitator can still settle (CS53); one at or after the
+    deadline is the control (CS54)."""
+    for settling in group:
+        consumption = consumption_of(settling)
+        assert consumption is not None
+        settled = consumption.get("settled")
+        held = held_for(consumption, settling["decision"])
+        if settled is None or settled["amount"] != 0 or held is None or "deadline" not in held:
+            continue
+        key, deadline = held["operationKey"], _instant(held["deadline"])
+        if any(
+            p["decision"].get("operationKey") == key and p["effect"]["observed"] == "occurred"
+            for p in group
+        ):
+            continue
+        for later in group:
+            if later is settling or _revision(later) <= _revision(settling):
+                continue
+            if key not in _held_keys(later) and not _hold_ended(later, deadline):
+                return True
+    return False
+
+
 SET_RULES: list[tuple[str, str, Callable[[list[dict[str, Any]]], bool]]] = [
     ("stale-revision", "consumption-set-stale-revision", _set_stale_revision),
     ("release-unshown", "consumption-set-release-unshown", _set_release_unshown),
     ("asset-mismatch", "consumption-set-asset-mismatch", _set_asset_mismatch),
+    ("unexpired-hold", "consumption-set-release-unshown", _set_unexpired_hold),
     ("settled-uncounted", "consumption-set-settled-uncounted", _set_settled_uncounted),
 ]
 
@@ -2121,9 +2473,13 @@ class Judged:
         return counts
 
 
-def policy_for(manifest: dict[str, Any]) -> Policy:
+def policy_for(manifest: dict[str, Any], entry: dict[str, Any] | None = None) -> Policy:
+    """The policy a member is judged under: the manifest's predicate type URI,
+    or the member's own ``predicateType`` where it carries one (PS1 is judged by
+    a verifier configured for the v2 URI)."""
     key = str(manifest.get("keys", {}).get("observer", {}).get("publicKey", ""))
-    return Policy(str(manifest.get("predicateType", "")), key)
+    configured = (entry or {}).get("predicateType", manifest.get("predicateType", ""))
+    return Policy(str(configured), key)
 
 
 def _declared_findings(entry: dict[str, Any], report: Report) -> list[str]:
@@ -2342,10 +2698,9 @@ def judge(directory: str) -> Judged:
     if not entries:
         judged.findings.append("the manifest carries no vectors, so this run measured nothing")
         return judged
-    policy = policy_for(manifest)
     heads = tree_heads(manifest)
     for entry in entries:
-        judged.members.append(_judge_member(directory, entry, policy, heads))
+        judged.members.append(_judge_member(directory, entry, policy_for(manifest, entry), heads))
     judged.findings.extend(_corpus_findings(directory, manifest))
     return judged
 
