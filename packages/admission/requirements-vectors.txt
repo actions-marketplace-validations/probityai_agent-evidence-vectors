@@ -7,4 +7,4 @@
 # build until the projection, the registry and the profile maps are
 # re-measured against it; scripts/vectors-pin-gate.py holds the prose to the
 # same version.
-agent-evidence-vectors==0.30.0 --hash=sha256:f2a0a41c275bfda404f26ab75d296857413cf1049aadb6ab1bf049301a1c2301
+agent-evidence-vectors==0.36.3 --hash=sha256:210e42172511495bca47a20c88903800cf405126d7f956bb4be839f354052764 --hash=sha256:c2a8c01e6e5f777405b6102511b2ce147a6fdae7a2a13ca80fbe9c6bdbac2a34
