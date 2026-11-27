@@ -156,7 +156,7 @@ jobs:
       - run: rustup default stable
       - run: cargo build --locked --example a2a_jcs
       - name: replay the published a2a-jcs-v01 corpus, rfc8785 target
-        uses: probityai/agent-evidence-vectors@ab72f6d69e9a544aebcae1f0ea47b7672558a908 # v0.35.0
+        uses: probityai/agent-evidence-vectors@33398917a91d1057765a3a970203f24f0d0def48 # v0.38.0
         env:
           A2A_JCS_TARGET: rfc8785
         with:
@@ -181,7 +181,7 @@ jobs:
           ref: 19d51d7fe467d4706a3ff08adf8a748f29fc21e0
           path: crates/jcs-admit/interop/go-jcs/upstream
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version: ${{ matrix.go }}
           cache: false
@@ -244,7 +244,7 @@ jobs:
           ref: 19d51d7fe467d4706a3ff08adf8a748f29fc21e0
           path: crates/jcs-admit/interop/go-jcs/upstream
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version: ${{ matrix.go }}
           cache: false
