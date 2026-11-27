@@ -2,4 +2,4 @@
 # .github/workflows/validate.yml has an exact version to resolve. An
 # unpinned `pip install pyyaml` resolves to whatever PyPI serves that
 # morning, which a scan cannot check and a reader cannot reproduce.
-PyYAML==6.0.3
+PyYAML==6.0.4
